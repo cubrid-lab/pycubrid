@@ -22,14 +22,13 @@ import pytest
 from pycubrid._cursor_common import _batch_failure
 from pycubrid.aio.connection import AsyncConnection
 from pycubrid.connection import Connection
-from pycubrid.constants import CUBRIDStatementType, DataSize
+from pycubrid.constants import DataSize
 from pycubrid.exceptions import DatabaseError, OperationalError, ProgrammingError
 from pycubrid.packet import PacketReader
 from pycubrid.protocol import (
     GetSchemaPacket,
     OpenDatabasePacket,
     PrepareAndExecutePacket,
-    _parse_result_infos,
     _raise_error,
 )
 
@@ -92,13 +91,6 @@ def test_authentication_failure_is_operational_28000(code: int, description: str
     exc = raised.value
     assert (exc.errno, exc.sqlstate, exc.error_source) == (code, "28000", "server")
     assert f"description={description!r}" in str(exc)
-
-
-def test_prepared_result_info_error_reports_its_indicator() -> None:
-    body = bytes((CUBRIDStatementType.INSERT,)) + struct.pack(">iii", DBMS, -494, 0)
-    with pytest.raises(DatabaseError) as raised:
-        _parse_result_infos(PacketReader(body), 1, prepared=True)
-    assert raised.value.error_source == "server"
 
 
 # --- the attribute -------------------------------------------------------------

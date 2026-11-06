@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from pycubrid import _cursor_common, _prepared_binding, protocol
-from pycubrid.constants import CUBRIDDataType, CUBRIDStatementType
+from pycubrid.constants import CUBRIDDataType
 from pycubrid.exceptions import DataError, NotSupportedError, ProgrammingError
 from pycubrid.protocol import _encode_prepared_scalar, _PreparedScalar
 
@@ -318,7 +318,7 @@ def test_scalar_accepts_plain_numeric_text(payload: bytes) -> None:
     assert _PreparedScalar(CUBRIDDataType.NUMERIC, payload).payload == payload
 
 
-# -- FC3 frame ----------------------------------------------------------------
+# -- FC21 frame ---------------------------------------------------------------
 
 
 def test_execute_frame_carries_each_type_value_pair() -> None:
@@ -334,9 +334,7 @@ def test_execute_frame_carries_each_type_value_pair() -> None:
         b"\x01",
     )
     bindings = tuple(_encode_prepared_scalar(value, "euc_kr") for value in values)
-    packet = protocol.ExecutePacket(
-        3, CUBRIDStatementType.INSERT, bindings=bindings, bind_count=len(values)
-    )
+    packet = protocol.ExecuteArrayPacket(3, (bindings,), auto_commit=False, bind_count=len(values))
     frame = packet.write(_CAS_INFO)
     payload = memoryview(frame)[9:]
     args: list[bytes] = []
@@ -345,7 +343,7 @@ def test_execute_frame_carries_each_type_value_pair() -> None:
         (length,) = struct.unpack_from(">i", payload, offset)
         args.append(bytes(payload[offset + 4 : offset + 4 + length]))
         offset += 4 + length
-    assert args[10:] == [
+    assert args[3:] == [
         b"\x08",
         struct.pack(">i", 1),
         b"\x15",

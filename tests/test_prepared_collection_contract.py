@@ -1,4 +1,4 @@
-"""Internal typed FC3 collection wire contract; no public collection API (#482)."""
+"""Internal typed collection wire contract, sent by FC21 (#482, #839)."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ import pytest
 from hypothesis import given, strategies as st
 
 from pycubrid import protocol
-from pycubrid.constants import CUBRIDDataType, CUBRIDStatementType
+from pycubrid.constants import CUBRIDDataType
 from pycubrid.exceptions import DataError, OperationalError, ProgrammingError
 
 from .test_network_edge_cases import make_connected_connection
@@ -24,20 +24,12 @@ _INT = CUBRIDDataType.INT
 _STRING = CUBRIDDataType.STRING
 _KINDS = [_SET, _MULTISET, _SEQUENCE]
 
-# Fixed FC3 arguments for handle 7, SELECT, manual commit (see
+# Fixed FC21 arguments for handle 7, manual commit (see
 # test_prepared_packet_contract.py).
 _FIXED_ARGS = (
     b"\x00\x00\x00\x04\x00\x00\x00\x07"  # query handle
-    b"\x00\x00\x00\x01\x00"  # execution option NORMAL
-    b"\x00\x00\x00\x04\x00\x00\x00\x00"  # max_col_size
-    b"\x00\x00\x00\x04\x00\x00\x00\x00"  # max_row_size
-    b"\x00\x00\x00\x00"  # NULL
-    b"\x00\x00\x00\x01\x01"  # SELECT fetch flag
+    b"\x00\x00\x00\x04\x00\x00\x00\x00"  # query timeout
     b"\x00\x00\x00\x01\x00"  # autocommit off
-    b"\x00\x00\x00\x01\x00"  # not forward-only
-    b"\x00\x00\x00\x08"
-    + b"\x00" * 8  # cache time
-    + b"\x00\x00\x00\x04\x00\x00\x00\x00"  # query timeout
 )
 
 
@@ -46,15 +38,16 @@ def _int(value: int) -> bytes:
 
 
 def _frame(binding_args: bytes) -> bytes:
-    body = _CAS_INFO + b"\x03" + _FIXED_ARGS + binding_args
+    body = _CAS_INFO + b"\x15" + _FIXED_ARGS + binding_args
     return struct.pack(">i", len(body) - 4) + body
 
 
-def _execute(*bindings: protocol._PreparedScalar | protocol._PreparedCollection) -> bytes:
-    packet = protocol.ExecutePacket(
-        7, CUBRIDStatementType.SELECT, bindings=bindings, bind_count=len(bindings)
-    )
-    return packet.write(_CAS_INFO)
+def _packet(*bindings: protocol._PreparedBinding) -> protocol.ExecuteArrayPacket:
+    return protocol.ExecuteArrayPacket(7, (bindings,), auto_commit=False, bind_count=len(bindings))
+
+
+def _execute(*bindings: protocol._PreparedBinding) -> bytes:
+    return _packet(*bindings).write(_CAS_INFO)
 
 
 def _broker_parse(value_arg: bytes) -> tuple[int | None, list[bytes | None], bool]:
@@ -184,7 +177,7 @@ def test_collection_argument_pair_is_exact(
 
 def test_euc_kr_string_elements_use_the_connection_charset() -> None:
     binding = protocol._encode_prepared_collection(("한",), _SET, _STRING, "euc_kr")
-    packet = protocol.ExecutePacket(7, CUBRIDStatementType.SELECT, bindings=(binding,))
+    packet = _packet(binding)
     packet.encoding = "euc_kr"
     frame = packet.write(_CAS_INFO)
     assert frame.endswith(_int(8) + b"\x02" + _int(3) + "한".encode("euc_kr") + b"\x00")
@@ -367,7 +360,7 @@ def test_invalid_collection_binding_sends_nothing_and_keeps_session() -> None:
     sock.sendall.reset_mock()
     generation = conn._physical_generation
     binding = protocol._encode_prepared_collection(("a",), _SET, _STRING, "euc_kr")
-    packet = protocol.ExecutePacket(7, CUBRIDStatementType.SELECT, bindings=(binding,))
+    packet = _packet(binding)
     with pytest.raises(ProgrammingError):
         conn._send_and_receive(packet, expected_generation=generation)
     sock.sendall.assert_not_called()
@@ -379,7 +372,7 @@ def test_collection_execute_honors_expected_generation() -> None:
     conn, sock = make_connected_connection()
     sock.sendall.reset_mock()
     binding = protocol._encode_prepared_collection((1,), _SET, _INT)
-    packet = protocol.ExecutePacket(7, CUBRIDStatementType.SELECT, bindings=(binding,))
+    packet = _packet(binding)
     conn._physical_generation = 2
     with pytest.raises(OperationalError, match="prepared|generation|session"):
         conn._send_and_receive(packet, expected_generation=1)

@@ -41,6 +41,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   remains, so that an import fails with guidance. The official-driver differential lane, its
   oracle build, its claim fixtures and the upstream scenario ledger went with them. The former
   contract stays at the `v1.17.0` tag.
+- **The unused FC3 and FC4 packets (#1130)** — `ExecutePacket`, `GetDbParameterPacket` and the
+  `PacketWriter.add_cache_time()` helper had no production caller once Compat was gone, so they
+  left `pycubrid.protocol` and `pycubrid.packet`. Neither module is public, so there is no
+  public API change. `executemany(..., prepared=True)` keeps its FC2 + FC21 wire behavior, and
+  the tests that used FC3 as a harness for shared behavior now run through FC21 or FC41.
 
 ### Fixed
 

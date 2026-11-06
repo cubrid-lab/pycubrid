@@ -12,6 +12,10 @@ prepared 커서를 사용할 수 있게 되지 않으며, #439가 소유자/fetc
 바꾸지 않고, 측정된 속도 향상이나 플랜 캐시 효과를 약속하지 않으며, 현재의
 SQL 인젝션 익스플로잇을 입증하지 않고, CUBRID `TIME` 정밀도를 바꾸지도 않습니다.
 
+이 문서는 설계 기록입니다. `pycubrid.compat`가 제거되면서 `ExecutePacket`(FC3)도
+제거되었으므로 아래의 FC3는 드라이버가 실제로 보내는 요청이 아니라 설계 당시의 계획입니다.
+`executemany(..., prepared=True)`는 FC2 + FC21을 사용합니다.
+
 > **역사 기록.** 이 설계가 설명하는 `pycubrid.compat.native` prepared 커서는 제거되었습니다.
 > 타입 인코더는 `executemany(..., prepared=True)`가 계속 사용합니다.
 

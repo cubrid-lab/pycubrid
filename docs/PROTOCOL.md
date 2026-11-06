@@ -20,7 +20,7 @@ New to CAS? [CAS Architecture and Protocol Concepts](CAS_OVERVIEW.md) introduces
   - [Connection charset](#connection-charset)
   - [PrepareAndExecutePacket](#prepareandexecutepacket)
   - [PreparePacket](#preparepacket)
-  - [ExecutePacket](#executepacket)
+  - [Prepared bind arguments](#prepared-bind-arguments)
   - [FetchPacket](#fetchpacket)
   - [CommitPacket](#commitpacket)
   - [RollbackPacket](#rollbackpacket)
@@ -34,7 +34,7 @@ New to CAS? [CAS Architecture and Protocol Concepts](CAS_OVERVIEW.md) introduces
   - [LOBWritePacket](#lobwritepacket)
   - [LOBReadPacket](#lobreadpacket)
   - [GetLastInsertIdPacket](#getlastinsertidpacket)
-  - [GetDbParameterPacket / SetDbParameterPacket](#getdbparameterpacket--setdbparameterpacket)
+  - [SetDbParameterPacket](#setdbparameterpacket)
 - [PacketWriter](#packetwriter)
 - [PacketReader](#packetreader)
 - [Data Types on the Wire](#data-types-on-the-wire)
@@ -139,7 +139,7 @@ Pooling-off ownership (#584): a direct CUBRID CAS with statement pooling
 explicitly disabled frees all ordinary cursor and schema handles at a transaction
 boundary, and can immediately reuse their IDs on the same physical session.
 The driver retires ownership when the actual reply is OUT_TRAN for END_TRAN,
-an autocommitting FC41/FC3 or version request, a failed autocommit FC2 which
+an autocommitting FC41/FC21 or version request, a failed autocommit FC2 which
 auto-rolls back, or the final ordinary autocommit FETCH. Successful FC2 prepare
 does not establish a boundary. This runs before parsing the reply and before an
 INSERT's identity RPC:
@@ -266,7 +266,7 @@ expectation (#478). **Only calls that pass this opt-in value are fenced**;
 serialization, immediately before send and again around the response, under
 the same reentrant lock that covers connect, ping recovery, close and a whole
 request/response. A captured request socket is used for both send and receive,
-so a reentrant replacement cannot redirect old FC3/FC6 bytes or read the new
+so a reentrant replacement cannot redirect old request bytes or read the new
 session's reply as success. A definitely pre-byte local validation failure
 keeps the session; an interrupted/partial prepared send or uncertain reply
 retires it without replay or a new-session FC6. A fully received broker SQL
@@ -289,8 +289,8 @@ All 41 CAS function codes, defined in `CASFunctionCode`:
 |------|-----------------------|-------------|
 | 1    | `END_TRAN`            | Commit or rollback a transaction |
 | 2    | `PREPARE`             | Prepare a SQL statement |
-| 3    | `EXECUTE`             | Execute a prepared statement |
-| 4    | `GET_DB_PARAMETER`    | Get a database parameter value |
+| 3    | `EXECUTE`             | Execute a prepared statement (not sent by pycubrid) |
+| 4    | `GET_DB_PARAMETER`    | Get a database parameter value (not sent by pycubrid) |
 | 5    | `SET_DB_PARAMETER`    | Set a database parameter value |
 | 6    | `CLOSE_REQ_HANDLE`    | Close a query/request handle |
 | 7    | `CURSOR`              | Position the cursor |
@@ -429,12 +429,13 @@ frees before preparing, as for `PREPARE_AND_EXECUTE` (#488).
 
 ---
 
-### ExecutePacket
+### Prepared bind arguments
 
-**Execute a prepared statement** (FC=3).
+**The (type byte, value) argument pair** that `ExecuteArrayPacket` (FC=21) writes
+for each marker of each row.
 
-After ten fixed arguments, the packet writes two length-prefixed arguments
-per validated scalar binding: type byte and value bytes. The supported
+Each validated scalar binding is two length-prefixed arguments: type byte and
+value bytes. The supported
 internal subset is signed INT32 (`8`, four big-endian bytes), CHAR in the
 connection charset (`1`, bytes plus NUL), and SQL NULL (`0`, zero bytes). Empty CHAR is a single
 NUL byte, not NULL. Since #840 it also covers BIGINT (`21`, eight big-endian
@@ -443,9 +444,7 @@ text plus NUL), DATE (`13`), TIME (`14`) and DATETIME (`22`) as seven
 big-endian int16 fields (14 bytes; the broker reads TIME at offset 6),
 DATETIMETZ (`31`, those 14 bytes plus the zone text without NUL) and VARBIT
 (`6`, at least one byte; a zero-length value reads as NULL). See
-[Prepared host-variable mapping](PARAMETER_BINDING.md#prepared-host-variable-mapping). The optional `bind_count` must match the number of
-bindings. The forward-only byte follows effective autocommit: `1` in auto
-mode, `0` in manual mode. No FC41 fallback or SQL literal rendering occurs.
+[Prepared host-variable mapping](PARAMETER_BINDING.md#prepared-host-variable-mapping). No FC41 fallback or SQL literal rendering occurs.
 
 The typed collection binding (#482) uses
 the same pair. The type argument is the collection kind: SET (`16`), MULTISET
@@ -487,22 +486,6 @@ identified by its connection and that connection's session generation
 CUBRID 10.2 and 11.4 a fetched handle is copied into the new row and can be
 bound again, while a handle from LOB_NEW names a temporary file that its first
 autocommit statement takes over, even when that statement fails.
-
-For protocol version >1, an `include_column_info=1` response carries the
-full FC2 prepare-info tail before the shard ID and inline FETCH. The parser
-updates statement/bind/column metadata and rejects truncated tails. A
-negative per-result record is surfaced through the existing code-to-DB-API
-exception mapping rather than treated as success; its broker text is not
-copied into the exception. These packet primitives remain internal until #439 supplies
-physical-session ownership, cursor lifecycle and full live support gates.
-
-| Attribute            | Type   | Description |
-|----------------------|--------|-------------|
-| `total_tuple_count`  | `int`  | Total result rows |
-| `result_count`       | `int`  | Number of result infos |
-| `result_infos`       | `list[ResultInfo]` | Per-statement results |
-| `tuple_count`        | `int`  | Inline fetch row count |
-| `rows`               | `list[tuple[Any, ...]]` | Inline fetched rows |
 
 ---
 
@@ -626,7 +609,7 @@ of bound values. Sent by `executemany(..., prepared=True)` after a `PREPARE`
 
 Request (CAS `fn_execute_array`): int query handle, int query timeout (`0`, protocol
 V4+ only), byte autocommit, then one (type byte, value) argument pair per marker
-per row, in row order: the same pair `ExecutePacket` writes for one binding.
+per row, in row order: see [Prepared bind arguments](#prepared-bind-arguments).
 Every row must have exactly the server's bind count; the CAS would silently
 ignore extra values.
 
@@ -694,13 +677,13 @@ a successful write, `Lob.write()` raises the handle's size field to
 
 ---
 
-### GetDbParameterPacket / SetDbParameterPacket
+### SetDbParameterPacket
 
-**Get/Set database parameters** (FC=4 / FC=5).
+**Set database parameters** (FC=5).
 
 | Attribute | Type  | Description |
 |-----------|-------|-------------|
-| `value`   | `int` | Parameter value (get result / set input) |
+| `value`   | `int` | Parameter value |
 
 Available parameters (`CCIDbParam`):
 
@@ -733,7 +716,6 @@ Available parameters (`CCIDbParam`):
 | `add_time(h, m, s)` | Write length-prefixed time |
 | `add_timestamp(y,m,d,h,m,s)` | Write length-prefixed timestamp |
 | `add_datetime(y,m,d,h,m,s,ms)` | Write length-prefixed datetime |
-| `add_cache_time()` | Write cache time (two zero ints) |
 | `to_bytes()` | Return all written bytes |
 
 ### Internal Methods
@@ -796,13 +778,13 @@ the value (#523), also when it re-walks a reply before raising `DataError`. The
 CAS writes SQL `NULL` as size `-1`; a non-positive size is `NULL`, except that a
 `BIT`/`VARBIT` cell of size `0` is an empty bit string, `b""` (#994). A negative FETCH tuple count is malformed too, and
 so is a negative column count or column name, real-name, table-name or default
-length in FC2, FC3 or FC41 column metadata (#555); a zero length is an empty
+length in FC2 or FC41 column metadata (#555); a zero length is an empty
 string. FC41 also rejects a negative bind count, `total_tuple_count` or inline
 tuple count, and a column count the rest of the reply cannot hold (31 bytes per
-column at least), as FC2 does; FC3 rejects a negative inline tuple count (#581).
+column at least), as FC2 does (#581).
 Column metadata text that the connection codec cannot decode is deferred after
-the remaining metadata is walked by its declared lengths (#581). FC41 and FC3
-with refreshed columns then validate their remaining tail, counts and inline
+the remaining metadata is walked by its declared lengths (#581). FC41 then
+validates its remaining tail, counts and inline
 rows before re-raising the first metadata `DataError`; later structural damage
 still wins (#591). This error path does not call application JSON deserializers,
 and validates subsequent cells even if an earlier row value is unrepresentable.

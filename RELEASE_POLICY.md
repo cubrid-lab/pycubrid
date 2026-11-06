@@ -532,6 +532,10 @@ the documented release contract stays complete alongside `CHANGELOG.md`:
   official-differential lane leaves CI with them, because its only subject was the removed
   layer; ordinary sync and async semantics stay covered by tests with their own expected values
   (#1123).
+- **Unused FC3 and FC4 packets removed (#1130)** — no release effect of their own. `ExecutePacket`,
+  `GetDbParameterPacket` and `PacketWriter.add_cache_time()` had no production caller after the
+  Compat removal, and `pycubrid.protocol` and `pycubrid.packet` are outside the public API (§1).
+  `api-baseline.json` and every wire request the driver sends are unchanged.
 - **`pycubrid.compat` deprecated (#1120)** — MINOR / deprecation. Creating a connection
   through any Compat factory emits one `FutureWarning` at the caller's line, before any socket
   work, with the migration guide URL. `FutureWarning` is used under the default in §3 because

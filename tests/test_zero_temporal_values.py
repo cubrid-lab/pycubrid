@@ -403,7 +403,7 @@ async def test_async_cursor_keeps_result_set_after_zero_date_on_fetch_page() -> 
     assert _closed_handles(connection) == [1]
 
 
-# --- the FC3 ExecutePacket reply stays fail-closed ---------------------------
+# --- a generation-fenced reply stays fail-closed -----------------------------
 
 
 def test_generation_fenced_zero_date_retires_session() -> None:

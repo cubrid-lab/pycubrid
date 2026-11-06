@@ -130,14 +130,6 @@ class TestPacketWriterAddMethods:
         )
         assert writer.to_bytes() == expected
 
-    def test_add_cache_time_exact_bytes(self) -> None:
-        writer = PacketWriter()
-        writer.add_cache_time()
-        expected = struct.pack(">iii", DataSize.LONG, 0, 0)
-
-        assert writer.to_bytes() == expected
-        assert len(writer.to_bytes()) == 12
-
     def test_writer_len_and_to_bytes(self) -> None:
         writer = PacketWriter()
         assert len(writer) == 0
@@ -226,6 +218,10 @@ class TestPacketReaderParseMethods:
     def test_parse_null_terminated_string_without_terminator(self) -> None:
         reader = PacketReader(b"abc")
         assert _call_method(reader, "_parse_null_terminated_string", 3) == "abc"
+
+    def test_parse_text_value_without_terminator(self) -> None:
+        reader = PacketReader(b"abc")
+        assert _call_method(reader, "_parse_text_value", 3) == "abc"
 
     def test_parse_null_terminated_string_with_non_positive_length(self) -> None:
         reader = PacketReader(b"ignored")

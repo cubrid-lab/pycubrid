@@ -1,21 +1,20 @@
-"""Internal FC2/FC3 scalar wire smoke; not a public prepared API (#475)."""
+"""Live scalar binds through PREPARE + EXECUTE_ARRAY (#475, #478, #839)."""
 
 from __future__ import annotations
 
 import datetime
-from collections.abc import Sequence
-from decimal import Decimal
+from collections.abc import Generator, Sequence
 from typing import Any
-from zoneinfo import ZoneInfo
 
 import pytest
 
 import pycubrid
+from pycubrid.connection import Connection
 from pycubrid.constants import CCIPrepareOption
 from pycubrid.exceptions import DatabaseError, OperationalError, ProgrammingError
 from pycubrid.protocol import (
     CloseQueryPacket,
-    ExecutePacket,
+    ExecuteArrayPacket,
     PreparePacket,
     _encode_prepared_scalar,
 )
@@ -25,204 +24,127 @@ from ._parity_helpers import connect_kwargs, table_name
 pytestmark = [pytest.mark.integration, pytest.mark.no_escape_pin]
 
 
-def _execute_scalar(conn: pycubrid.Connection, prep: PreparePacket, value: object) -> ExecutePacket:
-    packet = ExecutePacket(
-        prep.query_handle,
-        prep.statement_type,
-        auto_commit=True,
-        protocol_version=conn._protocol_version,
-        bindings=(_encode_prepared_scalar(value),),
-        bind_count=prep.bind_count,
-    )
-    packet.columns = prep.columns
-    conn._send_and_receive(packet, expected_generation=conn._physical_generation)
-    return packet
+@pytest.fixture
+def admin() -> Generator[Connection, None, None]:
+    connection = pycubrid.connect(**connect_kwargs(), autocommit=True)
+    yield connection
+    connection.close()
+
+
+@pytest.fixture
+def table(admin: Connection) -> Generator[str, None, None]:
+    name = table_name("p475")
+    try:
+        yield name
+    finally:
+        with admin.cursor() as cursor:
+            cursor.execute(f"DROP TABLE IF EXISTS {name}")
+
+
+def _create(admin: Connection, table: str, columns: str) -> None:
+    with admin.cursor() as cursor:
+        cursor.execute(f"CREATE TABLE {table} ({columns})")
+
+
+def _rows(admin: Connection, sql: str) -> list[tuple[Any, ...]]:
+    with admin.cursor() as cursor:
+        cursor.execute(sql)
+        return [tuple(row) for row in cursor.fetchall()]
 
 
 @pytest.mark.parametrize(
-    "value",
-    [
-        True,
-        2**40,
-        Decimal("-0.5"),
-        Decimal("0.0"),
-        Decimal("-0.00"),
-        datetime.date(2024, 2, 29),
-        datetime.time(1, 2, 3),
-        datetime.datetime(2024, 2, 29, 1, 2, 3, 4000),
-        datetime.datetime(2024, 2, 29, 1, 2, 3, tzinfo=ZoneInfo("Asia/Seoul")),
-        b"\x01\x02",
-    ],
-    ids=repr,
-)
-def test_internal_untyped_marker_returns_the_bound_type(value: Any) -> None:
-    with pycubrid.connect(**connect_kwargs(), autocommit=True) as conn:
-        generation = conn._physical_generation
-        prep = PreparePacket("SELECT ?", auto_commit=True)
-        conn._send_and_receive(prep, expected_generation=generation)
-        try:
-            ((fetched,),) = _execute_scalar(conn, prep, value).rows
-        finally:
-            conn._send_and_receive(
-                CloseQueryPacket(prep.query_handle), expected_generation=generation
-            )
-    expected = int(value) if isinstance(value, bool) else value
-    if isinstance(value, datetime.datetime):
-        expected = value.replace(microsecond=value.microsecond // 1000 * 1000)
-    assert fetched == expected
-    assert type(fetched) is type(expected)
-
-
-@pytest.mark.parametrize(
-    ("sql", "value"),
+    ("column", "cast", "value"),
     [
         # Host variables are coerced to the target type, not parsed as SQL.
-        ("SELECT CAST(? AS INTEGER)", 2**40),
-        ("SELECT CAST(? AS DATETIME)", datetime.time(1, 2, 3)),
+        ("INTEGER", "CAST(? AS INTEGER)", 2**40),
+        ("DATETIME", "CAST(? AS DATETIME)", datetime.time(1, 2, 3)),
     ],
     ids=["bigint-into-int", "time-into-datetime"],
 )
-def test_internal_host_variable_coercion_errors_keep_the_session(sql: str, value: Any) -> None:
+def test_host_variable_coercion_errors_keep_the_session(
+    admin: Connection, table: str, column: str, cast: str, value: Any
+) -> None:
+    _create(admin, table, f"id INTEGER, v {column}")
+    sql = f"INSERT INTO {table} VALUES (?, {cast})"
     with pycubrid.connect(**connect_kwargs(), autocommit=True) as conn:
         generation = conn._physical_generation
-        prep = PreparePacket(sql, auto_commit=True)
-        conn._send_and_receive(prep, expected_generation=generation)
-        try:
+        with conn.cursor() as cursor:
             with pytest.raises(ProgrammingError) as caught:
-                _execute_scalar(conn, prep, value)
+                # The second row runs on the same handle after the server error.
+                cursor.executemany(sql, [(1, value), (2, None)], prepared=True)
             assert isinstance(caught.value, DatabaseError)
             assert caught.value.errno == -494
-            # The handle and the session stay usable after the server error.
-            assert _execute_scalar(conn, prep, None).rows == [(None,)]
-            assert conn._physical_generation == generation
-        finally:
-            conn._send_and_receive(
-                CloseQueryPacket(prep.query_handle), expected_generation=generation
-            )
+            assert cursor._batch_row_results is not None
+            assert cursor._batch_row_results[1] == (1, 0, "")
+            # The session stays usable for a new statement too.
+            cursor.executemany(sql, [(3, None)], prepared=True)
+        assert conn._physical_generation == generation
+    assert _rows(admin, f"SELECT id, v FROM {table} ORDER BY id") == [(2, None), (3, None)]
 
 
 @pytest.mark.parametrize("autocommit", [False, True], ids=["manual", "auto"])
 @pytest.mark.parametrize(
-    ("sql", "values", "expected"),
+    ("column", "cast", "values"),
     [
-        ("SELECT CAST(? AS INTEGER)", (11, 12, None), ((11,), (12,), (None,))),
-        (
-            "SELECT CAST(? AS VARCHAR(30))",
-            ("a'\\한", "", None),
-            (("a'\\한",), ("",), (None,)),
-        ),
+        ("INTEGER", "CAST(? AS INTEGER)", (11, 12, None)),
+        ("VARCHAR(30)", "CAST(? AS VARCHAR(30))", ("a'\\한", "", None)),
     ],
     ids=["int-null", "char-null"],
 )
-def test_internal_scalar_packets_repeat_on_one_handle(
+def test_scalar_binds_repeat_on_one_handle(
+    admin: Connection,
+    table: str,
     autocommit: bool,
-    sql: str,
+    column: str,
+    cast: str,
     values: Sequence[object],
-    expected: Sequence[tuple[object, ...]],
 ) -> None:
-    conn = pycubrid.connect(**connect_kwargs(), autocommit=autocommit)
-    with conn:
+    _create(admin, table, f"id INTEGER, v {column}")
+    rows = list(enumerate(values))
+    with pycubrid.connect(**connect_kwargs(), autocommit=autocommit) as conn:
         generation = conn._physical_generation
-        prep = PreparePacket(sql, auto_commit=autocommit, prepare_flag=CCIPrepareOption.HOLDABLE)
-        conn._send_and_receive(prep, expected_generation=generation)
-        try:
-            assert prep.bind_count == 1
-            for value, row in zip(values, expected):
-                packet = ExecutePacket(
-                    prep.query_handle,
-                    prep.statement_type,
-                    auto_commit=autocommit,
-                    protocol_version=conn._protocol_version,
-                    bindings=(_encode_prepared_scalar(value),),
-                    bind_count=prep.bind_count,
-                )
-                packet.columns = prep.columns
-                conn._send_and_receive(packet, expected_generation=generation)
-                assert packet.rows == [row]
-                assert conn._physical_generation == generation
-        finally:
-            conn._send_and_receive(
-                CloseQueryPacket(prep.query_handle), expected_generation=generation
-            )
+        with conn.cursor() as cursor:
+            cursor.executemany(f"INSERT INTO {table} VALUES (?, {cast})", rows, prepared=True)
+            assert cursor.rowcount == len(rows)
+        assert conn._physical_generation == generation
+        conn.commit()
+    assert _rows(admin, f"SELECT id, v FROM {table} ORDER BY id") == rows
 
 
-def test_internal_dml_packets_repeat_without_implicit_manual_commit() -> None:
+def test_dml_binds_repeat_without_implicit_manual_commit(admin: Connection, table: str) -> None:
+    _create(admin, table, "id INTEGER")
+    count = f"SELECT COUNT(*) FROM {table}"
     with pycubrid.connect(**connect_kwargs(), autocommit=False) as conn:
-        with pycubrid.connect(**connect_kwargs(), autocommit=True) as observer:
-            table = table_name("p475")
-            created = False
-            try:
-                setup = conn.cursor()
-                try:
-                    setup.execute(f"CREATE TABLE {table} (id INTEGER)")
-                    created = True
-                finally:
-                    setup.close()
-                conn.commit()
-
-                def count_rows() -> int:
-                    cursor = observer.cursor()
-                    try:
-                        cursor.execute(f"SELECT COUNT(*) FROM {table}")
-                        row = cursor.fetchone()
-                        assert row is not None
-                        return int(row[0])
-                    finally:
-                        cursor.close()
-
-                prep = PreparePacket(
-                    f"INSERT INTO {table} VALUES (?)",
-                    auto_commit=False,
-                    prepare_flag=CCIPrepareOption.HOLDABLE,
-                )
-                generation = conn._physical_generation
-                conn._send_and_receive(prep, expected_generation=generation)
-                try:
-                    for value in (11, 12):
-                        packet = ExecutePacket(
-                            prep.query_handle,
-                            prep.statement_type,
-                            auto_commit=False,
-                            protocol_version=conn._protocol_version,
-                            bindings=(_encode_prepared_scalar(value),),
-                            bind_count=prep.bind_count,
-                        )
-                        conn._send_and_receive(packet, expected_generation=generation)
-                        assert packet.total_tuple_count == 1
-                    assert count_rows() == 0
-                finally:
-                    conn._send_and_receive(
-                        CloseQueryPacket(prep.query_handle), expected_generation=generation
-                    )
-                assert count_rows() == 0
-                conn.commit()
-                assert count_rows() == 2
-            finally:
-                if created:
-                    conn.rollback()
-                    cleanup = conn.cursor()
-                    try:
-                        cleanup.execute(f"DROP TABLE {table}")
-                    finally:
-                        cleanup.close()
-                    conn.commit()
+        cursor = conn.cursor()
+        cursor.executemany(f"INSERT INTO {table} VALUES (?)", [(11,), (12,)], prepared=True)
+        assert cursor.rowcount == 2
+        assert _rows(admin, count) == [(0,)]
+        # Releasing the handle does not commit either.
+        cursor.close()
+        assert _rows(admin, count) == [(0,)]
+        conn.commit()
+        assert _rows(admin, count) == [(2,)]
 
 
-def test_prepared_generation_rejects_old_handle_after_live_reconnect() -> None:
+def test_prepared_generation_rejects_old_handle_after_live_reconnect(
+    admin: Connection, table: str
+) -> None:
+    _create(admin, table, "id INTEGER")
     with pycubrid.connect(**connect_kwargs()) as conn:
         generation = conn._physical_generation
-        prep = PreparePacket("SELECT CAST(? AS INTEGER)", prepare_flag=CCIPrepareOption.HOLDABLE)
-        conn._send_and_receive(prep, expected_generation=generation)
-        packet = ExecutePacket(
-            prep.query_handle,
-            prep.statement_type,
-            protocol_version=conn._protocol_version,
-            bindings=(_encode_prepared_scalar(42),),
-            bind_count=prep.bind_count,
+        prep = PreparePacket(
+            f"INSERT INTO {table} VALUES (?)", prepare_flag=CCIPrepareOption.HOLDABLE
         )
-        packet.columns = prep.columns
+        conn._send_and_receive(prep, expected_generation=generation)
+        packet = ExecuteArrayPacket(
+            prep.query_handle,
+            ((_encode_prepared_scalar(42),),),
+            auto_commit=False,
+            bind_count=prep.bind_count,
+            protocol_version=conn._protocol_version,
+        )
         conn._send_and_receive(packet, expected_generation=generation)
-        assert packet.rows == [(42,)]
+        assert packet.row_results == ((1, 0, ""),)
 
         conn._drop_connection()
         healthy = conn.ping(reconnect=True)

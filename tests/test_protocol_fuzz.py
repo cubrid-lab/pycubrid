@@ -18,7 +18,7 @@ real bug (e.g. ``decimal.InvalidOperation`` from NUMERIC parsing, issue #231, or
 
 Realistic seeds (#523). The header-only seeds above never reach column metadata
 or row cells, so the second half of this module seeds from well-formed replies
-built by :mod:`tests.helpers.cas_reply`: execute replies (FC41, FC2, FC3) with
+built by :mod:`tests.helpers.cas_reply`: execute replies (FC41, FC2) with
 metadata for strings, numbers, NUMERIC, temporal and TZ types, BIT/VARBIT,
 OIDs, collections, LOB handles and JSON; multi-row FETCH replies, including
 CALL and NULL-typed layouts; and schema, batch and LOB replies. The oracle is
@@ -29,7 +29,7 @@ the documented contract:
   ``OperationalError('malformed response from broker')``, session closed), a
   server error, or ``DataError`` only when the reply is complete (#383, #512, #543);
 * a parsed FETCH reply never has cells whose declared sizes overrun it;
-* a negative column-metadata length or column count in an FC41, FC2 or FC3
+* a negative column-metadata length or column count in an FC41 or FC2
   reply is always a structural error, never an empty name or no columns (#555).
 
 Mutations aim at framing: truncation at field and cell boundaries, length and
@@ -487,11 +487,6 @@ _FETCH_SEEDS: list[_Case] = [(rs, cas_reply.fetch_reply(rs)) for rs in cas_reply
 _PAE_SEEDS: list[_Case] = [
     (rs, cas_reply.prepare_and_execute_reply(rs)) for rs in cas_reply.RESULT_SETS
 ]
-_EXECUTE_SEEDS: list[_Case] = [
-    (rs, cas_reply.execute_reply(rs, refresh_columns=refresh))
-    for rs in cas_reply.RESULT_SETS
-    for refresh in (True, False)
-]
 _PREPARE_SEEDS: list[_Case] = [(rs, cas_reply.prepare_reply(rs)) for rs in cas_reply.RESULT_SETS]
 
 
@@ -591,25 +586,6 @@ class TestRealisticSeedsRoundTrip:
         else:
             # Only SELECT carries its first page inline; a CALL result is fetched.
             assert pkt.tuple_count == 0
-            assert pkt.rows == []
-
-    @pytest.mark.parametrize("case", _EXECUTE_SEEDS, ids=_seed_id)
-    def test_execute_reply_round_trips(self, case: _Case) -> None:
-        rs, seed = case
-        refreshed = seed.name.startswith("execute_refreshed")
-        pkt = protocol.ExecutePacket(
-            query_handle=5, statement_type=rs.statement_type, decode_collections=True
-        )
-        pkt.parse(seed.data, columns=None if refreshed else rs.metadata())
-        assert pkt.total_tuple_count == len(rs.rows)
-        assert pkt.result_infos == cas_reply.expected_result_infos(rs)
-        assert pkt.columns == rs.metadata()
-        if refreshed:
-            assert pkt.bind_count == 0
-        if rs.statement_type == CUBRIDStatementType.SELECT:
-            assert pkt.tuple_count == len(rs.rows)
-            _assert_rows(pkt.rows, rs.expected(decode_collections=True, json_loads=False))
-        else:
             assert pkt.rows == []
 
     @pytest.mark.parametrize("case", _PREPARE_SEEDS, ids=_seed_id)
@@ -741,24 +717,6 @@ class TestExecuteReplyFuzz:
             assert len(pkt.rows) == pkt.tuple_count
             assert all(len(row) == len(pkt.columns) for row in pkt.rows)
 
-    @given(case=_cases(_EXECUTE_SEEDS), data=st.data())
-    @settings(deadline=None)
-    def test_execute_reply_keeps_contract(self, case: _Case, data: st.DataObject) -> None:
-        rs, seed = case
-        note(seed.name)
-        reply = data.draw(_framing_mutation(seed))
-        pkt = protocol.ExecutePacket(
-            query_handle=5, statement_type=rs.statement_type, decode_collections=True
-        )
-        refreshed = seed.name.startswith("execute_refreshed")
-        exc = _outcome(lambda: pkt.parse(reply, columns=None if refreshed else rs.metadata()))
-        _assert_documented(exc)
-        if exc is None:
-            assert pkt.tuple_count >= 0  # #581
-        if exc is None and pkt.rows:
-            assert len(pkt.rows) == pkt.tuple_count
-            assert all(len(row) == len(pkt.columns) for row in pkt.rows)
-
     @given(case=_cases(_PREPARE_SEEDS), data=st.data())
     @settings(deadline=None)
     def test_prepare_reply_keeps_contract(self, case: _Case, data: st.DataObject) -> None:
@@ -777,27 +735,20 @@ class TestNegativeColumnMetadataFuzz:
     """Negative metadata lengths and column counts are rejected on every execute path (#555)."""
 
     @given(
-        case=_cases(
-            _PAE_SEEDS
-            + _PREPARE_SEEDS
-            + [c for c in _EXECUTE_SEEDS if c[1].name.startswith("execute_refreshed")]
-        ),
+        case=_cases(_PAE_SEEDS + _PREPARE_SEEDS),
         data=st.data(),
     )
     @settings(deadline=None)
     def test_negative_metadata_field_is_malformed(self, case: _Case, data: st.DataObject) -> None:
-        rs, seed = case
+        _, seed = case
         assert seed.metadata_lengths and seed.column_counts, seed.name
         reply, pos = data.draw(_negative_metadata_field(seed))
         note(f"{seed.name} @ {pos}")
         if seed.name.startswith("prepare_and_execute"):
             pae = protocol.PrepareAndExecutePacket(sql="SELECT 1", decode_collections=True)
             exc = _outcome(lambda: pae.parse(reply))
-        elif seed.name.startswith("prepare/"):
-            exc = _outcome(lambda: protocol.PreparePacket(sql="SELECT 1").parse(reply))
         else:
-            execute = protocol.ExecutePacket(query_handle=5, statement_type=rs.statement_type)
-            exc = _outcome(lambda: execute.parse(reply, columns=None))
+            exc = _outcome(lambda: protocol.PreparePacket(sql="SELECT 1").parse(reply))
         assert isinstance(exc, STRUCTURAL_CAUGHT), f"{seed.name} @ {pos}: {exc!r}"
         assert not isinstance(exc, DataError)
 
@@ -827,26 +778,19 @@ class TestDataErrorBeforeMetadataDamageFuzz:
     """An undecodable metadata text never hides later metadata damage (#581)."""
 
     @given(
-        case=_cases(
-            _PAE_SEEDS
-            + _PREPARE_SEEDS
-            + [c for c in _EXECUTE_SEEDS if c[1].name.startswith("execute_refreshed")]
-        ),
+        case=_cases(_PAE_SEEDS + _PREPARE_SEEDS),
         data=st.data(),
     )
     @settings(deadline=None)
     def test_two_field_corruption_is_malformed(self, case: _Case, data: st.DataObject) -> None:
-        rs, seed = case
+        _, seed = case
         note(seed.name)
         reply = data.draw(_invalid_text_then_metadata_damage(seed))
         if seed.name.startswith("prepare_and_execute"):
             pae = protocol.PrepareAndExecutePacket(sql="SELECT 1", decode_collections=True)
             exc = _outcome(lambda: pae.parse(reply))
-        elif seed.name.startswith("prepare/"):
-            exc = _outcome(lambda: protocol.PreparePacket(sql="SELECT 1").parse(reply))
         else:
-            execute = protocol.ExecutePacket(query_handle=5, statement_type=rs.statement_type)
-            exc = _outcome(lambda: execute.parse(reply, columns=None))
+            exc = _outcome(lambda: protocol.PreparePacket(sql="SELECT 1").parse(reply))
         assert isinstance(exc, STRUCTURAL_CAUGHT), f"{seed.name}: {exc!r}"
         assert not isinstance(exc, DataError)
 

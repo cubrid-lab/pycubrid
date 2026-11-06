@@ -26,7 +26,6 @@ from pycubrid.exceptions import DataError, OperationalError
 from pycubrid.packet import PacketReader
 from pycubrid.protocol import (
     ColumnMetaData,
-    ExecutePacket,
     FetchPacket,
     LOBReadPacket,
     PrepareAndExecutePacket,
@@ -670,7 +669,7 @@ async def test_async_unrepresentable_element_in_underfilled_collection_closes_co
 
 # --- FC41 column metadata (#555) ---------------------------------------------
 #
-# PREPARE_AND_EXECUTE shares the column-metadata layout with FC2/FC3, but used
+# PREPARE_AND_EXECUTE shares the column-metadata layout with FC2, but used
 # to decode a negative name/real-name/table-name/default length as an empty
 # string and a negative column count as "no columns". Both are framing damage.
 
@@ -866,20 +865,19 @@ def test_fc41_data_error_does_not_hide_later_metadata_damage(damage: str) -> Non
     assert not isinstance(raised.value, DataError)
 
 
+def test_complete_fc2_reply_keeps_its_metadata_data_error() -> None:
+    seed = cas_reply.prepare_reply(_FC41_RS)
+    reply = bytearray(seed.data)
+    reply[seed.metadata_lengths[0] + 4] = 0xFF
+    with pytest.raises(DataError, match="column metadata is not valid"):
+        PreparePacket("SELECT * FROM fuzz_t").parse(bytes(reply))
+
+
 @pytest.mark.parametrize("damage", METADATA_DAMAGE)
 def test_fc2_data_error_does_not_hide_later_metadata_damage(damage: str) -> None:
     reply = _invalid_first_name_then(cas_reply.prepare_reply(_FC41_RS), damage)
     with pytest.raises(ValueError) as raised:
         PreparePacket("SELECT * FROM fuzz_t").parse(reply)
-    assert not isinstance(raised.value, DataError)
-
-
-@pytest.mark.parametrize("damage", METADATA_DAMAGE)
-def test_fc3_refreshed_data_error_does_not_hide_later_metadata_damage(damage: str) -> None:
-    seed = cas_reply.execute_reply(_FC41_RS, refresh_columns=True)
-    packet = ExecutePacket(query_handle=5, statement_type=CUBRIDStatementType.SELECT)
-    with pytest.raises(ValueError) as raised:
-        packet.parse(_invalid_first_name_then(seed, damage), columns=None)
     assert not isinstance(raised.value, DataError)
 
 
@@ -982,17 +980,6 @@ def test_fc41_zero_counts_are_valid() -> None:
     packet.parse(_fc41_negative_count("bind_count", 0))
     assert packet.bind_count == 0
     assert len(packet.rows) == len(_FC41_RS.rows)
-
-
-def test_fc3_negative_inline_tuple_count_is_malformed() -> None:
-    seed = cas_reply.execute_reply(_FC41_RS, refresh_columns=True)
-    reply = bytearray(seed.data)
-    pos = seed.counts[-1]
-    assert struct.unpack_from(">i", reply, pos)[0] == len(_FC41_RS.rows)
-    struct.pack_into(">i", reply, pos, -1)
-    packet = ExecutePacket(query_handle=5, statement_type=CUBRIDStatementType.SELECT)
-    with pytest.raises(ValueError, match="negative"):
-        packet.parse(bytes(reply), columns=None)
 
 
 @pytest.mark.parametrize("excess", [1, 2**31 - 1])

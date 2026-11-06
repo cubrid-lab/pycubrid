@@ -1,17 +1,20 @@
-"""Internal FC2/FC3 scalar wire contract; no public prepared API (#475)."""
+"""Internal FC2/FC21 scalar wire contract (#475, #839)."""
 
 from __future__ import annotations
 
 import struct
+from typing import Any
 
 import pytest
 from hypothesis import HealthCheck, given, settings, strategies as st
 
 from pycubrid import protocol
-from pycubrid.constants import CCIPrepareOption, CUBRIDStatementType
+from pycubrid.constants import CCIPrepareOption
 from pycubrid.exceptions import DataError, NotSupportedError, ProgrammingError
 
 _CAS_INFO = b"\x01\x00\x00\x00"
+_FC_EXECUTE_ARRAY = 21
+_FIXED_ARGS = 3  # handle, query timeout, autocommit
 
 
 def _arguments(frame: bytes, function_code: int) -> list[bytes]:
@@ -31,6 +34,12 @@ def _arguments(frame: bytes, function_code: int) -> list[bytes]:
     return args
 
 
+def _execute(*values: object, auto_commit: bool = False) -> protocol.ExecuteArrayPacket:
+    """Build one row of ``values``; FC21 writes each pair as a single execution would."""
+    row = tuple(protocol._encode_prepared_scalar(value) for value in values)
+    return protocol.ExecuteArrayPacket(7, (row,), auto_commit=auto_commit, bind_count=len(row))
+
+
 def test_prepare_exact_holdable_request() -> None:
     packet = protocol.PreparePacket(
         "SELECT ?", auto_commit=True, prepare_flag=CCIPrepareOption.HOLDABLE
@@ -40,29 +49,11 @@ def test_prepare_exact_holdable_request() -> None:
 
 
 def test_execute_exact_scalar_argument_pairs() -> None:
-    values = tuple(protocol._encode_prepared_scalar(value) for value in (42, "a'\\한", None))
-    packet = protocol.ExecutePacket(
-        7,
-        CUBRIDStatementType.SELECT,
-        auto_commit=True,
-        bindings=values,
-        bind_count=3,
-    )
-    args = _arguments(packet.write(_CAS_INFO), 3)
-    assert len(args) == 16  # ten fixed arguments plus two per bind
-    assert args[:10] == [
-        struct.pack(">i", 7),
-        b"\x00",
-        b"\x00" * 4,
-        b"\x00" * 4,
-        b"",
-        b"\x01",
-        b"\x01",
-        b"\x01",
-        b"\x00" * 8,
-        b"\x00" * 4,
-    ]
-    assert args[10:] == [
+    packet = _execute(42, "a'\\한", None, auto_commit=True)
+    args = _arguments(packet.write(_CAS_INFO), _FC_EXECUTE_ARRAY)
+    assert len(args) == 9  # three fixed arguments plus two per bind
+    assert args[:_FIXED_ARGS] == [struct.pack(">i", 7), b"\x00" * 4, b"\x01"]
+    assert args[_FIXED_ARGS:] == [
         b"\x08",
         struct.pack(">i", 42),
         b"\x01",
@@ -73,32 +64,23 @@ def test_execute_exact_scalar_argument_pairs() -> None:
 
 
 def test_execute_empty_string_is_not_sql_null() -> None:
-    values = tuple(protocol._encode_prepared_scalar(value) for value in ("", None))
-    packet = protocol.ExecutePacket(5, CUBRIDStatementType.SELECT, bindings=values, bind_count=2)
-    args = _arguments(packet.write(_CAS_INFO), 3)
-    assert args[10:] == [b"\x01", b"\x00", b"\x00", b""]
-    assert args[7] == b"\x00"  # Manual-commit mode is not forward-only.
+    args = _arguments(_execute("", None).write(_CAS_INFO), _FC_EXECUTE_ARRAY)
+    assert args[_FIXED_ARGS:] == [b"\x01", b"\x00", b"\x00", b""]
+    assert args[2] == b"\x00"  # Manual-commit mode.
 
 
 @pytest.mark.parametrize("value", [-(2**31), 0, 2**31 - 1])
 def test_signed_int32_edges_are_exact(value: int) -> None:
-    packet = protocol.ExecutePacket(
-        1,
-        CUBRIDStatementType.SELECT,
-        bindings=(protocol._encode_prepared_scalar(value),),
-        bind_count=1,
-    )
-    frame = packet.write(_CAS_INFO)
-    assert _arguments(frame, 3)[10:] == [b"\x08", struct.pack(">i", value)]
+    frame = _execute(value).write(_CAS_INFO)
+    assert _arguments(frame, _FC_EXECUTE_ARRAY)[_FIXED_ARGS:] == [
+        b"\x08",
+        struct.pack(">i", value),
+    ]
 
 
 def test_bind_count_mismatch_rejects_before_frame_is_built() -> None:
-    packet = protocol.ExecutePacket(
-        1,
-        CUBRIDStatementType.SELECT,
-        bindings=(protocol._encode_prepared_scalar(42),),
-        bind_count=2,
-    )
+    packet = _execute(42)
+    packet.bind_count = 2
     with pytest.raises(ProgrammingError, match="count"):
         packet.write(_CAS_INFO)
 
@@ -144,18 +126,15 @@ def test_prepare_rejects_non_boolean_or_non_integer_controls(
 
 @pytest.mark.parametrize("bind_count", [True, 1.0])
 def test_execute_rejects_non_integer_bind_count(bind_count: object) -> None:
-    packet = protocol.ExecutePacket(
-        1,
-        CUBRIDStatementType.SELECT,
-        bindings=(protocol._encode_prepared_scalar(42),),
-        bind_count=bind_count,
-    )
+    packet: Any = _execute(42)
+    packet.bind_count = bind_count
     with pytest.raises(ProgrammingError):
         packet.write(_CAS_INFO)
 
 
 def test_execute_rejects_non_boolean_autocommit() -> None:
-    packet = protocol.ExecutePacket(1, CUBRIDStatementType.SELECT, auto_commit=1, forward_only=True)
+    packet: Any = _execute(42)
+    packet.auto_commit = 1
     with pytest.raises(ProgrammingError):
         packet.write(_CAS_INFO)
 
@@ -193,15 +172,9 @@ def test_string_values_remain_separate_from_sql_template(value: str) -> None:
         with pytest.raises(ProgrammingError):
             protocol._encode_prepared_scalar(value)
         return
-    packet = protocol.ExecutePacket(
-        9,
-        CUBRIDStatementType.SELECT,
-        bindings=(protocol._encode_prepared_scalar(value),),
-        bind_count=1,
-    )
-    frame = packet.write(_CAS_INFO)
-    args = _arguments(frame, 3)
-    assert args[10:] == [b"\x01", value.encode("utf-8") + b"\x00"]
+    frame = _execute(value).write(_CAS_INFO)
+    args = _arguments(frame, _FC_EXECUTE_ARRAY)
+    assert args[_FIXED_ARGS:] == [b"\x01", value.encode("utf-8") + b"\x00"]
     assert b"SELECT ?" not in frame
 
 
@@ -214,17 +187,11 @@ def test_generated_sql_and_value_are_distinct_wire_arguments(sql_tag: str, value
     sql = f"SELECT ? /*{sql_tag}*/"
     secret = "VALUE:" + value
     prepare_args = _arguments(protocol.PreparePacket(sql).write(_CAS_INFO), 2)
-    packet = protocol.ExecutePacket(
-        1,
-        CUBRIDStatementType.SELECT,
-        bindings=(protocol._encode_prepared_scalar(secret),),
-        bind_count=1,
-    )
-    frame = packet.write(_CAS_INFO)
-    execute_args = _arguments(frame, 3)
+    frame = _execute(secret).write(_CAS_INFO)
+    execute_args = _arguments(frame, _FC_EXECUTE_ARRAY)
     assert prepare_args[0] == sql.encode("utf-8") + b"\x00"
     assert b"VALUE:" not in prepare_args[0]
-    assert execute_args[10:] == [b"\x01", secret.encode("utf-8") + b"\x00"]
+    assert execute_args[_FIXED_ARGS:] == [b"\x01", secret.encode("utf-8") + b"\x00"]
     assert sql.encode("utf-8") not in frame
 
 

@@ -10,6 +10,10 @@ continue to render 1.x SQL literals through FC41. This design does not switch
 their defaults, promise a measured speedup or plan-cache effect, establish a
 current SQL-injection exploit, or change CUBRID `TIME` precision.
 
+This is a historical design record. `ExecutePacket` (FC3) was removed once
+`pycubrid.compat` left, so FC3 below describes what the design planned, not
+what the driver sends; `executemany(..., prepared=True)` uses FC2 + FC21.
+
 > **Historical.** The `pycubrid.compat.native` prepared cursor this design describes
 > was removed. Its typed encoders stay in use by `executemany(..., prepared=True)`.
 

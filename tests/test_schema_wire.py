@@ -188,3 +188,9 @@ def test_schema_packet_rejects_negative_row_count(count: int) -> None:
     packet = protocol.GetSchemaPacket(1)
     with pytest.raises(ValueError, match="tuple count"):
         packet.parse(CAS_INFO + struct.pack(">iii", 17, count, 0))
+
+
+def test_nonempty_schema_result_without_columns_is_malformed() -> None:
+    reply = CAS_INFO + struct.pack(">iii", 11, 1, 0)  # handle, one tuple, no columns
+    with pytest.raises(ValueError, match="missing schema columns"):
+        protocol.GetSchemaPacket(1).parse(reply)

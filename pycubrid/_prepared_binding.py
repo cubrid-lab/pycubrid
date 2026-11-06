@@ -1,4 +1,4 @@
-"""Prepared host-variable bindings for the CAS FC3 and FC21 requests.
+"""Prepared host-variable bindings for the CAS FC21 request.
 
 Validated binding types and the encoders that turn Python values into typed
 bind arguments, with no SQL rendering and no I/O. ``pycubrid.protocol``
@@ -57,7 +57,7 @@ _TIME_ZONE_TEXT = re.compile(rb"[A-Za-z0-9_+/: -]{1,63}")
 
 @dataclass(frozen=True, slots=True)
 class _PreparedScalar:
-    """One validated type/value pair for a prepared FC3 request."""
+    """One validated type/value pair for a prepared FC21 request."""
 
     type_code: int
     payload: bytes
@@ -222,7 +222,7 @@ _COLLECTION_ELEMENT_TYPES = frozenset({CUBRIDDataType.INT, CUBRIDDataType.STRING
 
 @dataclass(frozen=True, slots=True)
 class _PreparedCollection:
-    """One validated typed collection for a prepared FC3 request (#482).
+    """One validated typed collection for a prepared FC21 request (#482).
 
     The value argument is ``[element type byte]`` followed by one
     ``int32 length + payload`` per element, with no element count. A ``None``
@@ -274,7 +274,7 @@ class _PreparedCollection:
 
     @property
     def payload(self) -> bytes:
-        """Return the exact FC3 value argument (without its own length prefix)."""
+        """Return the exact value argument (without its own length prefix)."""
         parts = [bytes((self.element_type,))]
         for element in self.elements:
             if element is None:
@@ -385,7 +385,7 @@ def _packed_lob_handle_after_write(packed_handle: bytes, end: int) -> bytes:
 
 @dataclass(frozen=True, slots=True)
 class _PreparedLob:
-    """One BLOB/CLOB handle bound in a prepared FC3 request (#441).
+    """One BLOB/CLOB handle bound in a prepared FC21 request (#441).
 
     The type argument is the CCI u_type (BLOB ``23``, CLOB ``24``) and the
     value argument is the packed handle as the server sent it, the same
@@ -430,7 +430,7 @@ class _PreparedLob:
 
     @property
     def payload(self) -> bytes:
-        """Return the exact FC3 value argument (without its own length prefix)."""
+        """Return the exact value argument (without its own length prefix)."""
         return self.packed_handle
 
 
@@ -448,7 +448,7 @@ _COLLECTION_PARAM_TYPE_CODES: dict[type, int] = {
 
 
 def _write_prepared_binding(writer: PacketWriter, binding: Any, encoding: str) -> None:
-    """Write one (type byte, value) argument pair of an FC3 or FC21 request."""
+    """Write one (type byte, value) argument pair of an FC21 request."""
     text_encoding: str | None = None
     if isinstance(binding, _PreparedScalar):
         if binding.type_code == CUBRIDDataType.CHAR:
