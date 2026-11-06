@@ -94,7 +94,7 @@ graph TD
     pkg --> connection["connection.py - Sync Connection class"]
     pkg --> cursor["cursor.py - Sync Cursor class"]
     pkg --> aio["aio/ - asyncio Connection and Cursor"]
-    pkg --> compat["compat/ - opt-in CUBRIDdb and native compatibility layer"]
+    pkg --> compat["compat/ - error-only tombstone for the removed namespaces"]
     pkg --> conncommon[_connection_common.py - Logic shared by sync and async connections]
     pkg --> cursorcommon[_cursor_common.py - Logic shared by sync and async cursors]
     pkg --> prepared[_prepared_binding.py - Private typed bind encoders]
@@ -701,7 +701,6 @@ Ruff/Mypy가 없거나, 고정된 버전 대신 오래되거나 전역에 설치
 | 일반 | `integration and not slow and not tls` | 일반 PR/push CI, 전체 호환성 매트릭스, 주간 bug hunt |
 | 장시간 | `integration and slow and not tls` | 주간/수동 bug hunt의 soak, chaos, 동시성 stress, 대량 준비된 배치 측정 |
 | TLS | `integration and tls` | 일반 CI와 전체 워크플로의 전용 TLS 잡 |
-| 공식 드라이버 차분 | `integration and official_differential` | 일반 CI와 전체 워크플로의 필수 `official-differential` 잡 (Python 3.11, CUBRID 10.2와 11.4) |
 
 대량 준비된 배치 측정(#854)은 `executemany(..., prepared=True)`를 10,000행과
 100,000행으로, 동기와 비동기에서 리스트와 한 번만 순회할 수 있는 제너레이터로 실행합니다.
@@ -730,10 +729,8 @@ CUBRID_TEST_URL=cubrid://dba@localhost:33000/testdb \
 
 `python scripts/check_integration_lanes.py`는 현재 마커 목록을 수집하고 각 레인의 실제
 워크플로 명령을 확인합니다. JUnit 검사(`--results FILE`)는 알려지지 않은 스킵,
-빈 실행 또는 전체 스킵을 실패 처리합니다. 공식 드라이버 차분이 자기 레인 밖에서
-스킵되는 경우는 `official-lane-only`로, `/proc`가 없는 플랫폼도 명시적으로
-분류합니다. 브로커/TLS 설정 누락은 CI에서 허용하는 스킵이 아니며,
-`--lane official`은 어떤 스킵도 허용하지 않습니다. 주간 bug hunt의 별도 오프라인 protocol, fault-broker,
+빈 실행 또는 전체 스킵을 실패 처리합니다. `/proc`가 없는 플랫폼은 명시적으로
+분류합니다. 브로커/TLS 설정 누락은 CI에서 허용하는 스킵이 아닙니다. 주간 bug hunt의 별도 오프라인 protocol, fault-broker,
 placeholder 검사는 확장된 Hypothesis 프로필로 유지됩니다.
 
 **버전 차등 검사의 세션 격리 (#614).** 하네스는 `ping(reconnect=False)`로
@@ -878,27 +875,6 @@ trace와 query 작업이 서로 끼어들지 않고, 응답이 각각 정확하�
 닫혀야 합니다. MCP stdio 동시 실행, 풀, 요청별 트랜잭션 격리, 처리량은
 이 검증 범위에 포함하지 않습니다. SQLAlchemy는 별도의 풀 stress 작업을 제공합니다.
 
-공식 드라이버 차분(#446)은 고정 소스에서 빌드한 공식 `CUBRIDdb`/`_cubrid`
-드라이버와 pycubrid를 비교합니다. 로컬에서 재현하려면(Linux x86_64, git,
-CMake 3.21 이상, C 컴파일러, Python 3.11 헤더 필요) 다음을 실행합니다.
-
-```bash
-python3.11 scripts/build_official_oracle.py --out .official-oracle
-PYTHONPATH=.official-oracle PYCUBRID_OFFICIAL_ORACLE_REQUIRED=1 \
-  PYCUBRID_OFFICIAL_ORACLE_MANIFEST=.official-oracle/oracle.json \
-  PYCUBRID_DIFFERENTIAL_EVIDENCE=official-evidence.jsonl \
-  CUBRID_TEST_URL=cubrid://dba@localhost:33000/testdb \
-  python3.11 -m pytest tests/ -m "integration and official_differential"
-python scripts/check_official_differential.py --evidence official-evidence.jsonl
-```
-
-새로 추가하거나 바꾼 주장은 `tests/fixtures/official_differential_claims.json`에
-기록합니다. 해당 케이스는 `tests/test_official_differential.py`의 `CASES`에
-추가한 뒤 `python scripts/check_official_differential.py --write-docs`를
-실행합니다. 차이는 수정하거나, 이유·이슈·양쪽 관측값을 갖춘 `deviation`으로
-기록합니다. 현재 출력에 맞추려고 기대값만 고치지 마세요.
-[호환성 가이드](UPSTREAM_COMPATIBILITY.md#공식-드라이버-차분-게이트-446)를 참고하세요.
-
 `tests/test_protocol_fuzz.py`는 `tests/helpers/cas_reply.py`가 만든 실제와 같은
 브로커 응답을 변형합니다(#523). 모든 주요 타입의 컬럼 메타데이터와 행 데이터를
 담은 실행 응답과 FETCH 응답, 그리고 스키마, 배치, LOB 응답이 포함됩니다. 각 시드는
@@ -976,8 +952,6 @@ CUBRID 버전과 매트릭스, pytest 선택, 레인 감사, 결과 파일과 �
 | `integration-full.yml` | `integration-tls` | 유지 | `ci.yml` TLS 작업과 같으며 전체 TLS 매트릭스로 실행합니다 |
 | `ci.yml` | `integration-charset` | 유지 | Compose 서비스가 설정하지 않는 EUC-KR 데이터베이스(`CUBRID_LOCALE=ko_KR.euckr`)가 필요하고 `tests/test_integration_charset.py`만 실행합니다 |
 | `integration-full.yml` | `integration-charset` | 유지 | `ci.yml` charset 작업과 같습니다 |
-| `ci.yml` | `official-differential` | 유지 | CUBRID 10.2와 11.4를 동시에(포트 33102, 33114) 띄우고 고정된 공식 oracle 빌드가 필요합니다. Compose는 서버 하나만 시작합니다 |
-| `integration-full.yml` | `official-differential` | 유지 | `ci.yml` 공식 differential과 같습니다 |
 | `integration-full.yml` | `version-differential` | 유지 | CUBRID 10.2, 11.0, 11.2, 11.4를 동시에 띄워야 합니다(`CUBRID_VERSION_MATRIX`) |
 | `bug-hunt.yml` | `property-and-fault` | 유지 | 주간 광역 Hypothesis 프로필, 별도의 slow soak/chaos 레인, `xunit1` JUnit 파일, 서버 정보를 포함한 repro 수집을 사용합니다 |
 | `bug-hunt.yml` | `perf-trend` | 유지 | `integration` 마커가 아니라 캐시된 기준선에 대해 `tests/test_benchmarks.py`를 실행합니다 |

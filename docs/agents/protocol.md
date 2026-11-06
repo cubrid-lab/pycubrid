@@ -33,8 +33,8 @@ bytes even after a complete element raises DataError (#595). Later structural
 damage wins; complete collections retain the first conversion error. Opaque
 and unsupported nested member layouts keep their existing raw-byte contracts.
 
-Scalar FC3 binds (`_encode_prepared_scalar`, public through `compat.native`
-`bind_param()`; #439, widened by #840) send one type byte and its value bytes:
+Scalar FC3 binds (`_encode_prepared_scalar`; #439, widened by #840; FC21 shares the
+encoding, and `ExecutePacket` has no production caller since Compat was removed) send one type byte and its value bytes:
 INT `8` (int32; `bool` as 1/0), BIGINT `21` (int64), NUMERIC `7` (ASCII
 fixed-point text plus NUL, a lone leading `0` dropped because the CAS counts
 every character but sign and point as precision; also ints past int64 up to
@@ -46,8 +46,7 @@ NUL: a NUL breaks region names, -1162), VARBIT `6` (non-empty: a zero-length
 value is read as NULL) and NULL `0`. Dispatch on `type(value)` and read values
 through base-class methods, as the literal path does (#518, #528).
 
-Typed collection FC3 binds (#482; public only through `compat.native`
-`set.imports()`/`bind_set()`, #440) send
+Typed collection FC3 binds (#482, #440) send
 the kind byte (SET `16`, MULTISET `17`, SEQUENCE `18`) as the type argument
 and `[element type][int32 len, payload]*` as the value, with no element count.
 INT elements are 4 bytes, STRING (`2`) elements are connection-charset bytes
@@ -55,9 +54,7 @@ plus NUL, and a NULL element has length 0. The broker silently keeps a partial
 collection when an element length overruns the value, so validate every
 element (flat tuple, no mixed/nested/bool/float/bytes) before building bytes.
 Whole SQL NULL stays the scalar NULL pair. 10.2/11.4 brokers reject the
-MULTISET kind with -454. The public #440 `imports()` matches the official
-bytes: STRING elements whatever the requested type, default kind SET, and
-`kind=MULTISET` sent as SEQUENCE.
+MULTISET kind with -454, so `Multiset` values are sent as SEQUENCE.
 
 EXECUTE_ARRAY (FC21, `ExecuteArrayPacket`; #839, public as
 `executemany(..., prepared=True)` on both cursors) sends int handle, int timeout
@@ -74,21 +71,19 @@ the PREPARE handle at once so #488/#584 release paths free it; this FC2 (only
 it, via `carries_deferred_closes`) carries queued deferred-close ids after the
 autocommit byte, which CAS `fn_prepare_internal` frees as for FC41.
 
-Typed LOB-handle FC3 binds (#441; public only through `compat.native`
-`lob()`/`fetch_lob()`/`bind_lob()`) send BLOB `23`/CLOB `24` as the
+Typed LOB-handle FC3 binds (#441) send BLOB `23`/CLOB `24` as the
 type argument and the packed handle `[int32 db_type 33/34][int64 size][int32
 locator length][locator NUL]` as the value: the official `bind_lob()` bytes
 whenever the official lob type matches the column (official takes the type
 byte from result column 1; the broker uses the handle's own `db_type`).
-Fetched handles of committed rows may be bound on another connection (the
-server copies them); a native lob records its origin (fetched/created) so
-\#442 can keep created temp handles on their own session.
+The server copies a fetched handle bound on another connection, including one from
+another transaction's uncommitted row (#1122), so rewrapping a handle across
+connections is unsupported; `_bind_prepared_lob` refuses another connection's `Lob`.
 The broker trusts the embedded size, so `Lob.write()` raises it to
 `offset + bytes_written` after each write, as CCI does (and leaves it alone
 when the reply claims more bytes than were sent). `_PreparedLob` records the
-driver connection (by identity) and its physical generation; the native
-cursor sends it only on that exact session, because generation numbers alone
-repeat across connections. The server only appends (any other offset is
+driver connection (by identity) and its physical generation; it is sent only on
+that exact session, because generation numbers alone repeat across connections. The server only appends (any other offset is
 -1016). A fetched handle is copied into the row and is reusable; a LOB_NEW
 temp handle is taken over by its first autocommit statement, even a failed
 one.

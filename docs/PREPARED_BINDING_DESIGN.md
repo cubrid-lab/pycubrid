@@ -10,9 +10,12 @@ continue to render 1.x SQL literals through FC41. This design does not switch
 their defaults, promise a measured speedup or plan-cache effect, establish a
 current SQL-injection exploit, or change CUBRID `TIME` precision.
 
+> **Historical.** The `pycubrid.compat.native` prepared cursor this design describes
+> was removed. Its typed encoders stay in use by `executemany(..., prepared=True)`.
+
 The [official public API inventory](UPSTREAM_COMPATIBILITY.md) and
 [#438 additive contract](UPSTREAM_COMPATIBILITY.md#selected-additive-contract-438)
-select the sync-only `pycubrid.compat.native` prepared cursor. A public
+selected the sync-only `pycubrid.compat.native` prepared cursor. A public
 async prepared cursor is **not** part of #439. Private async transport tests
 do not advertise an async prepared API.
 Wrapper query arguments, collections, LOBs, cursor navigation and broad

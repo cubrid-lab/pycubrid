@@ -252,30 +252,6 @@ def test_clob_bytes_are_in_the_column_charset(euckr_database: None) -> None:
             cursor.close()
 
 
-def test_prepared_compat_path_and_cubriddb_wrapper_use_the_charset(
-    euckr_database: None,
-) -> None:
-    from pycubrid.compat import cubriddb
-
-    wrapper = cubriddb.connect(
-        f"CUBRID:{TEST_HOST}:{TEST_PORT}:{TEST_DB}:::", TEST_USER, TEST_PASSWORD, charset="euckr"
-    )
-    try:
-        cur = wrapper.connection.cursor()
-        try:
-            cur.prepare("SELECT CAST(? AS VARCHAR(10)), length(?), '가'")
-            cur.bind_param(1, HANGUL)
-            cur.bind_param(2, HANGUL)
-            assert cur.execute() == 1
-            assert cur.fetch_row() == (HANGUL, 2, "가")
-            with pytest.raises(DataError, match="cannot be encoded as euc_kr"):
-                cur.bind_param(1, "\U0001f600")
-        finally:
-            cur.close()
-    finally:
-        wrapper.close()
-
-
 @pytest.mark.asyncio
 async def test_prepared_batch_uses_the_charset(conn: Any) -> None:
     table = _table()

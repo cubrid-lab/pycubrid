@@ -377,9 +377,8 @@ def _check_prepared_lobs(
     With autocommit on, each row's commit removes every temporary LOB file
     of the session, so the second row's handle would fail (-1016): such a
     batch is refused. A handle is valid only on the physical session that
-    wrote it. Today a ``Lob`` comes only from ``create_lob()`` (a temporary
-    handle), so the rule does not yet distinguish a committed fetched handle,
-    which ``compat.native`` may rebind.
+    wrote it. The rule does not distinguish a committed fetched handle
+    wrapped in a ``Lob`` from a ``create_lob()`` temporary handle.
     """
     for i, row in enumerate(rows):
         for j, binding in enumerate(row):

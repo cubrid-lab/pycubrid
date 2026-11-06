@@ -260,10 +260,9 @@ sequenceDiagram
     end
 ```
 
-For the explicit sync `pycubrid.compat.native` prepared cursor, the synchronous
-transport accepts a private physical-session generation expectation (#478).
-**Only calls that pass this opt-in value are fenced**; the #439 owner stamps
-each FC2/FC3/FC6/FC8 request. The transport checks generation and socket identity before
+The synchronous transport accepts a private physical-session generation
+expectation (#478). **Only calls that pass this opt-in value are fenced**;
+`Lob.read()` and `Lob.write()` stamp each request (#932). The transport checks generation and socket identity before
 serialization, immediately before send and again around the response, under
 the same reentrant lock that covers connect, ping recovery, close and a whole
 request/response. A captured request socket is used for both send and receive,
@@ -466,14 +465,11 @@ On CUBRID 10.2 and 11.4 the broker rejects the MULTISET kind with error -454
 (it wraps the multiset with `db_make_set()`), and a SET value stored into a
 MULTISET column loses duplicates; a SEQUENCE value keeps them.
 
-The public `pycubrid.compat.native` `set.imports()` (#440) builds this pair
-the way the official driver does: every element is a STRING (`2`) element,
-whatever element type is requested (INT elements are their decimal text), and
-the default kind is SET (`16`), so its bytes equal the official request.
-`kind=MULTISET` is sent as SEQUENCE (`18`), never as `17`.
+`executemany(..., prepared=True)` builds this pair with STRING (`2`) elements
+(INT elements are their decimal text) and sends `Multiset` as SEQUENCE (`18`),
+never as `17`.
 
-A LOB-handle binding (#441; public only through `pycubrid.compat.native`
-`fetch_lob()`/`bind_lob()`) uses the same pair.
+A LOB-handle binding (#441) uses the same pair.
 The type argument is BLOB (`23`) or CLOB (`24`) and the value argument is the
 packed handle `[int32 db_type][int64 size][int32 locator length][locator
 NUL]`. This is byte for byte what the official driver sends for `bind_lob()`

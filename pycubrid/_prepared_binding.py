@@ -312,7 +312,7 @@ def _encode_prepared_collection(
     """Encode a flat tuple as one typed SET/MULTISET/SEQUENCE bind (#482).
 
     INT elements accept ``int`` (not ``bool``), or canonical decimal strings
-    as the official call shape ``('1', '2')`` sends; one collection must not
+    such as ``('1', '2')``; one collection must not
     mix the two. STRING elements accept ``str`` only and use ``encoding``, the
     connection charset. ``None`` is a NULL element and an empty tuple is an
     empty collection. Everything else, including nested containers, is
@@ -438,7 +438,7 @@ _PreparedBinding = _PreparedScalar | _PreparedCollection | _PreparedLob
 
 # The 10.2-11.4 brokers reject the MULTISET bind kind (-454: cas_execute.c
 # wraps it with db_make_set()) and a SET kind drops duplicates, so a Multiset
-# is sent as SEQUENCE, as compat.native does; the server stores it into a
+# is sent as SEQUENCE; the server stores it into a
 # MULTISET column with its duplicates.
 _COLLECTION_PARAM_TYPE_CODES: dict[type, int] = {
     Set: CUBRIDDataType.SET,
@@ -469,7 +469,7 @@ def _encode_prepared_value(value: Any, encoding: str = "utf-8") -> _PreparedBind
 
     A ``pycubrid.types`` ``Set``, ``Multiset`` (sent as SEQUENCE) or
     ``Sequence`` becomes a collection of STRING elements that the server converts to the column's
-    element type, as ``compat.native`` sends imported sets: ``str`` elements
+    element type: ``str`` elements
     as they are, ``int`` elements (not ``bool``) as decimal text and ``None``
     as a NULL element. Every other value goes through
     :func:`_encode_prepared_scalar`.

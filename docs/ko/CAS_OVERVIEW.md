@@ -84,11 +84,6 @@ flowchart TB
 열 때뿐입니다. 예를 들어 `CHECK_CAS` 확인이 실패한 뒤입니다
 ([운영상의 결과](#운영상의-결과) 참고).
 
-`pycubrid.compat.cubriddb`와 `pycubrid.compat.native`는 네이티브 경로가 아닙니다.
-pycubrid의 순수 Python 전송 위에서 공식 API의 일부를 흉내 내는 제한된 호환
-기능이며, 네이티브와 완전히 같지는 않습니다.
-[공식 드라이버 API 목록](UPSTREAM_COMPATIBILITY.md)을 참고하세요.
-
 ## 한 프로그램을 단계별로
 
 아래 프로그램은 일반 DB-API 호출만 사용합니다. 이 절의 나머지 부분은 각 호출이
@@ -206,8 +201,7 @@ pycubrid에는 두 가지 바인딩 경로가 있으며, 어느 쪽을 쓸지는
 타입 규칙과 리터럴과의 차이가 있습니다.
 [`executemany(..., prepared=True)`](PARAMETER_BINDING.md#executemany-preparedtrue)와
 [Prepared 호스트 변수 매핑](PARAMETER_BINDING.md#prepared-호스트-변수-매핑)을
-참고하세요. 별도의 `pycubrid.compat.native` prepared 커서(FC2, FC3)는 제한된 호환
-API이며 일반 커서의 일부가 아닙니다.
+참고하세요.
 
 ## 운영상의 결과
 

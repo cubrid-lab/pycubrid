@@ -248,9 +248,9 @@ sequenceDiagram
     end
 ```
 
-명시적 동기 `pycubrid.compat.native` prepared 커서를 위해 동기 전송 계층은 내부 물리 세션 세대 기대값을 받습니다(#478).
-**이 opt-in 값을 전달한 호출에만** 보호가 적용됩니다. #439의 소유자는 각
-FC2/FC3/FC6/FC8 요청에 이 값을 전달합니다. 전송 계층은 connect·ping 복구·close와 요청/응답 전체를
+동기 전송 계층은 내부 물리 세션 세대 기대값을 받습니다(#478).
+**이 opt-in 값을 전달한 호출에만** 보호가 적용됩니다. `Lob.read()`와 `Lob.write()`는 각
+요청에 이 값을 전달합니다(#932). 전송 계층은 connect·ping 복구·close와 요청/응답 전체를
 보호하는 동일한 재진입 잠금 안에서 직렬화 전·송신 직전, 그리고 응답 전후에 세대와 소켓 정체성을
 확인합니다. 한 요청은 포착한 소켓으로만 송수신하므로 재진입으로 연결이 바뀌어도
 이전 FC3/FC6 바이트를 새 세션에 보내거나 새 세션의 응답을 성공으로 읽지 않습니다.
@@ -443,12 +443,10 @@ CUBRID 10.2와 11.4의 브로커는 MULTISET 종류를 오류 -454로 거부하�
 `db_make_set()`으로 감쌈), SET 값을 MULTISET 컬럼에 저장하면 중복이 사라지고
 SEQUENCE 값은 중복을 유지합니다.
 
-공개 `pycubrid.compat.native`의 `set.imports()`(#440)는 공식 드라이버와 같은
-방식으로 이 쌍을 만듭니다. 요청한 원소 타입과 관계없이 모든 원소는 STRING(`2`)
-원소이고(INT 원소는 10진 텍스트), 기본 종류는 SET(`16`)이므로 바이트가 공식 요청과
-같습니다. `kind=MULTISET`은 `17`이 아니라 SEQUENCE(`18`)로 보냅니다.
+`executemany(..., prepared=True)`는 STRING(`2`) 원소로 이 쌍을 만들고(INT 원소는
+10진 텍스트), `Multiset`은 `17`이 아니라 SEQUENCE(`18`)로 보냅니다.
 
-LOB 핸들 바인딩(#441, 공개 API는 `pycubrid.compat.native`의 `fetch_lob()`/`bind_lob()`뿐)도
+LOB 핸들 바인딩(#441)도
 같은 인자 쌍을 씁니다. 타입
 인자는 BLOB(`23`) 또는 CLOB(`24`)이고 값 인자는 패킹된 핸들
 `[int32 db_type][int64 size][int32 locator length][locator NUL]`입니다. 공식

@@ -71,8 +71,8 @@ class Connection(ConnectionCommonMixin):
         fetch_size: int = 100,
         **kwargs: Any,
     ) -> None:
-        # The first connect() runs during construction, and failure cleanup in
-        # compat.native may call _drop_connection() on this partial object.
+        # The first connect() runs during construction, and its failure cleanup
+        # calls _drop_connection() on this partial object.
         self._session_lock = RLock()
         # Report typo'd/unsupported options before any socket work, so a
         # mis-spelled option is surfaced even when the connection then fails.

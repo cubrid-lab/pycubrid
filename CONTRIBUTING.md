@@ -379,7 +379,7 @@ Rules:
 5. **Classify known limitations** as driver / server / upstream so a reader
    can tell whether the divergence is pycubrid's responsibility. Documented
    server-behavior and implementation-difference divergences are pinned in
-   the relevant test (e.g. the CUBRIDdb differential suite) rather than left
+   the relevant test rather than left
    as silent skips.
 
 Worked example: issue #362 (`Lob.read` silent truncation) was found by the

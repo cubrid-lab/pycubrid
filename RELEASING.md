@@ -237,19 +237,23 @@ extension's independently reviewed decision and practical migration plan
 are complete. The strict published-warning/28-day clock still applies to
 Compat. Updating policy text or README alone does not authorize any specific
 breaking API change.
-Do not edit `.release-please-manifest.json` on main. Repository squash merges keep
-the commit messages, so put the override in a commit of the pull request and do
-not retype the message at merge: nothing checks a squash message edited there.
+Do not edit `.release-please-manifest.json` on main. Keep the pull request at **one
+commit** carrying both footers, and do not retype the message at merge: nothing
+checks a squash message edited there. A squash of several commits ends in the commit
+list and a `Co-authored-by` block, so `Release-As` is no longer in the final footers
+and release-please proposes `2.0.0`, whichever commit carried it. Squash any fixup
+commit into the one commit before merging, and confirm the release PR says `X.Y.0`.
 
 Pinned release-please 17.6.0 behaves as follows (`scripts/check_release_please.cjs`
-covers the first row; the rest were measured against the same core for #1124):
+covers the first and last-added rows; the rest were measured against the same core for #1124):
 
 | Commits since the last release | Result |
 |---|---|
 | `feat!` with `BREAKING CHANGE` and `Release-As: 1.20.0` | `1.20.0`, with `⚠ BREAKING CHANGES` in the notes |
 | The footers in either order, in separate blocks, or above a `Co-Authored-By` trailer | `1.20.0` |
 | The same `feat!` without `Release-As` | `2.0.0` |
-| Another commit, older or newer, carries `Release-As: 1.20.0` | `1.20.0` for the whole candidate |
+| Another commit on main, older or newer, carries `Release-As: 1.20.0` | `1.20.0` for the whole candidate |
+| One squashed pull request of several commits, with `Release-As` in the commit list | `2.0.0` |
 | Two commits carry different overrides | The newest wins |
 
 Because an override applies to the whole candidate, a later `feat!` on top of it
@@ -354,7 +358,7 @@ and chained with explicit `needs:` (tags and Releases created with
 | Job | What it does |
 | --- | --- |
 | `consistency` | `make release-check VERSION=X.Y.Z` at the SHA: `__version__`, CHANGELOG lint and dated section, `build` + `twine check`. |
-| `matrix` | The full Python × CUBRID matrix, TLS, EUC-KR, version-differential and official-differential lanes, and the Python 3.11/3.15 offline suite with the 95% coverage floor (`offline-endpoints`), and copies of the `ci.yml` `lint`, `typecheck`, `compat-check` (public API) and `repo-tooling-tests` jobs (#750): `integration-full.yml` called through `workflow_call` at the SHA. Its `full-matrix-result` job fails unless every one of these jobs succeeds. |
+| `matrix` | The full Python × CUBRID matrix, TLS, EUC-KR and version-differential lanes, and the Python 3.11/3.15 offline suite with the 95% coverage floor (`offline-endpoints`), and copies of the `ci.yml` `lint`, `typecheck`, `compat-check` (public API) and `repo-tooling-tests` jobs (#750): `integration-full.yml` called through `workflow_call` at the SHA. Its `full-matrix-result` job fails unless every one of these jobs succeeds. |
 | `build` | Builds the wheel and sdist **once**, `twine check`, wheel/sdist install smoke tests, extracts the release notes (the CHANGELOG section byte for byte plus one `**Full Changelog**` link to the previous CHANGELOG version; none for the first release or when the section already has a compare link), generates the SPDX SBOM and records SHA-256 hashes. Artifacts `release-dist` and `release-meta` are kept for 14 days. |
 | `verify-candidate` | Calls the same pinned cookbook smoke test in **candidate mode** before anything is published: `mode: candidate`, `candidate_artifact: release-dist`, `candidate_hashes` = the `build` job's `sha256` output, `candidate_source_sha` = the release SHA, and `request_id: pycubrid-rc-vX.Y.Z-<run id>` (no run attempt, so `gh run rerun --failed` replaces only the failed cells). The cookbook checks the artifact's file set and every SHA-256, installs only that wheel and runs the release smoke on it. It runs after every successful build, `resume` included; there is no skip. |
 | `require-candidate` | Fails unless the call succeeded and its outputs report `status == success`, `evidence == candidate artifact`, `installed_version == requested_version == X.Y.Z` and `candidate_sha256` equal to the wheel's entry in the `build` job's `sha256` map. It also downloads the candidate report `release-candidate-verification-<request_id>` of this run (the download itself must succeed; a failed one does not stop the check, so every failed reason is listed) and requires it to name this package, `request_id`, version, run and calling repository, the artifact `release-dist`, the release commit as `source_sha`, exactly the `build` job's file map, and the same verified wheel and digest. Every value reaches the check through `env:` or the downloaded file, never through shell interpolation. It holds no permission. `publish` needs this job. |

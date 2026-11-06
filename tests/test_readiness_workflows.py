@@ -29,9 +29,7 @@ def test_readiness_helper_change_selects_required_code_lanes() -> None:
     jobs = workflow["jobs"]
     filters = yaml.safe_load(jobs["detect-changes"]["steps"][-1]["with"]["filters"])
     assert "scripts/**" in filters["risk"]
-    assert "scripts/**" in filters["official"]
     assert "outputs.live" in jobs["integration-tests"]["if"]
-    assert "outputs.official" in jobs["official-differential"]["if"]
 
 
 @pytest.mark.parametrize("workflow", ["ci.yml", "integration-full.yml"])

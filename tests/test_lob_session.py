@@ -218,3 +218,27 @@ def test_lob_transport_failure_retires_the_session(operation: str, stage: str) -
         _use(lob, operation)
 
     _assert_retired(conn, sock, lob, operation)
+
+
+@OPERATIONS
+def test_lob_session_replaced_during_the_reply_is_refused(operation: str) -> None:
+    conn, sock, lob = _fenced_lob()
+    _script(sock, _frames(_reply(4, b"data")))
+    cas_info = bytes(conn._cas_info)
+    original = conn._recv_exact
+    reads: list[int] = []
+
+    def replace_after_the_body(source: object, size: int) -> bytes:
+        data = original(source, size)
+        reads.append(size)
+        if len(reads) == 2:
+            conn._physical_generation += 1
+        return data
+
+    with patch.object(conn, "_recv_exact", side_effect=replace_after_the_body):
+        with pytest.raises(OperationalError, match="earlier physical session"):
+            _use(lob, operation)
+
+    assert len(reads) == 2
+    assert bytes(conn._cas_info) == cas_info
+    assert sock.sendall.call_count == 1

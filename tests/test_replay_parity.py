@@ -1537,7 +1537,7 @@ def test_sync_constructor_autocommit_failure_closes_socket_and_chains_cause() ->
         "SET_DB_PARAMETER", lambda _r, s: Reply(error_body(s.status, -1, "denied")), session=0
     )
     with run_replay_broker(script) as broker:
-        # Keep a reference to the half-built object, as compat.native does.
+        # Keep a reference to the half-built object, as a caller of __new__ could.
         conn = Connection.__new__(Connection)
         with pytest.raises(pycubrid.OperationalError) as info:
             Connection.__init__(conn, **_sync_options(broker.port, autocommit=True))

@@ -25,9 +25,9 @@ PR 스모크 스위트는 의도적으로 범위가 제한되어 있습니다. �
 Python과 최신 Python에서의 기존 오프라인 회귀 스위트를 선택합니다([오프라인 엔드포인트 버전](#오프라인-엔드포인트-버전) 참고). 그 밖의 워크플로 변경은 대신 저장소 도구
 레인을 선택합니다([워크플로 변경 영향](#워크플로-변경-영향) 참고). 그 밖의 코드 변경은 제한된 스모크
 스위트를 유지합니다. 저장소 도구 테스트는 도구가 바뀔 때 Linux 한 레인에서
-실행합니다. `repo_tooling` 테스트가 있는 모든 테스트 모듈(`tests/test_official_fixture_setup.py`,
-`tests/test_upstream_scenario_ledger.py` 등)과 그 테스트만 읽는 파일
-(`tests/fixtures/upstream_scenarios.csv`, `agent-evals/**`, `THIRD_PARTY_LICENSES.md`,
+실행합니다. `repo_tooling` 테스트가 있는 모든 테스트 모듈(`tests/test_check_public_api.py`,
+`tests/test_compat_removed.py` 등)과 그 테스트만 읽는 파일
+(`agent-evals/**`, `THIRD_PARTY_LICENSES.md`,
 `release-please-config.json`, `api-baseline.json` 등)의 변경은 같은 도구 레인을 명시적으로
 선택하며, 그런 모듈이 선택되지 않으면 항상 실행되는 린트 잡에서도 돌아가는
 `tests/test_workflow_path_impact.py`의 가드가 실패합니다.
@@ -64,7 +64,7 @@ GitHub 요금이 어느 워크플로나 러너 SKU에서 발생하는지는 확�
 
 심층 버그 탐색 워크플로는 Python 3.12/CUBRID 11.4 셀 하나로 매주(목요일 04:00 UTC) 실행하며,
 변경이 없는 주는 건너뛰고 뮤테이션/성능/다운스트림 검사와 넓은 Hypothesis
-프로필을 유지합니다. TLS, EUC-KR, 공식 드라이버 차분 잡은 PR에서 관련 경로에
+프로필을 유지합니다. TLS, EUC-KR 잡은 PR에서 관련 경로에
 따라 선택되며, main, 변경이 있는 주간 실행, 전체 릴리스 검증에서 계속 사용할 수
 있습니다.
 
@@ -148,7 +148,6 @@ GitHub 요금이 어느 워크플로나 러너 SKU에서 발생하는지는 확�
 | 라이브 엔드포인트 | `ci.yml` `integration-tests`, `integration-full.yml` `integration-full` (5 × 4) | 위험 PR: 3.14/11.4. main 푸시, 주간, 수동 실행: 3.11/10.2 추가. 릴리스와 전체 수동 실행: 20셀 전부 |
 | TLS | `ci.yml` `integration-tls` (3.14/11.4), `integration-full.yml` `integration-tls` (3.11 + 3.14 + 3.15) | TLS 경로 PR, PR이 아닌 코드 이벤트, 릴리스와 전체 수동 실행 |
 | EUC-KR charset | `ci.yml`과 `integration-full.yml`의 `integration-charset` | charset 경로 PR, PR이 아닌 코드 이벤트, 릴리스와 전체 수동 실행 |
-| 공식 CUBRIDdb 차분 | `ci.yml`과 `integration-full.yml`의 `official-differential` | 공식 경로 PR, PR이 아닌 코드 이벤트, 릴리스와 전체 수동 실행 |
 | CUBRID 버전 차분 | `integration-full.yml` `version-differential` | 릴리스와 전체 수동 실행 |
 | property, 프로토콜, 상태 기계, fault, chaos, soak (넓은 프로필) | `bug-hunt.yml` `property-and-fault` | 최근 7일에 변경이 있을 때 목요일 04:00 UTC, 그리고 수동 실행 |
 | 뮤테이션 테스트 | `bug-hunt.yml` `mutation` | 버그 탐색과 같음 |
@@ -188,7 +187,7 @@ GitHub 요금이 어느 워크플로나 러너 SKU에서 발생하는지는 확�
     셀과는 셀과 프로필이 달라 유지합니다.
 - **릴리스 병합의 겹침은 유지합니다.**
   - **겹치는 부분.** 릴리스 커밋에서 `ci.yml` 푸시 실행의 라이브 레인
-    (`integration-tests` 3.14/11.4와 3.11/10.2, TLS 3.14/11.4, charset, 공식 차분)은
+    (`integration-tests` 3.14/11.4와 3.11/10.2, TLS 3.14/11.4, charset)은
     같은 SHA의 `integration-full.yml`과 명령이 같은 부분집합입니다. 릴리스마다 약
     6.9 러너 분입니다(기간 중 릴리스 2회).
   - **유지하는 이유.** 이를 건너뛰면 푸시 실행의 증거가 매트릭스 전에 멈출 수 있는
@@ -281,7 +280,7 @@ GitHub 요금이 어느 워크플로나 러너 SKU에서 발생하는지는 확�
 ## 워크플로 변경 영향
 
 변경 경로 선택은 워크플로별 영향 표를 따릅니다(#761). 라이브 PR 레인(`risk`, `tls`,
-`charset`, `official`)을 선택하는 것은 이를 정의하고 실행하는 `ci.yml`뿐입니다. `.github/`
+`charset`)을 선택하는 것은 이를 정의하고 실행하는 `ci.yml`뿐입니다. `.github/`
 아래의 다른 워크플로는 저장소 도구 레인을 선택하며, 그 정책·워크플로 테스트가 해당
 워크플로를 파싱하고 검사합니다. `ci.yml`의 라이브 레인은 다른 워크플로의 잡을 실행하지
 않으므로 이를 돌려도 검출력이 늘지 않습니다.
@@ -299,7 +298,7 @@ GitHub 요금이 어느 워크플로나 러너 SKU에서 발생하는지는 확�
 
 ## 병렬 라이브 레인
 
-`integration-tests`, `integration-charset`, `integration-tls`, `official-differential`은
+`integration-tests`, `integration-charset`, `integration-tls`는
 `validate-target`과 `detect-changes`에만 의존하므로(#760), lint, 타입 검사, 오프라인
 테스트가 끝난 뒤가 아니라 함께 시작합니다. `validate-target`은 수동 실행 SHA를 PR head와
 대조하므로 의존성으로 유지합니다. `ci-gate`는 여전히 모든 잡을 요구하므로 라이브 레인이

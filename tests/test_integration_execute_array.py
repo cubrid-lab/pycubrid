@@ -278,6 +278,31 @@ def test_lob_values_with_autocommit_off(admin: Connection) -> None:
             cursor.execute(f"DROP TABLE IF EXISTS {name}")
 
 
+def test_fetched_lob_rebinds_on_the_same_connection(admin: Connection) -> None:
+    name = table_name("p839r")
+    with admin.cursor() as cursor:
+        cursor.execute(f"CREATE TABLE {name} (id INT, b BLOB)")
+    try:
+        with contextlib.closing(pycubrid.connect(**connect_kwargs(), autocommit=False)) as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(f"INSERT INTO {name} VALUES (?, ?)", (1, b"stored"))
+                conn.commit()
+                cursor.execute(f"SELECT b FROM {name} WHERE id = 1")
+                cell = cursor.fetchone()[0]
+                lob = pycubrid.Lob(conn, cell["lob_type"], cell["packed_lob_handle"])
+                insert = f"INSERT INTO {name} VALUES (?, ?)"
+                cursor.executemany(insert, [(2, lob)], prepared=True)
+                assert cursor.rowcount == 1
+            conn.commit()
+        assert _rows(admin, f"SELECT id, BLOB_TO_BIT(b) FROM {name} ORDER BY id") == [
+            (1, b"stored"),
+            (2, b"stored"),
+        ]
+    finally:
+        with admin.cursor() as cursor:
+            cursor.execute(f"DROP TABLE IF EXISTS {name}")
+
+
 def test_lob_values_with_autocommit_on_are_rejected(admin: Connection) -> None:
     name = table_name("p839l")
     with admin.cursor() as cursor:

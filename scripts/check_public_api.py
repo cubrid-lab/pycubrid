@@ -59,10 +59,6 @@ BASELINE_PATH = ROOT / "api-baseline.json"
 TRACKED_MODULES = (
     "pycubrid",
     "pycubrid.aio",
-    "pycubrid.compat",
-    "pycubrid.compat.cubriddb",
-    "pycubrid.compat.cursors",
-    "pycubrid.compat.native",
 )
 
 # Classes that are not listed in any ``__all__`` but are part of the de facto
@@ -76,13 +72,6 @@ TRACKED_CLASSES: tuple[tuple[str, str], ...] = (
     ("pycubrid.aio.connection", "AsyncConnection"),
     ("pycubrid.aio.cursor", "AsyncCursor"),
     ("pycubrid.lob", "Lob"),
-    ("pycubrid.compat.cubriddb", "Connection"),
-    ("pycubrid.compat.cursors", "Cursor"),
-    ("pycubrid.compat.cursors", "DictCursor"),
-    ("pycubrid.compat.native", "connection"),
-    ("pycubrid.compat.native", "cursor"),
-    ("pycubrid.compat.native", "set"),
-    ("pycubrid.compat.native", "lob"),
 )
 
 # Dunder methods we *do* protect on tracked classes. Anything not on this list

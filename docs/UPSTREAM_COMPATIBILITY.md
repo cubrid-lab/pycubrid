@@ -1,8 +1,8 @@
 # Official driver API inventory and compatibility design
 
-> **Deprecated.** `pycubrid.compat` emits a `FutureWarning` and will be removed in a later 1.x MINOR release. See the [migration guide](COMPAT_MIGRATION.md). The text below is historical and is not rewritten.
+> **Historical.** `pycubrid.compat` was removed. See the [migration guide](COMPAT_MIGRATION.md). This page records the former contract; the files it names are at the [`v1.17.0` tag](https://github.com/cubrid-lab/pycubrid/tree/v1.17.0).
 
-The [machine-readable catalog](https://github.com/cubrid-lab/pycubrid/blob/main/tests/fixtures/official_api_inventory.json)
+The [machine-readable catalog](https://github.com/cubrid-lab/pycubrid/blob/v1.17.0/tests/fixtures/official_api_inventory.json)
 accounts for driver-declared public operations in the official
 [CUBRID/cubrid-python snapshot](https://github.com/CUBRID/cubrid-python/tree/e75ec36b2a92b8829a49a967a29a1fbb9d7c322b).
 It records source references, signatures, defaults, return/error observations,
@@ -138,7 +138,7 @@ assessments remain unchanged.
 Pinned from the [native source](https://github.com/CUBRID/cubrid-python/blob/e75ec36b2a92b8829a49a967a29a1fbb9d7c322b/cubrid_ext/python_cubrid.c#L1323)
 (`PyArg_ParseTuple(args, "is|s", ...)`, `METH_VARARGS`) and CCI
 `confirm_schema_type_info`, then observed live with the pinned e75ec36/CCI 7d1eb8f
-oracle built by `scripts/build_official_oracle.py` (Python 3.12.13 locally) on
+oracle built by `build_official_oracle.py` (Python 3.12.13 locally) on
 owned CUBRID 10.2.18.9024 and 11.4.6.1963 containers:
 
 | Aspect | Official (pinned and observed) | pycubrid `compat.native` |
@@ -200,7 +200,7 @@ message-only `args` are deliberate differences. Invalid C creation, local I/O
 faults and empty C exports are not executed differential claims. There is no
 filesystem sandbox, old inode/permissions preservation, fsync guarantee or
 database/filesystem transaction; staged server files retain session-owned lifetime.
-See the [native file API](API_REFERENCE.md#native-lob-files).
+See the [native file API](https://github.com/cubrid-lab/pycubrid/blob/v1.17.0/docs/API_REFERENCE.md#native-lob-files).
 
 ### Native positioning lifetime and evidence (#444)
 
@@ -226,7 +226,7 @@ cap; CUBRID's response sizing may return larger pages. C-extension page storage
 is unexposed, and wrapper.fetchall's caller-owned list is not an internal cache
 bound. Only the original seek assertions393/406/409 are mapped, not upstream
 num_fields/num_rows or whole functions. See the
-[native API scope](API_REFERENCE.md#native-cursor-positioning-data_seek-row_seek-row_tell).
+[native API scope](https://github.com/cubrid-lab/pycubrid/blob/v1.17.0/docs/API_REFERENCE.md#native-cursor-positioning-data_seek-row_seek-row_tell).
 
 The #445 metadata slice follows the pinned
 [tuple construction](https://github.com/CUBRID/cubrid-python/blob/e75ec36b2a92b8829a49a967a29a1fbb9d7c322b/cubrid_ext/python_cubrid.c#L2119-L2213),
@@ -239,7 +239,7 @@ Cached metadata survives EOF and same-owner commit/rollback even when rows are
 invalidated. Failed execution attempts hide old metadata; disconnected/foreign/
 stale owners fail closed rather than risking CCI pointers. Metadata text retains
 the connection codec; the pinned UTF-8 comparison is not non-UTF-8 parity.
-See [API details](API_REFERENCE.md#extended-column-metadata-result_info).
+See [API details](https://github.com/cubrid-lab/pycubrid/blob/v1.17.0/docs/API_REFERENCE.md#extended-column-metadata-result_info).
 
 The reviewed [typed CAS design for #418](PREPARED_BINDING_DESIGN.md) defines
 the first sync-only prepared scalar slice (#439), its FC2/FC3/FC6 bytes,
@@ -318,7 +318,7 @@ certification, not independent prepared-core work.
 ### Official driver differential gate (#446)
 
 Each official behavior pycubrid claims is recorded in
-[`tests/fixtures/official_differential_claims.json`](https://github.com/cubrid-lab/pycubrid/blob/main/tests/fixtures/official_differential_claims.json).
+[`tests/fixtures/official_differential_claims.json`](https://github.com/cubrid-lab/pycubrid/blob/v1.17.0/tests/fixtures/official_differential_claims.json).
 A claim is either `match` (same Python type and value as the official driver) or
 `deviation` (a reason, an owning issue and the exact observations of both
 drivers). It names the inventory operations and upstream scenario ids it
@@ -327,7 +327,7 @@ which runs the same SQL, values and autocommit settings through pycubrid and
 the official driver on one server. A mismatch fails, and so does a classified
 deviation whose observed values change on either side.
 
-**Oracle provenance.** `scripts/build_official_oracle.py` fetches cubrid-python
+**Oracle provenance.** `build_official_oracle.py` fetches cubrid-python
 `e75ec36b2a92b8829a49a967a29a1fbb9d7c322b`, checks that its `cci-src` gitlink is
 `7d1eb8f40f04089b8218d08e36e2c24a2de11b24` and fetches that CCI commit. It builds
 the CCI static library with CMake directly, using CCI's tracked bundled OpenSSL
@@ -360,11 +360,11 @@ the recorded observations and the ledger. It does not trust a recorded outcome
 label.
 
 The counts below are generated from the ledger. Do not edit them by hand. Run
-`python scripts/check_official_differential.py --write-docs` after changing a
+`python check_official_differential.py --write-docs` after changing a
 claim. The offline check fails on stale counts, unknown inventory or scenario ids,
 claims without cases and oracle pins that differ from the build script.
 
-<!-- official-differential-summary:start (generated by scripts/check_official_differential.py --write-docs) -->
+<!-- official-differential-summary:start (generated by check_official_differential.py --write-docs) -->
 
 | Surface | Match | Classified deviation | Total |
 | --- | ---: | ---: | ---: |
@@ -458,7 +458,7 @@ Source-scenario accounting (#437) is a separate deliverable. Official comparison
 evidence comes only from the live differential gate described above (#446):
 
 ```bash
-python scripts/check_official_differential.py   # offline claims/docs structure
+python check_official_differential.py   # offline claims/docs structure
 ```
 
 We acknowledge the official driver's maintainers and contributors. Descriptions
