@@ -103,7 +103,6 @@ async def test_zero_date_on_later_fetch_page_keeps_session(adapter: ParityAdapte
     connection = await adapter.connect(fetch_size=10)
     await adapter.set_autocommit(connection, True)
     cursor = adapter.cursor(connection)
-    token = adapter.transport_token(connection)
     table = "zd_%s" % uuid.uuid4().hex[:8]
     try:
         await adapter.execute(cursor, "CREATE TABLE %s (id INT, d DATE)" % table)
@@ -116,6 +115,10 @@ async def test_zero_date_on_later_fetch_page_keeps_session(adapter: ParityAdapte
         )
         await adapter.execute(cursor, "INSERT INTO %s VALUES (-1, DATE'0000-00-00')" % table)
         await adapter.execute(cursor, "SELECT id, d FROM %s ORDER BY id DESC" % table)
+        # Compare the transport only from here on. The CAS may exit between the
+        # autocommit statements above when it passes APPL_SERVER_MAX_SIZE, and the
+        # driver then correctly replaces the session (#1142). The open result keeps it.
+        token = adapter.transport_token(connection)
         first_page = await adapter.fetchmany(cursor, 10)
         assert [row[0] for row in first_page] == list(
             range(ROWS_BEFORE_ZERO, ROWS_BEFORE_ZERO - 10, -1)
@@ -137,7 +140,6 @@ async def test_rows_before_zero_date_page_are_not_lost(adapter: ParityAdapter) -
     connection = await adapter.connect(fetch_size=10)
     await adapter.set_autocommit(connection, True)
     cursor = adapter.cursor(connection)
-    token = adapter.transport_token(connection)
     table = "zd507_%s" % uuid.uuid4().hex[:8]
     select = "SELECT id, d FROM %s ORDER BY id DESC" % table
     # Broker pages are byte-limited (a few hundred rows here), so enough rows
@@ -168,6 +170,10 @@ async def test_rows_before_zero_date_page_are_not_lost(adapter: ParityAdapter) -
         # requesting the page (in autocommit mode the CAS has already closed
         # the result after its last page; asking again gives CAS error -1012).
         await adapter.execute(cursor, select)
+        # Compare the transport only from here on. The CAS may exit between the
+        # autocommit statements above when it passes APPL_SERVER_MAX_SIZE, and the
+        # driver then correctly replaces the session (#1142). The open result keeps it.
+        token = adapter.transport_token(connection)
         first = [row[0] for row in await adapter.fetchmany(cursor, 25)]
         with pytest.raises(DataError, match="cannot be represented"):
             await adapter.fetchall(cursor)
