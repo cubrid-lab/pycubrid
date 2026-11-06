@@ -26,17 +26,19 @@
 ---
 
 > **Status: Stabile DB-API (1.x), weiterentwickelte Erweiterungen.** Die
-> PEP-249-Schnittstelle und die wesentliche Daten-, Transaktions- und
+> PEP-249-Schnittstelle sowie wesentliche Daten-, Transaktions- und
 > Sitzungskorrektheit bleiben in 1.x geschützt. Projektspezifische öffentliche
-> Erweiterungen bleiben grundsätzlich kompatibel; sie dürfen in einem 1.x-MINOR
-> nur nach **geprüfter Einzelentscheidung, zuvor veröffentlichter
-> Deprecation-Warnung, Migrationsanleitung und mindestens 28 Tagen Vorlauf**
-> inkompatibel geändert oder entfernt werden. PATCH-Releases bleiben mit eng
-> begrenzten Sicherheitsausnahmen kompatibel. Dies ändert die frühere umfassende
-> 1.x-Zusage für Erweiterungen nur für die Zukunft; `<2.0` allein schließt
-> solche MINOR-Änderungen nicht aus. Vor dem Upgrade
-> [Änderungsprotokoll](../CHANGELOG.md) und [Release-Richtlinie](../RELEASE_POLICY.md)
-> lesen. Für `pycubrid.compat` gilt der [Migrationshinweis](COMPAT_MIGRATION.md).
+> Erweiterungen bleiben normalerweise kompatibel, können jedoch nach einer
+> individuellen Maintainer-Entscheidung, einer Folgenabschätzung und
+> nachvollziehbaren Migrationshinweisen in einem MINOR geändert werden.
+> Eine frühere Deprecation-Warnung ist empfehlenswert, wenn praktikabel; es
+> gibt keine allgemeine 28-Tage-Frist für gewöhnliche Erweiterungen.
+> Für die angekündigte Entfernung von `pycubrid.compat` bleibt die
+> [gesonderte Mindestfrist von 28 Tagen](COMPAT_MIGRATION.md) bestehen.
+> PATCH bleibt bis auf enge Sicherheitsausnahmen kompatibel. Dies ist eine
+> künftige Änderung der früheren 1.x-Zusage; `<2.0` garantiert nicht die
+> Kompatibilität jedes MINOR. Siehe [Änderungsprotokoll](../CHANGELOG.md)
+> und [Release-Richtlinie](../RELEASE_POLICY.md).
 
 ## Warum pycubrid?
 
