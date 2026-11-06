@@ -22,6 +22,9 @@ body:
         You can submit a question or proposal without knowing the solution.
         Removing pycubrid.compat does not automatically justify recreating
         its features in pycubrid / pycubrid.aio.
+        For a claimed capability gap, try to falsify it with the nearest
+        existing API, supported SQL or documentation before proposing a new
+        contract. Reporters may leave investigation details unknown.
 
   - type: textarea
     id: problem
@@ -45,7 +48,7 @@ body:
     id: independent_need
     attributes:
       label: Independent user need and existing API alternatives
-      description: For new public APIs, explain the ordinary-driver use case, existing options or workarounds, and why they are insufficient. If unknown, leave this for maintainer investigation.
+      description: For new public APIs, explain the ordinary-driver use case and the strongest existing API or SQL workaround you checked. Distinguish a failed attempt from proof that no workaround exists. If unknown, leave this for maintainer investigation.
       placeholder: Who needs this, what can they do today, and why would a permanent API be justified?
     validations:
       required: false
@@ -54,7 +57,7 @@ body:
     id: alternatives
     attributes:
       label: Alternatives Considered
-      description: Describe any alternative solutions you have considered
+      description: Describe alternatives, counterexamples and existing documented approaches you checked. What would disprove the claimed gap? Say unknown if you have not tested them.
       placeholder: What other approaches could solve this problem?
     validations:
       required: false
@@ -80,7 +83,7 @@ body:
     id: evidence
     attributes:
       label: Evidence and starting point
-      description: Link the baseline commit, relevant files/tests and observed output. Separate source inspection from executed tests; say what is not verified.
+      description: Record exact failing and working commands/results and Python/CUBRID versions when known. A failed SQL syntax or empty search does not prove that a capability is missing. Separate observations, counterchecks, source inspection and unverified assumptions. Reporters may write unknown.
     validations:
       required: false
 
