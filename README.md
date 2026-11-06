@@ -23,7 +23,17 @@
 
 ---
 
-> **Status: Stable (1.x).** `pycubrid` and `pycubrid.aio` follow [semantic versioning](RELEASE_POLICY.md). The opt-in `pycubrid.compat` namespaces are an optional tier: names first released in 1.9.0 or later are provisional, and deprecated names can be retired in a MINOR release after notice. See [`RELEASE_POLICY.md`](RELEASE_POLICY.md) for the full contract. `pycubrid.compat` is deprecated and will be removed in a later 1.x MINOR release; see the [migration guide](docs/COMPAT_MIGRATION.md).
+> **Status: Stable DB-API (1.x); evolving extensions.** The PEP 249
+> interface and essential data, transaction and session correctness remain
+> protected throughout 1.x. Project-specific public extensions are normally
+> backward compatible but may change or be retired in a MINOR **only after**
+> a reviewed decision, a prior published warning, migration guidance and at
+> least 28 calendar days' notice. PATCH releases remain backward compatible
+> apart from narrow security exceptions. This prospectively revises the earlier
+> broader 1.x guarantee for extensions; a `<2.0` requirement alone does not
+> prevent such a breaking MINOR. Check [Upgrade notes](CHANGELOG.md) and the
+> [release policy](RELEASE_POLICY.md) before updating. `pycubrid.compat` has
+> its own [deprecation and migration notice](docs/COMPAT_MIGRATION.md).
 
 ## Start here
 
