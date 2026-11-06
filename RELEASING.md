@@ -19,6 +19,27 @@ Key invariants:
   notes use the standard `###` sections. Both rules, and the handling of stale
   drafts, are in the "GitHub Release Policy" section of [`AGENTS.md`](AGENTS.md).
 
+## Release cadence
+
+Aim for **one reviewed release about every two weeks**, provided there are
+meaningful user-facing changes or worthwhile fixes ready to ship. This is a
+planning cadence, **not** an automatic publishing schedule, a release deadline,
+or a reason to generate an empty version. Skip a cycle when nothing warrants
+publication; defer a candidate rather than relaxing any test or approval gate.
+
+Critical correctness bugs, security fixes and urgent regressions may justify an
+earlier **reviewed** release. Verify the exact candidate contents so an emergency
+release does not accidentally include unrelated breaking or unfinished work.
+All normal release-policy, compatibility, candidate-validation and publish
+controls still apply. In particular, the published Compat retirement notice
+and its 28-day minimum are not shortened by the cadence.
+
+`release-please.yml` may continue to prepare/update an open release PR whenever
+`main` changes. **The maintainer controls when that candidate is reviewed and
+merged**; only merging the reviewed release PR triggers publication. Do not add a
+timer, force a version bump, merge a draft/unverified candidate, or push a tag
+to meet a calendar date.
+
 ## Normal flow
 
 `release-please.yml` prepares a release PR on pushes to `main` or manual dispatch.
