@@ -13,9 +13,11 @@ are accommodated by regenerating the baseline:
 
 When a developer regenerates the baseline, the diff is visible in the pull
 request and reviewers can decide whether the change is acceptable under the
-project's release policy (see ``RELEASE_POLICY.md``). For the 1.x line, a
-non-additive surface change requires a major version bump (2.0+) unless it is
-an optional-tier change that the policy allows in a MINOR release.
+project's release policy (see ``RELEASE_POLICY.md``). For the 1.x line, a non-additive change to the protected DB-API/core
+contract requires a MAJOR release. An individually approved project-specific
+extension or optional Compat name may instead change in a MINOR only after the
+published warning, migration and notice requirements in RELEASE_POLICY.md.
+A passing baseline check is not approval of that product/release decision.
 
 Usage:
     python scripts/check_public_api.py            # verify (CI mode)
@@ -364,8 +366,10 @@ def main(argv: list[str] | None = None) -> int:
         "    python scripts/check_public_api.py --update\n"
         "    git add api-baseline.json && git commit\n"
         "\n"
-        "For the 1.x line, a non-additive surface change requires a 2.0 major\n"
-        "version bump, unless RELEASE_POLICY.md allows it for an optional-tier name.",
+        "For 1.x, breaking protected DB-API/core API requires a MAJOR release.\\n"
+        "Only an approved non-core extension or optional Compat change can\\n"
+        "ship in a MINOR after the RELEASE_POLICY.md deprecation process.\\n"
+        "A baseline update alone is not approval to break compatibility.",
         file=sys.stderr,
     )
     return 1
