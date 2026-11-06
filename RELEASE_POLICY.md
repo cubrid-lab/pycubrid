@@ -415,9 +415,11 @@ reversal, not a clarification:
   releasing 2.0 only to retire a non-core API.
 - Consumers with a compatible range such as `<2.0` can receive the removal release
   automatically, and no release note prevents that (§3, rule 6).
-- The withdrawal covers these names and any other optional-tier name only. It does
-  not weaken the guarantee for the core tier (§2), and PATCH releases remain
-  compatible, apart from the security exception in §2.
+- The #1124 withdrawal covers only the Compat optional tier and does
+  not itself alter ordinary-driver APIs. The separate, prospective #1144
+  policy above allows independently approved project-specific extension
+  retirements while retaining the protected DB-API core. PATCH releases
+  remain compatible apart from the security exception in §2.
 - The withdrawal removes nothing by itself. Every §3 rule still applies, so these
   names stay supported until a release that satisfies them.
 
