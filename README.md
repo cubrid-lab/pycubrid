@@ -26,14 +26,15 @@
 > **Status: Stable DB-API (1.x); evolving extensions.** The PEP 249
 > interface and essential data, transaction and session correctness remain
 > protected throughout 1.x. Project-specific public extensions are normally
-> backward compatible but may change or be retired in a MINOR **only after**
-> a reviewed decision, a prior published warning, migration guidance and at
-> least 28 calendar days' notice. PATCH releases remain backward compatible
-> apart from narrow security exceptions. This prospectively revises the earlier
-> broader 1.x guarantee for extensions; a `<2.0` requirement alone does not
-> prevent such a breaking MINOR. Check [Upgrade notes](CHANGELOG.md) and the
-> [release policy](RELEASE_POLICY.md) before updating. `pycubrid.compat` has
-> its own [deprecation and migration notice](docs/COMPAT_MIGRATION.md).
+> compatible but may change in a MINOR following an individual maintainer
+> decision, user-impact assessment and clear migration notes. Earlier
+> deprecation warnings are preferred when practical; there is no universal
+> 28-day wait for ordinary extensions. The already announced `pycubrid.compat`
+> retirement retains its [separate published-warning and 28-day requirement](docs/COMPAT_MIGRATION.md).
+> PATCH releases remain compatible except narrow security exceptions.
+> This prospectively revises the earlier broader 1.x extension guarantee:
+> a `<2.0` dependency range alone cannot prevent a disclosed breaking MINOR.
+> Review [Upgrade notes](CHANGELOG.md) and the [release policy](RELEASE_POLICY.md).
 
 ## Start here
 
