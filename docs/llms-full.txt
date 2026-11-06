@@ -7743,7 +7743,7 @@ What a chunk boundary changes, compared with one `executemany()`:
 |---|---|---|
 | Transaction | One | The recipe decides. Between chunks, other sessions see committed rows only |
 | Autocommit | Each row commits | Same, per row, in every chunk. The recipes assume it is off |
-| A failing row | The other rows run, and the caller decides | The same inside its chunk. Later chunks are not sent, and both recipes roll back this chunk |
+| A failing row | The other rows run, and the caller decides | The same inside its chunk. Later chunks are not sent. `import_rows()` rolls back every chunk, and `import_in_steps()` rolls back this chunk and keeps the committed ones |
 | `batch_index`, `batch_errors`, `batch_rowcounts` | Position in the input | Position in the chunk. Add the rows before it, for example `done + exc.batch_index` |
 | `rowcount` | The total | The last chunk. Add it up as `import_rows()` does |
 | A generator that raises | Nothing is sent | Earlier chunks were sent. The chunk being read was not |
