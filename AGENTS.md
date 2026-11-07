@@ -518,10 +518,9 @@ label exception. Empty reasons, `<reason>`, quotes, comments and fenced examples
 are rejected by docs-sync. The line may be adjacent to ordinary prose without its
 own paragraph. This exception applies only to the docs gate.
 
-Contributors may request translation help in the PR body with missing language(s)
-and a reason. Only explicit maintainer approval through `translations-deferred`
-authorizes deferral; maintainers own the recorded follow-up. Korean synchronization
-remains required and other community translations remain advisory. Keep executed
+README translation drift (including Korean) is advisory after the 2026
+contest final evaluation; no `translations-deferred` exception is needed.
+Maintain the separate required `docs/ko/` structural validation. Keep executed
 commands/results, checks not run with reasons, and optional AI review feedback distinct.
 
 Do not mark work complete until code, tests, and documentation are consistent.
