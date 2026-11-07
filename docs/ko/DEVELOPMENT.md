@@ -921,9 +921,9 @@ python scripts/check_official_differential.py --evidence official-evidence.jsonl
 docs-sync CI에서도 이 검사를 실행합니다.
 
 기여자는 실제 실행한 명령/결과와 실행하지 않은 검사/이유를 기록하고, 선택적 AI
-리뷰는 별도로 구분합니다. 유지보수자는 내부 리뷰, 실제 이슈 라벨 및 명시적으로
-승인한 `translations-deferred` 후속 작업을 조율합니다. PR 본문의 번역 도움 요청은
-승인을 부여하지 않습니다. 한국어 README 동기화는 필수이며 다른 번역은 권고 수준입니다.
+리뷰는 별도로 구분합니다. 영문 `README.md`의 번역이 누락되면 한국어를 포함해
+경고만 표시하며 CI를 실패시키지 않습니다. `translations-deferred` 라벨은 더 이상
+이 경고 검사에 필요하지 않습니다. 별도 `docs/ko/` 문서 구조 검사는 계속 필수입니다.
 
 `docs/` 아래 영어 문서가 기준이고, `docs/ko/` 아래 한국어는 완전하게 유지하는 유일한
 번역입니다. `python scripts/check_docs_translation.py`(린트 잡에서 실행)는 모든
