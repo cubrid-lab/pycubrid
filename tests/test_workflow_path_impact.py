@@ -91,7 +91,10 @@ def test_workflow_impact_table(name: str) -> None:
         ("pycubrid/_prepared_binding.py", {"code", "risk", "charset", "official"}),
         ("tests/test_tls_matrix_offline.py", {"code", "risk", "tls"}),
         ("scripts/wait_for_cubrid.py", {"code", "risk", "tooling", "official"}),
-        ("scripts/compose_release_changelog.py", {"risk", "tooling", "official", "release_tooling"}),
+        (
+            "scripts/compose_release_changelog.py",
+            {"risk", "tooling", "official", "release_tooling"},
+        ),
         ("tests/test_compose_release_changelog.py", {"risk", "tooling", "release_tooling"}),
         (".github/workflows/release-please.yml", {"tooling", "release_tooling"}),
         ("pyproject.toml", {"code", "risk", "tooling", "site"}),
