@@ -28,9 +28,8 @@ def gh(path, payload=None):
 
 def run(apply):
     for tag in TAGS:
-        base = ROOT / tag
-        before = (base.with_suffix(".original.md")).read_text(encoding="utf-8")
-        after = (base.with_suffix(".corrected.md")).read_text(encoding="utf-8")
+        before = (ROOT / (tag + ".original.md")).read_text(encoding="utf-8")
+        after = (ROOT / (tag + ".corrected.md")).read_text(encoding="utf-8")
         if corrected(before) != after or before == after:
             raise ValueError(f"{tag}: source differs from approved link-only correction")
         if not apply:
