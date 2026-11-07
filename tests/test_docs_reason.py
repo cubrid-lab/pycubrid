@@ -916,7 +916,7 @@ class DocsReasonWorkflowTests(unittest.TestCase):
                         returncode, output = run_script()
                     self.assertEqual(returncode, 0, output)
 
-    def test_json_data_and_existing_translation_authorization_are_preserved(self) -> None:
+    def test_json_data_and_advisory_translation_workflow_are_preserved(self) -> None:
         text = WORKFLOW.read_text()
         permissions = re.search(r"(?m)^permissions:\n((?:  [^\n]+\n)+)", text)
         if permissions is None:
@@ -938,13 +938,14 @@ class DocsReasonWorkflowTests(unittest.TestCase):
         self.assertIn("python -m unittest discover -s tests -p test_docs_reason.py", text)
         self.assertIn("github.event.pull_request.user.login != 'dependabot[bot]'", text)
         translation = text.split("  translation-sync:", 1)[1]
-        self.assertIn(
+        self.assertNotIn(
             "!contains(github.event.pull_request.labels.*.name, 'translations-deferred')",
             translation,
         )
+        self.assertIn("github.event.pull_request.user.login != 'dependabot[bot]'", translation)
         self.assertNotIn("pull_request.body", translation)
         script = (ROOT / "scripts/check_translation_sync.py").read_text()
-        self.assertIn('REQUIRED_LANGS = {"ko"}', script)
+        self.assertIn("REQUIRED_LANGS: set[str] = set()", script)
 
 
 class CurrentDocumentationTests(unittest.TestCase):
