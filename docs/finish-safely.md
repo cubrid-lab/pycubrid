@@ -10,7 +10,8 @@ interrupted or run twice. It follows
 ## Before you start
 
 You need the same folder, the same five connection values and an active
-virtual environment (in a new terminal, run `source .venv/bin/activate` again).
+virtual environment (in a new terminal, activate it again as in
+[Step 1](quickstart.md#step-1-install-pycubrid-in-a-virtual-environment)).
 You can run this lesson at any point after
 [Save a Row and Read It Back](save-a-row.md), also when a lesson failed half
 way.

@@ -13,7 +13,8 @@
 
 - [첫 쿼리 실행하기](first-query.md)의 `first_query.py`가 `(2,)`를 출력해, 다섯 가지 연결 값이
   동작하는 것을 확인했어야 합니다.
-- 같은 폴더와 활성화된 가상 환경(새 터미널이면 `source .venv/bin/activate`를 다시 실행)
+- 같은 폴더와 활성화된 가상 환경(새 터미널이면
+  [1단계](quickstart.md#1단계-가상-환경에-pycubrid-설치하기)와 같은 방법으로 다시 활성화)
 
 이 단원은 사용자 계정에 `pycubrid_quickstart_notes`라는 테이블을 만듭니다.
 [시작하기 전에](quickstart.md#시작하기-전에)에서 정한 연습용 데이터베이스나 계정을 쓰고, 운영
