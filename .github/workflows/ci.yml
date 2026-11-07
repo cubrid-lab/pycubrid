@@ -587,6 +587,8 @@ jobs:
           python-version: "3.12"
           version: "0.12.17"
           enable-cache: true
+          cache-suffix: ${{ github.job }}
+          enable-cache: true
           cache-dependency-glob: |
             pyproject.toml
             uv.lock
@@ -597,6 +599,7 @@ jobs:
           uv export --locked --no-build --no-default-groups --group dev --no-emit-project --format requirements-txt --output-file "$RUNNER_TEMP/requirements.txt"
           uv pip install --system --require-hashes --only-binary :all: -r "$RUNNER_TEMP/requirements.txt"
           uv pip install --system --no-index --no-deps --no-build-isolation -e .
+          uv pip freeze --system
       - name: Verify release script and workflow contracts
         run: |
           python - <<'PY'
