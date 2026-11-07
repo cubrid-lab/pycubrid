@@ -10,7 +10,7 @@ TAGS = ["v1.2.0","v1.1.0","v1.0.0","v0.7.0","v0.5.0","v0.4.0","v0.3.0","v0.2.0"]
 ROOT = Path("docs/release-note-repairs")
 OLD = "https://github.com/cubrid-labs/pycubrid"
 NEW = "https://github.com/cubrid-lab/pycubrid"
-ALLOWED = re.compile(re.escape(OLD) + r"(?=/(?:compare/|blob/main/CHANGELOG\\.md|issues/\\d+|pull/\\d+))")
+ALLOWED = re.compile(re.escape(OLD) + r"(?=/(?:compare/|blob/main/CHANGELOG\.md|issues/\d+|pull/\d+))")
 
 
 def corrected(original):
