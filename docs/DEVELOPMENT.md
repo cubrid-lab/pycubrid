@@ -992,10 +992,10 @@ Run `make docs-reason-check` for helper doctests and real event-JSON workflow ca
 these checks also run in `make check` and docs-sync CI.
 
 Contributors report actual commands/results and checks not run with reasons;
-optional AI review is recorded separately. Maintainers coordinate internal reviews,
-actual issue labels and explicitly approved `translations-deferred` follow-ups.
-Translation requests in a PR body do not grant approval. Korean README sync remains
-required; other community translations remain advisory.
+optional AI review is recorded separately. Missing README translations,
+including Korean, now produce warnings instead of failures. Maintainers
+can record resynchronization follow-ups without a `translations-deferred` label.
+This does not relax the separate required `docs/ko/` page-structure check.
 
 English under `docs/` is the source of truth and Korean under `docs/ko/` is the one
 translation kept complete. `python scripts/check_docs_translation.py` (run by the
