@@ -101,6 +101,17 @@ python -m pip install pycubrid
 python -c "import pycubrid; print(pycubrid.__version__)"
 ```
 
+Windows에서는(미확인) 대신 PowerShell로 활성화하세요.
+
+```powershell
+py -m venv .venv
+.venv\Scripts\Activate.ps1
+python -m pip install pycubrid
+python -c "import pycubrid; print(pycubrid.__version__)"
+```
+
+cmd에서는 `Activate.ps1` 줄 대신 `.venv\Scripts\activate.bat`을 사용하세요.
+
 마지막 명령은 설치된 버전(예: `1.13.0`)을 출력합니다. 아래의 모든 `python` 명령은 가상 환경이
 활성화된 이 터미널에서 실행하세요. 다음으로 [첫 쿼리를 실행하세요](first-query.md).
 
@@ -133,7 +144,7 @@ CUBRID 11.4 실습 환경에서 각 실수에 대해 pycubrid 1.13.0이 실제�
 
 | 메시지 | 뜻 | 확인할 것 |
 |---|---|---|
-| `ModuleNotFoundError: No module named 'pycubrid'` | 지금 실행한 Python이 pycubrid를 설치한 Python이 아닙니다. | 1단계의 가상 환경을 활성화하고(`source .venv/bin/activate`) 시스템 `python3`가 아닌 `python`으로 실행하세요. |
+| `ModuleNotFoundError: No module named 'pycubrid'` | 지금 실행한 Python이 pycubrid를 설치한 Python이 아닙니다. | [1단계](#1단계-가상-환경에-pycubrid-설치하기)와 같은 방법으로 가상 환경을 활성화하고 시스템 `python3`가 아닌 `python`으로 실행하세요. |
 | `OperationalError: failed to connect to CUBRID broker` | 그 호스트와 포트에서 아무도 응답하지 않았습니다. | 서버가 실행 중인지(실습 환경이면 `docker ps`에 `pycubrid-quickstart`가 보이는지), 호스트와 포트가 맞는지, 방화벽이 포트를 막지 않는지 확인하세요. |
 | `DatabaseError: Failed to connect to database server, 'nosuchdb', ...` | 브로커는 응답했지만 그 이름으로 실행 중인 데이터베이스가 없습니다. | 데이터베이스 이름을 확인하고, 관리자에게 그 데이터베이스가 시작되어 있는지 물어보세요. |
 | `OperationalError: User "nobody" is invalid.` | 그 데이터베이스에 해당 사용자가 없습니다. | 사용자 이름을 확인하세요. |

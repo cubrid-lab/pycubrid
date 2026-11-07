@@ -14,7 +14,8 @@
 - [행을 저장하고 다시 읽기](save-a-row.md)의 `first_saved_row.py`가
   `Rows seen by a new connection: [(1, 'my first saved row')]`를 출력해, `pycubrid_quickstart_notes`
   테이블에 행 하나가 있어야 합니다.
-- 같은 폴더와 활성화된 가상 환경(새 터미널이면 `source .venv/bin/activate`를 다시 실행)
+- 같은 폴더와 활성화된 가상 환경(새 터미널이면
+  [1단계](quickstart.md#1단계-가상-환경에-pycubrid-설치하기)와 같은 방법으로 다시 활성화)
 
 ---
 

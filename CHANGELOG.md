@@ -16,6 +16,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Documentation
 
+- **Step 1 now gives a Windows activation command, and later lessons point back to it (#1092)** —
+  Step 1 and the later lessons' reminders gave only `source .venv/bin/activate`, which fails in
+  both cmd and PowerShell, although the package declares Windows support and carries a
+  Windows-only dependency. Step 1 (English and Korean) now also shows the PowerShell and cmd
+  forms, marked unverified, and the later lessons and the `ModuleNotFoundError` row link back to
+  Step 1 instead of repeating only the POSIX command.
 - **The Troubleshooting Docker examples now wait for a real login and stay local (#1083)** — the
   health check used `cubrid broker status`, which passes before `testdb` accepts logins, so
   `docker compose up -d --wait` returned early. The examples published port 33000 on every

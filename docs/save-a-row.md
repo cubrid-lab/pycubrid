@@ -11,8 +11,8 @@ You need what the earlier lessons set up:
 
 - `first_query.py` from [Run Your First Query](first-query.md) printed `(2,)`,
   so the five connection values work;
-- the same folder and an active virtual environment (in a new terminal, run
-  `source .venv/bin/activate` again).
+- the same folder and an active virtual environment (in a new terminal,
+  activate it again as in [Step 1](quickstart.md#step-1-install-pycubrid-in-a-virtual-environment)).
 
 This lesson creates a table named `pycubrid_quickstart_notes` for your user. Use
 the practice database or account from

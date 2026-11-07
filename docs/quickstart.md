@@ -112,6 +112,17 @@ python -m pip install pycubrid
 python -c "import pycubrid; print(pycubrid.__version__)"
 ```
 
+On Windows (unverified), activate with PowerShell instead:
+
+```powershell
+py -m venv .venv
+.venv\Scripts\Activate.ps1
+python -m pip install pycubrid
+python -c "import pycubrid; print(pycubrid.__version__)"
+```
+
+In cmd, use `.venv\Scripts\activate.bat` instead of the `Activate.ps1` line.
+
 The last command prints the installed version, for example `1.13.0`. Run every
 `python` command below in this same terminal, with the virtual environment
 active. Next, [run your first query](first-query.md).
@@ -147,7 +158,7 @@ CUBRID 11.4 lab (the last line of the traceback):
 
 | Message | What it means | What to check |
 |---|---|---|
-| `ModuleNotFoundError: No module named 'pycubrid'` | This Python is not the one pycubrid was installed into. | Activate the virtual environment from Step 1 (`source .venv/bin/activate`) and run `python`, not a system `python3`. |
+| `ModuleNotFoundError: No module named 'pycubrid'` | This Python is not the one pycubrid was installed into. | Activate the virtual environment as in [Step 1](#step-1-install-pycubrid-in-a-virtual-environment) and run `python`, not a system `python3`. |
 | `OperationalError: failed to connect to CUBRID broker` | Nothing answered at that host and port. | The server is running (for the lab: `docker ps` lists `pycubrid-quickstart`), the host and port are right, and no firewall blocks the port. |
 | `DatabaseError: Failed to connect to database server, 'nosuchdb', ...` | The broker answered, but there is no running database with that name. | The database name; ask the administrator whether that database is started. |
 | `OperationalError: User "nobody" is invalid.` | The user does not exist in that database. | The user name. |
