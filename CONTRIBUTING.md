@@ -170,10 +170,11 @@ release checks.
 Up to three leading spaces are allowed; tab/four-space code examples and raw HTML
 `blockquote`/`pre`/`code` blocks do not grant an exemption.
 
-For translation help, name the missing language(s) and explain the constraint in
-the PR body. That request does not authorize deferral. Maintainers explicitly approve
-the existing `translations-deferred` label and own the recorded follow-up. Korean
-README synchronization remains required; other translations remain advisory.
+When `README.md` changes, missing translations (including Korean
+`docs/README.ko.md`) produce warnings only. A `translations-deferred` label
+is no longer required to defer README translation; maintainers may schedule
+a follow-up translation PR. The separate `docs/ko/` structural-parity check
+remains required where configured.
 
 When changing docs, regenerate `docs/llms-full.txt` with
 `python scripts/generate_llms_full.py` (it also copies the canonical
