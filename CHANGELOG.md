@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.17.1] - 2026-11-07
+
 ### Fixed
 
 - **Building from source now declares the setuptools it needs (#1108)** — the build requirement
@@ -36,6 +38,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   (#1130)** — the guide said this raises `InterfaceError`, which holds only for another
   connection's `Lob` object. `Lob(target, ...)` is not refused and can store data that another
   transaction never committed. Read the bytes and write a new LOB instead.
+
+* **compat:** show how to read the isolation level and lock timeout ([#1136](https://github.com/cubrid-lab/pycubrid/issues/1136)) ([3880a6e](https://github.com/cubrid-lab/pycubrid/commit/3880a6ee2ca99a65b412d1519232184899680dc5))
+* **compat:** warn against rewrapping a LOB handle across connections ([#1141](https://github.com/cubrid-lab/pycubrid/issues/1141)) ([5c7f769](https://github.com/cubrid-lab/pycubrid/commit/5c7f7698d3179b2106d84d940e8d0cd165be2caf)), refs [#1130](https://github.com/cubrid-lab/pycubrid/issues/1130) [#1122](https://github.com/cubrid-lab/pycubrid/issues/1122)
+* **performance:** show how to import large inputs with bounded memory ([#1152](https://github.com/cubrid-lab/pycubrid/issues/1152)) ([d2939bd](https://github.com/cubrid-lab/pycubrid/commit/d2939bd1f162f364e9ca0e4de15c51ac709b7e09))
+* remove contest deadline from Korean README sync guidance ([#1162](https://github.com/cubrid-lab/pycubrid/issues/1162)) ([2e42b0a](https://github.com/cubrid-lab/pycubrid/commit/2e42b0a927f6956a21e97d653dbc3d96050fc1bf))
+* **site:** stop linking published pages to unpublished repository files ([#1147](https://github.com/cubrid-lab/pycubrid/issues/1147)) ([fa5ae28](https://github.com/cubrid-lab/pycubrid/commit/fa5ae284f1e1c9d049a36fa9465c75d539f62f0e))
+* **troubleshooting:** wait for a real Docker login and bind locally ([deba70f](https://github.com/cubrid-lab/pycubrid/commit/deba70fac7041b336e83f2a667727e0000f815fb)), refs [#1083](https://github.com/cubrid-lab/pycubrid/issues/1083)
 
 ### Tests
 
