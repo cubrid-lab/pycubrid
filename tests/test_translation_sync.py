@@ -67,7 +67,7 @@ def test_unchanged_canonical_readme_is_in_sync(
     assert "README.md unchanged in this PR" in capsys.readouterr().out
 
 
-def test_changed_canonical_and_required_translation_are_in_sync(
+def test_changed_canonical_and_updated_korean_translation_are_in_sync(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -84,7 +84,7 @@ def test_changed_canonical_and_required_translation_are_in_sync(
     assert capsys.readouterr().out == "translation sync OK\n"
 
 
-def test_changed_canonical_without_required_translation_fails(
+def test_missing_korean_translation_warns_without_blocking(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -93,10 +93,12 @@ def test_changed_canonical_without_required_translation_fails(
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(translation_sync, "changed_files", lambda: {"README.md"})
 
-    assert translation_sync.main() == 1
+    assert translation_sync.REQUIRED_LANGS == set()
+    assert translation_sync.main() == 0
     output = capsys.readouterr().out
-    assert "::error::README.md changed" in output
-    assert "docs/README.ko.md (한국어)" in output
+    assert "community translation drifted: docs/README.ko.md (한국어)" in output
+    assert "::error::" not in output
+    assert output.endswith("translation sync OK\n")
 
 
 def test_community_translation_drift_warns_without_failing(
