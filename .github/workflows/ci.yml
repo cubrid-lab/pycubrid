@@ -68,6 +68,7 @@ jobs:
     outputs:
       code: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.code == 'true' && steps.reuse.outputs.code != 'true' }}
       docs: ${{ steps.filter.outputs.docs }}
+      release_tooling: ${{ steps.filter.outputs.release_tooling }}
       site: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.site == 'true' }}
       tooling: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.tooling == 'true' && steps.reuse.outputs.tooling != 'true' }}
       risk: ${{ steps.filter.outputs.risk }}
@@ -141,8 +142,35 @@ jobs:
               - 'scripts/generate_llms_full.py'
               - '.github/workflows/docs.yml'
               - '.github/workflows/ci.yml'
+            release_tooling:
+              - 'scripts/check_release_please.cjs'
+              - 'scripts/compose_release_changelog.py'
+              - 'scripts/check_release_title.py'
+              - 'scripts/extract_release_notes.py'
+              - 'scripts/lint_changelog.py'
+              - 'scripts/prepare_release.py'
+              - 'scripts/reconcile_release_labels.py'
+              - 'scripts/release_detect.py'
+              - 'scripts/release_summary.py'
+              - 'scripts/annotate_release_contributors.py'
+              - 'scripts/audit_historical_releases.py'
+              - 'scripts/check_release_note_wrap.py'
+              - '.github/workflows/release-please.yml'
+              - 'tests/test_compose_release_changelog.py'
+              - 'tests/test_check_release_title.py'
+              - 'tests/test_extract_release_notes.py'
+              - 'tests/test_lint_changelog_subsections.py'
+              - 'tests/test_prepare_release.py'
+              - 'tests/test_reconcile_release_labels.py'
+              - 'tests/test_release_detect.py'
+              - 'tests/test_release_summary.py'
+              - 'tests/test_release_workflows.py'
+              - 'tests/test_release_please_config.py'
+              - 'tests/test_annotate_release_contributors.py'
+              - 'tests/test_audit_historical_releases.py'
+              - 'tests/test_check_release_note_wrap.py'
             code:
-              - '!{docs/**,*.md,**/*.md,LICENSE,LICENSE.*,NOTICE,llms.txt,.gitignore,.gitattributes}'
+              - '!{docs/**,*.md,**/*.md,LICENSE,LICENSE.*,NOTICE,llms.txt,.gitignore,.gitattributes,scripts/check_release_please.cjs,scripts/compose_release_changelog.py,scripts/check_release_title.py,scripts/extract_release_notes.py,scripts/lint_changelog.py,scripts/prepare_release.py,scripts/reconcile_release_labels.py,scripts/release_detect.py,scripts/release_summary.py,scripts/annotate_release_contributors.py,scripts/audit_historical_releases.py,scripts/check_release_note_wrap.py,.github/workflows/release-please.yml,tests/test_compose_release_changelog.py,tests/test_check_release_title.py,tests/test_extract_release_notes.py,tests/test_lint_changelog_subsections.py,tests/test_prepare_release.py,tests/test_reconcile_release_labels.py,tests/test_release_detect.py,tests/test_release_summary.py,tests/test_release_workflows.py,tests/test_release_please_config.py,tests/test_annotate_release_contributors.py,tests/test_audit_historical_releases.py,tests/test_check_release_note_wrap.py}'
             risk:
               - 'pycubrid/**'
               - 'tests/**'
@@ -539,6 +567,54 @@ jobs:
           fail_ci_if_error: false
         env:
           CODECOV_RETRIES: 3
+
+  release-tests:
+    name: Release tooling regression tests
+    needs: detect-changes
+    if: needs.detect-changes.outputs.release_tooling == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2
+        with:
+          python-version: "3.12"
+          version: "0.12.17"
+          enable-cache: true
+          cache-dependency-glob: |
+            pyproject.toml
+            uv.lock
+            .github/ci-wheels/*.whl
+      - name: Install pinned test dependencies
+        shell: bash
+        run: |
+          uv export --locked --no-build --no-default-groups --group dev --no-emit-project --format requirements-txt --output-file "$RUNNER_TEMP/requirements.txt"
+          uv pip install --system --require-hashes --only-binary :all: -r "$RUNNER_TEMP/requirements.txt"
+          uv pip install --system --no-index --no-deps --no-build-isolation -e .
+      - name: Verify release script and workflow contracts
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import subprocess
+          import sys
+
+          files = sorted(set(Path("tests").glob("test_*release*.py")) |
+                         set(Path("tests").glob("test_*changelog*.py")) | {
+                             Path("tests/test_annotate_release_contributors.py"),
+                             Path("tests/test_audit_historical_releases.py"),
+                             Path("tests/test_check_release_note_wrap.py"),
+                         })
+          selected = [str(f) for f in files if f.is_file()]
+          if not selected:
+              sys.exit("Release test selection unexpectedly empty")
+          subprocess.run([sys.executable, "-m", "pytest", "-q", *selected], check=True)
+          PY
 
   repo-tooling-tests:
     needs: detect-changes
@@ -1085,7 +1161,7 @@ jobs:
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    needs: [validate-target, detect-changes, lint, doc-lint, docs-check, typecheck, offline-tests, packaging-smoke-test, integration-tests, repo-tooling-tests, docs-build, compat-check, integration-charset, integration-tls, official-differential]
+    needs: [validate-target, detect-changes, lint, doc-lint, docs-check, typecheck, offline-tests, packaging-smoke-test, integration-tests, repo-tooling-tests, release-tests, docs-build, compat-check, integration-charset, integration-tls, official-differential]
     steps:
       - name: Check selected job results
         env:
@@ -1108,6 +1184,8 @@ jobs:
           R_INTEGRATION_TESTS: ${{ needs.integration-tests.result }}
           E_INTEGRATION_TESTS: ${{ needs.detect-changes.outputs.live }}
           R_REPO_TOOLING_TESTS: ${{ needs.repo-tooling-tests.result }}
+          R_RELEASE_TESTS: ${{ needs.release-tests.result }}
+          E_RELEASE_TESTS: ${{ needs.detect-changes.outputs.release_tooling }}
           E_REPO_TOOLING_TESTS: ${{ needs.detect-changes.outputs.tooling }}
           R_DOCS_BUILD: ${{ needs.docs-build.result }}
           E_DOCS_BUILD: ${{ needs.detect-changes.outputs.site }}
@@ -1139,6 +1217,7 @@ jobs:
           check packaging-smoke-test "$R_PACKAGING_SMOKE_TEST" "$E_PACKAGING_SMOKE_TEST"
           check integration-tests "$R_INTEGRATION_TESTS" "$E_INTEGRATION_TESTS"
           check repo-tooling-tests "$R_REPO_TOOLING_TESTS" "$E_REPO_TOOLING_TESTS"
+          check release-tests "$R_RELEASE_TESTS" "$E_RELEASE_TESTS"
           check docs-build "$R_DOCS_BUILD" "$E_DOCS_BUILD"
           check compat-check "$R_COMPAT_CHECK" "$E_COMPAT_CHECK"
           check integration-charset "$R_INTEGRATION_CHARSET" "$E_INTEGRATION_CHARSET"
