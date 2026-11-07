@@ -199,6 +199,7 @@ jobs:
               - 'tests/test_release_detect.py'
               - 'tests/test_release_please_config.py'
               - 'tests/test_release_summary.py'
+              - 'tests/test_sync_legacy_release_links.py'
               - 'tests/test_third_party_licenses.py'
               - 'tests/test_verify_dist.py'
               - 'tests/test_wait_for_cubrid.py'
