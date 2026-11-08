@@ -3767,12 +3767,15 @@ and breaking changes will only occur in major version bumps (2.0+).
 
 ## [0.4.0] - 2026-03-12
 
+This release adds ways to work with CUBRID large objects, inspect database schema information and execute batches of SQL statements. It builds on the connection and cursor support introduced in v0.3.0.
+
 ### Added
-- `Lob` class for BLOB/CLOB Large Object support (create, write, read)
-- `Connection.create_lob()` helper for server-side LOB creation
-- `Connection.get_schema_info()` for schema introspection via CAS protocol
-- `Cursor.executemany_batch()` for batch execution of multiple SQL statements
-- Exported `Lob` from package `__init__.py`
+
+- **Read and write large objects** — Added the `Lob` API for BLOB and CLOB values, with creation, reading and writing. `Connection.create_lob()` creates a server-side LOB; `Lob` is also available from the package's top-level imports.
+
+- **Inspect database structure** — Added `Connection.get_schema_info()` to retrieve schema information through the CAS protocol.
+
+- **Execute SQL batches** — Added `Cursor.executemany_batch()` to send multiple SQL statements in one batch request, with an optional auto-commit setting.
 
 ## [0.3.0] - 2026-03-12
 
