@@ -3758,12 +3758,11 @@ and breaking changes will only occur in major version bumps (2.0+).
 
 ## [0.5.0] - 2026-03-12
 
-### Added
-- SQLAlchemy integration via `sqlalchemy-cubrid` v2.1.0 (`cubrid+pycubrid://` URL scheme)
-- Updated README with SQLAlchemy usage examples
+This release documents how to use pycubrid as the database driver for SQLAlchemy through the separately installed `sqlalchemy-cubrid` dialect. SQLAlchemy ORM and engine support comes from that dialect, not from a new API inside pycubrid.
 
-### Changed
-- Version bumped to 0.5.0
+### Documentation
+
+- **SQLAlchemy connection setup** — Added README installation and usage examples for the `sqlalchemy-cubrid` dialect (identified as v2.1.0 at the time), using the `cubrid+pycubrid://` connection URL. Install the dialect separately to use this integration.
 
 ## [0.4.0] - 2026-03-12
 
