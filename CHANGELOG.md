@@ -6,6 +6,42 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Upgrade notes
+
+- **`pycubrid.compat` is removed, in an intentional breaking MINOR release (#1130).**
+  `pycubrid.compat`, `pycubrid.compat.native`, `pycubrid.compat.cubriddb` and
+  `pycubrid.compat.cursors` no longer work: importing any of them raises `ImportError` with a
+  link to the [migration guide](docs/COMPAT_MIGRATION.md). This follows the `FutureWarning`
+  in 1.17.0 and the withdrawn 1.x guarantee for the 1.8.0 names. Ranges such as
+  `pycubrid>=1.8.0,<2.0` install this release automatically, so pin below it if you still use
+  these namespaces. `pycubrid` and `pycubrid.aio` are unchanged. Renaming alone is not enough:
+  for example Compat started in autocommit and `pycubrid.connect()` does not, so code that never
+  calls `commit()` would lose writes. Some features have no ordinary replacement, including
+  `result_info`, `data_seek`, `row_seek`, `row_tell` and `max_string_len`; the guide lists them.
+
+  **Migration**
+
+  ```python
+  # Before
+  from pycubrid.compat import cubriddb
+
+  conn = cubriddb.connect("CUBRID:localhost:33000:testdb:::", "dba", "")
+
+  # After: pass user and autocommit, because Compat started in autocommit
+  import pycubrid
+
+  conn = pycubrid.connect(
+      host="localhost", port=33000, database="testdb", user="dba", password="", autocommit=True
+  )
+  ```
+
+### Removed
+
+- **The `pycubrid.compat` namespaces (#1130)** — only an error-only `pycubrid.compat` package
+  remains, so that an import fails with guidance. The official-driver differential lane, its
+  oracle build, its claim fixtures and the upstream scenario ledger went with them. The former
+  contract stays at the `v1.17.0` tag.
+
 ### Fixed
 
 - **Building from source now declares the setuptools it needs (#1108)** — the build requirement
@@ -45,8 +81,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   collection elements on the literal and prepared paths, and LOB contents including a large
   multi-byte CLOB. The failure paths of `Lob.read()`/`Lob.write()` have their own offline cases.
   Shared test data and regressions moved out of Compat-dependent modules, so ordinary test
-  modules collect without Compat; Compat tests stay, some in another Compat module, until the
-  removal release. No driver or runtime change.
+  modules collect without Compat. No driver or runtime change.
 
 ## [1.17.0] - 2026-11-05
 
@@ -1220,7 +1255,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   non-`None` `set_type` without a collection argument is now ignored instead
   of raising `NotSupportedError`. The scalar subset and ordinary cursors are
   unchanged. See
-  [Wrapper collection arguments](docs/API_REFERENCE.md#wrapper-collection-arguments).
+  [Wrapper collection arguments](https://github.com/cubrid-lab/pycubrid/blob/v1.17.0/docs/API_REFERENCE.md#wrapper-collection-arguments).
 
 * **compat:** accept collection parameters in wrapper execute and executemany ([#813](https://github.com/cubrid-lab/pycubrid/issues/813)) ([1accfaa](https://github.com/cubrid-lab/pycubrid/commit/1accfaa22945d3bd868f5940a68f085dae32a3ec))
 * **python:** declare Python 3.15 support ([#831](https://github.com/cubrid-lab/pycubrid/issues/831)) ([0563613](https://github.com/cubrid-lab/pycubrid/commit/056361386e3cb41af0558bd7cd974eb07d75a0a1))

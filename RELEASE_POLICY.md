@@ -29,26 +29,20 @@ The **public API** of pycubrid is exactly the union of:
 
 1. Every name listed in `pycubrid.__all__`.
 2. Every name listed in `pycubrid.aio.__all__`.
-3. Every name listed in `pycubrid.compat.__all__` and in the explicit
-   `pycubrid.compat.cubriddb.__all__` / `pycubrid.compat.native.__all__`.
-   These namespaces are a staged, opt-in subset, not a complete DB-API or
-   official native driver; names first released in 1.9.0 or later are
-   **provisional** (see "Staged explicit compatibility namespaces" in §2), and
-   every name in these namespaces is in the optional tier (§2, "Stability
-   tiers") that §3 allows to be retired in a MINOR release after deprecation.
-4. The following classes, which users receive as return values from public
+3. The following classes, which users receive as return values from public
    factory functions and therefore depend on transitively:
    - `pycubrid.connection.Connection`
    - `pycubrid.cursor.Cursor`
    - `pycubrid.aio.connection.AsyncConnection`
    - `pycubrid.aio.cursor.AsyncCursor`
    - `pycubrid.lob.Lob`
-   - `pycubrid.compat.cubriddb.Connection`
-   - `pycubrid.compat.native.connection`
-5. For each public class, every public attribute (name not starting with `_`),
+4. For each public class, every public attribute (name not starting with `_`),
    every public method, and the user-facing dunder allow-list:
    `__init__`, `__enter__`, `__exit__`, `__aenter__`, `__aexit__`, `__iter__`,
    `__aiter__`, `__next__`, `__anext__`, `__repr__`, `__str__`.
+
+`pycubrid.compat` is not public API. It was removed through §3 and remains only as an
+error-only import tombstone (#1130).
 
 The exact, machine-checkable definition is encoded in `scripts/check_public_api.py`
 and serialized as `api-baseline.json` at the repository root.
@@ -136,6 +130,9 @@ quality of its implementation.
 | **DB-API core** | PEP 249 module constants and exception/type contracts, standard connection/cursor methods (including `connect`, `cursor`, `execute`, `executemany`, `fetch*`, `commit`, `rollback`), their sync/async equivalents, and essential data, transaction and session correctness | MAJOR only, apart from the PATCH security exception above |
 | **Project extensions** | Public pycubrid-specific options, methods and types beyond the protected DB-API core, for example the opt-in `executemany(..., prepared=True)` mode; classification of any particular change requires an explicit, reviewed issue decision | MINOR **only** after the §3 extension-specific review and migration process; MAJOR otherwise |
 | **Compat (optional)** | The `pycubrid.compat` namespaces and returned classes while they remain published; see the specific retirement in #1120 | MINOR, after the §3 retirement process; MAJOR otherwise |
+
+**The Compat tier is empty after the release that removed `pycubrid.compat`
+(#1130).** The row above records what §3 retired.
 
 Do not infer that a public API can be removed just because PEP 249 does not
 name it. **Existing ordinary-driver extensions were previously covered by a
@@ -232,20 +229,17 @@ namespaces stable:
 - This Compat work does not change `pycubrid` or `pycubrid.aio`.
   Their other extensions can evolve only under the separate #1144 policy and
   an API-specific §3 decision and notice.
-- The checker and baseline keep tracking every compat name, so a provisional
-  change still appears as an explicit baseline diff in review.
+- The checker and baseline tracked every compat name until the removal, so a
+  provisional change appeared as an explicit baseline diff in review.
 These are **MINOR** additions while ordinary behavior stays unchanged;
 documented ordinary bug corrections remain **PATCH**. The staged work does not
 authorize a default replacement, 2.0 migration, new dependency, version/tag/PyPI
 publication or a security-support change.
 
-**Planned retirement (#1120).** The project intends to retire the functional
-`pycubrid.compat` layer in a later 1.x MINOR release. These namespaces are
-deprecated: creating a connection through them emits `FutureWarning`, with the
-[migration guide](docs/COMPAT_MIGRATION.md) in its message. They receive bug and
-security fixes only: no new public names and no new official-driver parity work.
-The removal itself still needs every step in §3; this paragraph authorizes none
-of them and names no version or date.
+**Retired (#1120, #1130).** The functional `pycubrid.compat` layer was removed in a
+1.x MINOR release through §3, after the 1.17.0 warning. `pycubrid/compat/__init__.py`
+remains only to raise `ImportError` with the [migration guide](docs/COMPAT_MIGRATION.md).
+The text above in this subsection is the historical contract.
 
 ### Typed collection parameters (#567)
 
@@ -531,6 +525,13 @@ Code without a corresponding documentation update is considered incomplete.
 Backward-compatible bug fixes ship in a **PATCH** release (§2). Recorded here so
 the documented release contract stays complete alongside `CHANGELOG.md`:
 
+- **`pycubrid.compat` removed (#1130)** — MINOR / breaking, under the optional-tier retirement
+  in §3. The namespaces and their classes leave the public surface, importing them raises
+  `ImportError` with the migration guide, and `api-baseline.json` drops only optional-tier
+  names. `pycubrid`, `pycubrid.aio` and `executemany(..., prepared=True)` are unchanged. The
+  official-differential lane leaves CI with them, because its only subject was the removed
+  layer; ordinary sync and async semantics stay covered by tests with their own expected values
+  (#1123).
 - **`pycubrid.compat` deprecated (#1120)** — MINOR / deprecation. Creating a connection
   through any Compat factory emits one `FutureWarning` at the caller's line, before any socket
   work, with the migration guide URL. `FutureWarning` is used under the default in §3 because

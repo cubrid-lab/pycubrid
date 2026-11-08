@@ -61,13 +61,9 @@ SQL text per execute. The one exception on the ordinary cursors is the opt-in
 [`executemany(..., prepared=True)`](#executemany-preparedtrue) (#839), which
 sends typed host variables with `PREPARE` + `EXECUTE_ARRAY`. See
 [Non-Guarantees and Explicit Limits](#non-guarantees-and-explicit-limits).
-The separate, **explicit sync-only** `pycubrid.compat.native` prepared cursor
-does send typed values (INT, BIGINT, DOUBLE, NUMERIC, DATE, TIME, DATETIME,
-DATETIMETZ, VARBIT, string and SQL NULL) through FC2/FC3; see
-[Prepared host-variable mapping](#prepared-host-variable-mapping). It is
-not a replacement for this ordinary 1.x contract; see its bounded
-[#418 typed CAS design](PREPARED_BINDING_DESIGN.md) and
-[API reference](API_REFERENCE.md#explicit-native-compatibility-subset).
+Its typed values follow
+[Prepared host-variable mapping](#prepared-host-variable-mapping); see the
+[#418 typed CAS design](PREPARED_BINDING_DESIGN.md).
 
 ---
 
@@ -331,11 +327,10 @@ cur.execute("SELECT id FROM t WHERE tags SUBSETEQ ?", (Set([1, 2, 3, 4]),))
 ### Prepared host-variable mapping
 
 This section does **not** change the literal contract above. It describes the
-typed values that the explicit `pycubrid.compat.native` cursor's
-`bind_param()` sends through FC3 (`pycubrid/_prepared_binding.py`
-`_encode_prepared_scalar`, re-exported from `pycubrid.protocol`). Since #840 it accepts the same Python types as the
-literal path, except typed collections (bind those with `bind_set()`) and empty
-`bytes`. Each
+typed values that `executemany(..., prepared=True)` sends
+(`pycubrid/_prepared_binding.py` `_encode_prepared_scalar`, re-exported from
+`pycubrid.protocol`). Since #840 it accepts the same Python types as the
+literal path, except empty `bytes`. Each
 value is sent as one type byte and its value bytes; nothing is rendered into
 SQL. The checks match the literal path: `nan`/`inf` raise `ProgrammingError`, a
 `Decimal` that needs more than 38 digits raises `DataError`, and forged or
@@ -385,17 +380,10 @@ text, so some results differ from the literal path. Verified on CUBRID 10.2,
   instead of the literal path's message. Examples: a BIGINT into an INTEGER
   column when it is out of range, and a TIME into a DATETIME target.
 - **Typed collections.** `Set`, `Multiset` and `Sequence` are rendered by the
-  literal path but raise `ProgrammingError` in `bind_param()`; use
-  `connection.set()` and `bind_set()`. `executemany(..., prepared=True)` sends
+  literal path. `executemany(..., prepared=True)` sends
   them as collections of string elements (see below).
 - **Integers past 38 digits** raise `DataError` before any I/O. The literal path
   sends the digits and the server rejects them (-494, "Invalid numeric").
-
-The `pycubrid.compat.cubriddb` wrapper cursors still accept only `int`, `str`
-and `None` scalars, so their `bool`, `float`, `bytes` and temporal arguments
-keep raising `ProgrammingError`. Their `int` arguments reach `bind_param()`, so
-a value past signed 32-bit now binds BIGINT or NUMERIC instead of raising
-`DataError`.
 
 ---
 
@@ -614,9 +602,7 @@ them implicitly.
   text on the client, so their `execute()` sends a complete SQL string without
   a typed value payload or statement-handle cache. Only the opt-in
   `executemany(..., prepared=True)` (#839) sends typed host variables; it
-  prepares the statement once per call and caches no handle across calls. The separate, opt-in
-  `pycubrid.compat.native` sync cursor has a narrow typed scalar contract;
-  its performance and plan-cache effects are not claimed here.
+  prepares the statement once per call and caches no handle across calls.
 - **Identifiers are not escaped.** Code paths that interpolate identifiers
   (notably `Cursor.callproc`, `pycubrid/cursor.py:328-336`) embed the
   identifier into the SQL text without quoting. Application code must validate

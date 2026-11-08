@@ -219,17 +219,9 @@ What you can do:
 - Keep committing once per batch, not once per row. Commit is already 53% of a 100-row batch
   and identical for both drivers.
 - For large MERGE batches, or when a batch is much slower than your own row-by-row
-  measurement, consider a prepared loop with the explicit `pycubrid.compat.native` cursor
-  (one `PREPARE`, then one execute per row). It reached 0.99-1.31× of `CUBRIDdb` for INSERT,
-  UPDATE and DELETE and 1.17× for MERGE at 10,000 rows. The measurement ran with autocommit off
-  and one explicit commit per batch; the harness set the driver's autocommit flag directly,
-  and the public way to get the same mode is `connection.set_autocommit(False)` followed by
-  `commit()`.
-  Measure it on your own workload first:
-  `bind_param()` takes only scalar INT, string and `NULL` values (collections and LOBs use the
-  dedicated `bind_set()` and `bind_lob()` APIs), and the error behaviour differs. A prepared
-  loop stops at the first failing row. A batch sends every statement to the server even after
-  one fails; `executemany()` raises the first returned error and, since #841, reports every
+  measurement, consider `executemany(..., prepared=True)` (#839, measured below). Measure it
+  on your own workload first, because its types and row failures differ from the default
+  batch. `executemany()` raises the first returned error and, since #841, reports every
   failed row on it (`batch_index`, `batch_errors`, `batch_rowcounts`; see
   [API_REFERENCE.md](API_REFERENCE.md#partial-failure-which-rows-failed)).
 - Do not use `execute()` in a loop as a faster alternative. It was 1.6-6.1× `CUBRIDdb`'s
@@ -277,7 +269,8 @@ the literal batch with the same workload, in the
 experiment. Autocommit was off, the commit was included, and the medians come from five trials on
 11.4 and three on the other versions, on a shared machine:
 
-- a prepared loop with `pycubrid.compat.native`: one `PREPARE`, then one execute per row;
+- a prepared loop with the `pycubrid.compat.native` cursor, since removed: one `PREPARE`, then
+  one execute per row;
 - a prototype of the `EXECUTE_ARRAY` request (function code 21): one `PREPARE`, one request
   carrying every row's bound values, one close. The prototype lived in the benchmark harness;
   pycubrid now sends this request with `executemany(..., prepared=True)` (#839, below).

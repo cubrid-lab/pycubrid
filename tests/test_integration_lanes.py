@@ -7,7 +7,6 @@ from pathlib import Path
 import pytest
 
 from scripts.check_integration_lanes import (
-    OFFICIAL_SKIP_REASON,
     ROOT,
     skip_category,
     verify_results,
@@ -39,55 +38,6 @@ def test_missing_slow_selector_fails_workflow_audit(tmp_path: Path) -> None:
 def test_broker_tls_and_unknown_skips_cannot_pass(reason: str) -> None:
     with pytest.raises(ValueError, match="unclassified"):
         skip_category("tests/test_integration.py::test_query", reason)
-
-
-def test_official_differential_skip_is_classified_only_for_its_module() -> None:
-    reason = OFFICIAL_SKIP_REASON
-    for identity in (
-        "tests/test_official_differential.py::test_official_claim[fetch-integer]",
-        "tests.test_official_differential::test_official_claim[fetch-integer]",
-    ):
-        assert skip_category(identity, reason) == "official-lane-only"
-    with pytest.raises(ValueError, match="unclassified"):
-        skip_category("tests/test_integration.py::test_query", reason)
-    with pytest.raises(ValueError, match="unclassified"):
-        skip_category(
-            "tests/test_official_differential.py::test_official_claim[fetch-integer]",
-            "CUBRID instance not available",
-        )
-
-
-def test_official_lane_rejects_every_skip(tmp_path: Path) -> None:
-    report = tmp_path / "official.xml"
-    report.write_text(
-        '<testsuite><testcase classname="tests.test_official_differential" name="a"/>'
-        '<testcase classname="tests.test_official_differential" name="b">'
-        f'<skipped message="{OFFICIAL_SKIP_REASON}"/></testcase></testsuite>'
-    )
-    assert verify_results(report)["classified_skips"][0]["category"] == "official-lane-only"
-    with pytest.raises(ValueError, match="accepts no skips"):
-        verify_results(report, "official")
-
-
-def test_official_lane_accepts_a_clean_report(tmp_path: Path) -> None:
-    report = tmp_path / "official.xml"
-    report.write_text(
-        '<testsuite><testcase classname="tests.test_official_differential" name="a"/></testsuite>'
-    )
-    assert verify_results(report, "official")["tests"] == 1
-
-
-@pytest.mark.parametrize("workflow", ["ci.yml", "integration-full.yml"])
-def test_missing_official_lane_fails_workflow_audit(tmp_path: Path, workflow: str) -> None:
-    target = tmp_path / ".github" / "workflows"
-    target.mkdir(parents=True)
-    for name in ("ci.yml", "integration-full.yml", "bug-hunt.yml"):
-        content = (ROOT / ".github" / "workflows" / name).read_text()
-        if name == workflow:
-            content = content.replace("integration and official_differential", "integration")
-        (target / name).write_text(content)
-    with pytest.raises(ValueError, match="no executable official"):
-        verify_workflows(tmp_path)
 
 
 def test_charset_lane_skip_is_classified_only_for_its_module() -> None:

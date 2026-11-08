@@ -72,7 +72,7 @@ class Lob:
         # Physical session the handle belongs to: a newly written LOB lives in
         # a temporary file of that session only (#839). read()/write() refuse
         # to send it on a later session (#932). A transport without a
-        # generation (compat.native's fixed-session one) checks it itself.
+        # generation is not fenced here.
         generation = getattr(connection, "_physical_generation", None)
         self._generation: int | None = generation if type(generation) is int else None
 

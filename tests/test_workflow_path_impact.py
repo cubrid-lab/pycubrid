@@ -18,7 +18,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 pytestmark = pytest.mark.repo_tooling
 
-LIVE = {"risk", "tls", "charset", "official"}
+LIVE = {"risk", "tls", "charset"}
 
 
 def _filters() -> dict[str, list[str]]:
@@ -83,17 +83,17 @@ def test_workflow_impact_table(name: str) -> None:
     ("path", "expected"),
     [
         ("pycubrid/aio/connection.py", {"code", "risk", "tls", "charset"}),
-        ("pycubrid/compat/__init__.py", {"code", "risk", "official"}),
-        ("pycubrid/protocol.py", {"code", "risk", "tls", "charset", "official"}),
-        ("pycubrid/_prepared_binding.py", {"code", "risk", "charset", "official"}),
+        ("pycubrid/compat/__init__.py", {"code", "risk"}),
+        ("pycubrid/protocol.py", {"code", "risk", "tls", "charset"}),
+        ("pycubrid/_prepared_binding.py", {"code", "risk", "charset"}),
         ("tests/test_tls_matrix_offline.py", {"code", "risk", "tls"}),
-        ("scripts/wait_for_cubrid.py", {"code", "risk", "tooling", "official"}),
+        ("scripts/wait_for_cubrid.py", {"code", "risk", "tooling"}),
         ("pyproject.toml", {"code", "risk", "tooling", "site"}),
         ("uv.lock", {"code", "risk", "tooling", "site"}),
         (".github/ci-wheels/pyyaml-6.0.3-1-py3-none-any.whl", {"code", "risk", "tooling", "site"}),
         ("docs/CI_POLICY.md", {"docs", "site"}),
         ("mkdocs.yml", {"code", "site", "tooling"}),
-        ("scripts/generate_llms_full.py", {"code", "risk", "tooling", "official", "site"}),
+        ("scripts/generate_llms_full.py", {"code", "risk", "tooling", "site"}),
         ("README.md", {"docs"}),
         # The documentation checks' own tests run in the tooling lane (#927).
         ("tests/test_check_docs_links.py", {"code", "risk", "tooling"}),

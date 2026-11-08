@@ -403,12 +403,11 @@ async def test_async_cursor_keeps_result_set_after_zero_date_on_fetch_page() -> 
     assert _closed_handles(connection) == [1]
 
 
-# --- pycubrid.compat.native stays fail-closed -------------------------------
+# --- the FC3 ExecutePacket reply stays fail-closed ---------------------------
 
 
-def test_native_prepared_zero_date_retires_session() -> None:
-    # The explicit prepared API keeps its fail-closed contract, as for #492
-    # and #413: any client-side decode failure retires the prepared session.
+def test_generation_fenced_zero_date_retires_session() -> None:
+    # As for #492 and #413: any client-side decode failure retires the session.
     conn, sock = make_edge_connection()
     sock.recv_into.side_effect = _response_socket().recv_into.side_effect
     packet = MagicMock()

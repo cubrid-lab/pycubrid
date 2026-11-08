@@ -11,10 +11,10 @@ data problem: ``PacketReader._parse_json`` now raises ``DataError`` (the
 same complete-reply check as for invalid UTF-8 and zero dates before
 re-raising it, so an ordinary connection and cursor stay usable. A
 caller-supplied ``json_deserializer`` is not wrapped: only the built-in
-``json.loads`` path is reclassified. The explicit prepared API
-(``pycubrid.compat.native``), which threads the same ``json_deserializer``,
-keeps its documented fail-closed contract: it raises ``OperationalError`` and
-retires the session, as for invalid UTF-8 and zero dates.
+``json.loads`` path is reclassified. A request sent with
+``expected_generation``, such as an FC3 ``ExecutePacket`` reply, stays
+fail-closed: it raises ``OperationalError`` and retires the session, as for
+invalid UTF-8 and zero dates.
 
 All tests below are offline/synthetic. A live reproduction was attempted on a
 dedicated CUBRID 11.4.6 container: CUBRID validates JSON text strictly at
@@ -287,12 +287,11 @@ async def test_async_cursor_keeps_result_set_after_invalid_json_on_fetch_page() 
     assert _closed_handles(connection) == [1]
 
 
-# --- pycubrid.compat.native stays fail-closed -------------------------------
+# --- the FC3 ExecutePacket reply stays fail-closed ---------------------------
 
 
-def test_native_prepared_invalid_json_retires_session() -> None:
-    # The explicit prepared API keeps its fail-closed contract, as for #492
-    # and #512: any client-side decode failure retires the prepared session.
+def test_generation_fenced_invalid_json_retires_session() -> None:
+    # As for #492 and #512: any client-side decode failure retires the session.
     conn, sock = make_edge_connection()
     sock.recv_into.side_effect = _response_socket().recv_into.side_effect
     payload = _encode_json(BAD_JSON)

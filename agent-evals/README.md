@@ -6,7 +6,7 @@ test that detects the defect, updated the documentation, avoided SQL built by
 string formatting, and reported honestly what it did and did not run (#925).
 
 The evaluations measure an attempt; they do not measure the driver. The test
-suite, the official differential checks, the full integration matrix and the
+suite, the full integration matrix and the
 release gates stay the only source for whether pycubrid's code is correct, and
 nothing here changes them or the default CI matrices.
 

@@ -803,8 +803,7 @@ update the system zoneinfo)
 
 연결은 계속 사용할 수 있습니다. `+09:00` 같은 오프셋은 데이터베이스가 필요 없으며,
 ±24시간을 벗어난 오프셋은 `DataError: cannot resolve CUBRID timezone offset ...`을
-발생시킵니다. 명시적 prepared API(`pycubrid.compat.native`)는 잘못된 UTF-8과
-마찬가지로 fail-closed로 동작하여 `OperationalError`를 발생시키고 세션을 폐기합니다.
+발생시킵니다.
 타임존 해석 없이 값을 읽으려면 `SELECT TO_CHAR(col)`처럼 텍스트로 조회하세요.
 
 이전 릴리스에서는 `Unknown timezone token`을 로그에 남기고 naive `datetime`을
@@ -857,8 +856,7 @@ SELECT id FROM t WHERE d = DATE'0000-00-00';                     -- 0 값 찾기
 ```
 
 다른 타입에는 `DATETIME'0000-00-00 00:00:00'`(또는 해당 타입)을 사용하세요.
-명시적 prepared API(`pycubrid.compat.native`)는 잘못된 UTF-8과 마찬가지로
-fail-closed로 동작하여 `OperationalError`를 발생시키고 세션을 폐기합니다. 도중에
+도중에
 잘린 응답은 0 날짜가 들어 있더라도 여전히
 `OperationalError: malformed response from broker`입니다.
 
@@ -893,11 +891,6 @@ line 1 column 1 (char 0)
 `str.__new__`는 실패하지 않습니다. 위의 재분류는 내장 `json.loads` 경로에만
 적용됩니다: 호출자가 지정한 `json_deserializer` 콜러블은 그대로 호출되며,
 그것이 발생시키는 예외는 `DataError`로 바뀌지 않습니다.
-
-이는 일반 커서의 동작입니다. 같은 `json_deserializer`를 사용하는 명시적
-prepared API(`pycubrid.compat.native`)는 잘못된 UTF-8이나 0 날짜와
-마찬가지로 fail-closed로 동작하여 `OperationalError`를 발생시키고 세션을
-폐기합니다.
 
 이전 릴리스에서는 `OperationalError: malformed response from broker`를 발생시키고
 연결을 닫았습니다 (#543).

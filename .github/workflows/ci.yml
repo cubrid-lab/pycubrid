@@ -75,7 +75,6 @@ jobs:
       extended: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.code == 'true' && steps.reuse.outputs.code != 'true' && github.event_name != 'pull_request' }}
       tls: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.code == 'true' && steps.reuse.outputs.code != 'true' && (github.event_name != 'pull_request' || steps.filter.outputs.tls == 'true') }}
       charset: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.code == 'true' && steps.reuse.outputs.code != 'true' && (github.event_name != 'pull_request' || steps.filter.outputs.charset == 'true') }}
-      official: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.code == 'true' && steps.reuse.outputs.code != 'true' && (github.event_name != 'pull_request' || steps.filter.outputs.official == 'true') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -171,19 +170,15 @@ jobs:
               - 'docs/overrides/**'
               - 'mkdocs.yml'
               - 'tests/test_docs_channel_notice.py'
-              - 'tests/test_official_fixture_setup.py'
-              - 'tests/test_upstream_scenario_ledger.py'
-              - 'tests/fixtures/upstream_scenarios.csv'
               # Every module with repo_tooling tests, which only this lane
               # runs, and the files only they read (#983). The guard in
               # tests/test_workflow_path_impact.py keeps the module list whole.
               - 'tests/test_agent_eval*.py'
               - 'tests/test_check_docs_translation.py'
-              - 'tests/test_check_official_differential.py'
               - 'tests/test_check_public_api.py'
               - 'tests/test_check_release_title.py'
               - 'tests/test_collect_repro.py'
-              - 'tests/test_compat_factories.py'
+              - 'tests/test_compat_removed.py'
               - 'tests/test_compose_release_changelog.py'
               - 'tests/test_docs_reason.py'
               - 'tests/test_downstream_corpus.py'
@@ -234,17 +229,6 @@ jobs:
               - 'tests/test_integration_charset.py'
               - '.github/workflows/ci.yml'
               - 'pycubrid/aio/**'
-              - 'pycubrid/_cursor_common.py'
-            official:
-              - 'pycubrid/compat/**'
-              - 'pycubrid/protocol.py'
-              - 'pycubrid/_prepared_binding.py'
-              - 'pycubrid/cursor.py'
-              - 'tests/test_official*.py'
-              - 'tests/fixtures/official*'
-              - 'scripts/**'
-              - '.github/workflows/ci.yml'
-
               - 'pycubrid/_cursor_common.py'
   doc-lint:
     name: Documentation lint
@@ -968,124 +952,12 @@ jobs:
         if: always()
         run: docker stop cubrid-tls || true
 
-  official-differential:
-    # Not using make integration because it needs CUBRID 10.2 and 11.4 at once plus the
-    # pinned official oracle;
-    # see docs/DEVELOPMENT.md#ci-live-jobs-and-the-make-contract (#1023).
-    # Starts with lint/type/offline (#760); ci-gate still requires all of them.
-    needs: [validate-target, detect-changes]
-    if: needs.detect-changes.outputs.official == 'true'
-    # Claims-driven differential against the pinned official CUBRIDdb driver
-    # (#446): tests/fixtures/official_differential_claims.json, one live case
-    # per claim, both servers, no accepted skip. The oracle build is cached by
-    # the build script hash, which holds both source pins.
-    name: official differential (Python 3.11 / CUBRID 10.2 + 11.4)
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    services:
-      cubrid102:
-        image: cubrid/cubrid:10.2
-        env:
-          CUBRID_DB: testdb
-        ports:
-          - 33102:33000
-        options: >-
-          --health-cmd "csql -u dba testdb -c 'SELECT 1'"
-          --health-interval 15s
-          --health-timeout 10s
-          --health-retries 10
-          --health-start-period 30s
-      cubrid114:
-        image: cubrid/cubrid:11.4
-        env:
-          CUBRID_DB: testdb
-        ports:
-          - 33114:33000
-        options: >-
-          --health-cmd "csql -u dba testdb -c 'SELECT 1'"
-          --health-interval 15s
-          --health-timeout 10s
-          --health-retries 10
-          --health-start-period 30s
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
-        with:
-          ref: ${{ inputs.sha || github.sha }}
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
-        id: python
-        with:
-          python-version: "3.11"
-      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
-        with:
-          python-version: "3.11"
-          version: "0.12.17"
-          enable-cache: true
-          cache-dependency-glob: |
-            pyproject.toml
-            uv.lock
-            .github/ci-wheels/*.whl
-          cache-suffix: ${{ github.job }}
-      - name: Install pycubrid
-        run: |
-          uv export --locked --no-build --no-default-groups --group dev --no-emit-project --format requirements-txt --output-file "$RUNNER_TEMP/requirements.txt"
-          uv pip install --system --require-hashes --only-binary :all: -r "$RUNNER_TEMP/requirements.txt"
-          uv pip install --system --no-index --no-deps --no-build-isolation -e .
-          uv pip freeze --system
-      - name: Restore the official oracle build
-        id: oracle-cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v4
-        with:
-          path: ${{ runner.temp }}/official-oracle
-          key: official-oracle-${{ runner.os }}-py${{ steps.python.outputs.python-version }}-${{ hashFiles('scripts/build_official_oracle.py') }}
-      - name: Build the pinned official oracle
-        if: steps.oracle-cache.outputs.cache-hit != 'true'
-        run: python scripts/build_official_oracle.py --out "$RUNNER_TEMP/official-oracle" --work "$RUNNER_TEMP/official-oracle-work"
-      - name: Verify the official oracle
-        run: python scripts/build_official_oracle.py --out "$RUNNER_TEMP/official-oracle" --verify
-      - name: Wait for CUBRID 10.2 and 11.4
-        run: |
-          set -euo pipefail
-          for port in 33102 33114; do
-            CUBRID_TEST_PORT="$port" python scripts/wait_for_cubrid.py
-          done
-      - name: Run the official differential
-        env:
-          CUBRID_TEST_HOST: localhost
-          PYCUBRID_OFFICIAL_ORACLE_REQUIRED: "1"
-          PYCUBRID_DIFFERENTIAL_EVIDENCE: official-evidence.jsonl
-        run: |
-          set -euo pipefail
-          export PYTHONPATH="$RUNNER_TEMP/official-oracle"
-          export PYCUBRID_OFFICIAL_ORACLE_MANIFEST="$RUNNER_TEMP/official-oracle/oracle.json"
-          python scripts/check_official_differential.py
-          python scripts/check_integration_lanes.py
-          for port in 33102 33114; do
-            export CUBRID_TEST_PORT="$port"
-            python -m pytest tests/ -m "integration and official_differential" -v --tb=short \
-              --junitxml="official-$port-results.xml"
-            python scripts/check_integration_lanes.py --lane official --results "official-$port-results.xml"
-          done
-          python scripts/check_official_differential.py --evidence official-evidence.jsonl \
-            --json-out official-evidence-summary.json --summary-out "$GITHUB_STEP_SUMMARY"
-      - name: Upload differential evidence
-        if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
-        with:
-          name: official-differential-evidence
-          path: |
-            official-evidence.jsonl
-            official-evidence-summary.json
-            official-*-results.xml
-            ${{ runner.temp }}/official-oracle/oracle.json
-          if-no-files-found: ignore
-          retention-days: 30
-
   ci-gate:
     name: CI Gate (all checks must pass)
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    needs: [validate-target, detect-changes, lint, doc-lint, docs-check, typecheck, offline-tests, packaging-smoke-test, integration-tests, repo-tooling-tests, docs-build, compat-check, integration-charset, integration-tls, official-differential]
+    needs: [validate-target, detect-changes, lint, doc-lint, docs-check, typecheck, offline-tests, packaging-smoke-test, integration-tests, repo-tooling-tests, docs-build, compat-check, integration-charset, integration-tls]
     steps:
       - name: Check selected job results
         env:
@@ -1117,8 +989,6 @@ jobs:
           E_INTEGRATION_CHARSET: ${{ needs.detect-changes.outputs.charset }}
           R_INTEGRATION_TLS: ${{ needs.integration-tls.result }}
           E_INTEGRATION_TLS: ${{ needs.detect-changes.outputs.tls }}
-          R_OFFICIAL_DIFFERENTIAL: ${{ needs.official-differential.result }}
-          E_OFFICIAL_DIFFERENTIAL: ${{ needs.detect-changes.outputs.official }}
         run: |
           set -euo pipefail
           check() {
@@ -1143,7 +1013,6 @@ jobs:
           check compat-check "$R_COMPAT_CHECK" "$E_COMPAT_CHECK"
           check integration-charset "$R_INTEGRATION_CHARSET" "$E_INTEGRATION_CHARSET"
           check integration-tls "$R_INTEGRATION_TLS" "$E_INTEGRATION_TLS"
-          check official-differential "$R_OFFICIAL_DIFFERENTIAL" "$E_OFFICIAL_DIFFERENTIAL"
 
       - name: Verify requested manual commit and current PR head
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0

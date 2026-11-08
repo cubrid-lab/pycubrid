@@ -92,7 +92,7 @@ graph TD
     pkg --> connection["connection.py - Sync Connection class"]
     pkg --> cursor["cursor.py - Sync Cursor class"]
     pkg --> aio["aio/ - asyncio Connection and Cursor"]
-    pkg --> compat["compat/ - opt-in CUBRIDdb and native compatibility layer"]
+    pkg --> compat["compat/ - error-only tombstone for the removed namespaces"]
     pkg --> conncommon[_connection_common.py - Logic shared by sync and async connections]
     pkg --> cursorcommon[_cursor_common.py - Logic shared by sync and async cursors]
     pkg --> prepared[_prepared_binding.py - Private typed bind encoders]
@@ -755,7 +755,6 @@ filename-glob inventory:
 | Normal | `integration and not slow and not tls` | Regular PR/push CI, full compatibility matrix, and weekly bug hunt |
 | Slow | `integration and slow and not tls` | Weekly/manual bug hunt: soak, chaos, concurrency stress, and the large prepared batch measurement |
 | TLS | `integration and tls` | Dedicated TLS jobs in regular CI and the full workflow |
-| Official differential | `integration and official_differential` | Required `official-differential` job (Python 3.11, CUBRID 10.2 and 11.4) in regular CI and the full workflow |
 
 The large prepared batch measurement (#854) runs 10,000 and 100,000 rows of
 `executemany(..., prepared=True)`, sync and async, with a list and a one-shot
@@ -784,32 +783,10 @@ See [PERFORMANCE.md](PERFORMANCE.md#large-prepared-batch) for the recorded resul
 
 `python scripts/check_integration_lanes.py` collects the current marker inventory
 and checks that each lane has an executable workflow command. The JUnit audit
-(`--results FILE`) fails unknown skips or empty/all-skipped runs. Outside its own
-lane the official-driver differential skips as `official-lane-only`, and platforms
+(`--results FILE`) fails unknown skips or empty/all-skipped runs. Platforms
 without `/proc` have an explicit skip category. Missing broker/TLS configuration
-is not an accepted CI skip. `--lane official` accepts no skip at all.
+is not an accepted CI skip.
 
-The official-driver differential (#446) compares pycubrid with the official
-`CUBRIDdb`/`_cubrid` driver built from pinned source. To reproduce it locally
-(Linux x86_64, git, CMake 3.21 or newer, a C compiler and Python 3.11 headers),
-run:
-
-```bash
-python3.11 scripts/build_official_oracle.py --out .official-oracle
-PYTHONPATH=.official-oracle PYCUBRID_OFFICIAL_ORACLE_REQUIRED=1 \
-  PYCUBRID_OFFICIAL_ORACLE_MANIFEST=.official-oracle/oracle.json \
-  PYCUBRID_DIFFERENTIAL_EVIDENCE=official-evidence.jsonl \
-  CUBRID_TEST_URL=cubrid://dba@localhost:33000/testdb \
-  python3.11 -m pytest tests/ -m "integration and official_differential"
-python scripts/check_official_differential.py --evidence official-evidence.jsonl
-```
-
-A new or changed claim goes in `tests/fixtures/official_differential_claims.json`.
-Its case goes in `CASES` in `tests/test_official_differential.py`. Then run
-`python scripts/check_official_differential.py --write-docs`. A divergence is
-either fixed, or recorded as a `deviation` with a reason, an issue and both
-observed values. Never edit an expected value just to match current output. See
-[the compatibility guide](UPSTREAM_COMPATIBILITY.md#official-driver-differential-gate-446).
 The weekly bug hunt also retains separate offline protocol, fault-broker, and
 placeholder checks under the wider Hypothesis profile.
 
@@ -1051,8 +1028,6 @@ today, so every live job keeps its own service containers and steps:
 | `integration-full.yml` | `integration-tls` | keep | Same as the `ci.yml` TLS job, over the full TLS matrix |
 | `ci.yml` | `integration-charset` | keep | Needs an EUC-KR database (`CUBRID_LOCALE=ko_KR.euckr`), which the Compose service does not set; runs only `tests/test_integration_charset.py` |
 | `integration-full.yml` | `integration-charset` | keep | Same as the `ci.yml` charset job |
-| `ci.yml` | `official-differential` | keep | Needs CUBRID 10.2 and 11.4 at the same time (ports 33102, 33114) and the pinned official oracle build; Compose starts one server |
-| `integration-full.yml` | `official-differential` | keep | Same as the `ci.yml` official differential |
 | `integration-full.yml` | `version-differential` | keep | Needs CUBRID 10.2, 11.0, 11.2 and 11.4 at the same time (`CUBRID_VERSION_MATRIX`) |
 | `bug-hunt.yml` | `property-and-fault` | keep | Weekly wide Hypothesis profile, separate slow soak/chaos lane, `xunit1` JUnit files and repro collection with server info |
 | `bug-hunt.yml` | `perf-trend` | keep | Runs `tests/test_benchmarks.py` against a cached baseline, not the `integration` marker |

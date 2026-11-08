@@ -196,7 +196,7 @@ flowchart TD
 할 수 있는 일:
 
 - commit은 행마다가 아니라 배치마다 한 번만 하세요. commit은 100행 배치 시간의 53%를 차지하며 두 드라이버에서 같습니다.
-- 큰 MERGE 배치이거나, 배치가 직접 측정한 행 단위 실행보다 훨씬 느리다면 명시적 `pycubrid.compat.native` 커서로 준비된 루프(`PREPARE` 한 번, 이후 행마다 실행 한 번)를 고려하세요. 10,000행에서 INSERT, UPDATE, DELETE는 `CUBRIDdb`의 0.99-1.31배, MERGE는 1.17배였습니다. 측정은 autocommit을 끄고 배치마다 명시적 commit을 한 번 하는 방식으로 했으며, 측정 하네스는 드라이버의 autocommit 플래그를 직접 설정했습니다. 같은 모드를 얻는 공개 방법은 `connection.set_autocommit(False)` 후 `commit()`입니다. 먼저 자신의 워크로드에서 측정하세요. `bind_param()`은 스칼라 INT, 문자열, `NULL`만 받고(컬렉션과 LOB은 전용 `bind_set()`, `bind_lob()` API를 씁니다), 오류 동작도 다릅니다. 준비된 루프는 처음 실패한 행에서 멈춥니다. 배치는 한 문장이 실패해도 모든 문장을 서버로 보냅니다. `executemany()`는 반환된 첫 오류를 예외로 발생시키며, #841부터 그 예외에 실패한 모든 행을 담습니다(`batch_index`, `batch_errors`, `batch_rowcounts`, [API_REFERENCE.md](API_REFERENCE.md#부분-실패-실패한-행) 참고).
+- 큰 MERGE 배치이거나, 배치가 직접 측정한 행 단위 실행보다 훨씬 느리다면 `executemany(..., prepared=True)`(#839, 아래 측정 참고)를 고려하세요. 타입과 행 실패 동작이 기본 배치와 다르므로 먼저 자신의 워크로드에서 측정하세요. `executemany()`는 반환된 첫 오류를 예외로 발생시키며, #841부터 그 예외에 실패한 모든 행을 담습니다(`batch_index`, `batch_errors`, `batch_rowcounts`, [API_REFERENCE.md](API_REFERENCE.md#부분-실패-실패한-행) 참고).
 - `execute()`를 반복문에서 쓰는 것은 더 빠른 대안이 아닙니다. 행마다 새로 준비하고 요청이 추가되므로 `CUBRIDdb`의 `executemany()`의 1.6-6.1배였습니다.
 
 확인되지 않은 것: CUBRID 10.2, 11.0, 11.2에서 `CUBRIDdb`와의 격차, 그리고 서버 시간이 CAS와 엔진에 어떻게 나뉘는지. 준비된 배치 경로는 네 버전 모두에서 측정했습니다(다음 절 참고). 플레이스홀더 토큰화는 이제 호출마다 한 번만 합니다([아래](#executemany-호출마다-한-번만-하는-플레이스홀더-토큰화) 참고).
@@ -238,7 +238,7 @@ Docker 서버에 autocommit을 끄고 실행하며 commit은 CPU 측정 밖에 �
 [`pycubrid-prepared-batch`](https://github.com/cubrid-lab/cubrid-benchmark/tree/main/experiments/pycubrid-prepared-batch)
 실험에서 측정했습니다. autocommit은 끄고 commit을 포함했으며, 중앙값은 11.4에서 5회, 다른 버전에서 3회 시행으로 얻었습니다. 다른 사용자도 쓰는 머신에서 측정했습니다.
 
-- `pycubrid.compat.native`의 준비된 루프: `PREPARE` 한 번, 이후 행마다 실행 한 번
+- 이후 제거된 `pycubrid.compat.native` 커서의 준비된 루프: `PREPARE` 한 번, 이후 행마다 실행 한 번
 - `EXECUTE_ARRAY` 요청(함수 코드 21)의 프로토타입: `PREPARE` 한 번, 모든 행의 바인딩 값을 담은 요청 한 번, 닫기 한 번. 프로토타입은 벤치마크 하네스 안에 있었고, 이제 pycubrid는 `executemany(..., prepared=True)`로 이 요청을 보냅니다(#839, 아래 참고).
 
 10,000행에서 `EXECUTE_ARRAY` 프로토타입의 시간을 `executemany()`에 대한 비율로 나타낸 값:

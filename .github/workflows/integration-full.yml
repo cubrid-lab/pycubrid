@@ -5,8 +5,7 @@ name: Integration Full Matrix
 # Full verification runs only on explicit dispatch or a release workflow call.
 # (workflow_dispatch), and as the release gate: publish-pypi.yml calls it through
 # workflow_call with the release commit SHA, plus the cross-version behavior
-# differential (#351) that needs all four CUBRID versions at once, and the
-# official-driver differential (#446) against the pinned CUBRIDdb oracle, and
+# differential (#351) that needs all four CUBRID versions at once, and
 # the Python 3.11/3.15 offline suite, lint, type checking, the public-API check
 # and the repository tooling tests at the same SHA (#750).
 
@@ -551,117 +550,6 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
-  official-differential:
-    # Not using make integration because it needs CUBRID 10.2 and 11.4 at once plus the
-    # pinned official oracle;
-    # see docs/DEVELOPMENT.md#ci-live-jobs-and-the-make-contract (#1023).
-    needs: validate-target
-    # Claims-driven differential against the pinned official CUBRIDdb driver
-    # (#446): tests/fixtures/official_differential_claims.json, one live case
-    # per claim, both servers, no accepted skip. The oracle build is cached by
-    # the build script hash, which holds both source pins.
-    name: official differential (Python 3.11 / CUBRID 10.2 + 11.4)
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    services:
-      cubrid102:
-        image: cubrid/cubrid:10.2
-        env:
-          CUBRID_DB: testdb
-        ports:
-          - 33102:33000
-        options: >-
-          --health-cmd "csql -u dba testdb -c 'SELECT 1'"
-          --health-interval 15s
-          --health-timeout 10s
-          --health-retries 10
-          --health-start-period 30s
-      cubrid114:
-        image: cubrid/cubrid:11.4
-        env:
-          CUBRID_DB: testdb
-        ports:
-          - 33114:33000
-        options: >-
-          --health-cmd "csql -u dba testdb -c 'SELECT 1'"
-          --health-interval 15s
-          --health-timeout 10s
-          --health-retries 10
-          --health-start-period 30s
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
-        with:
-          ref: ${{ inputs.sha || github.sha }}
-          persist-credentials: false
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
-        id: python
-        with:
-          python-version: "3.11"
-      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
-        with:
-          python-version: "3.11"
-          version: "0.12.17"
-          enable-cache: auto
-          cache-dependency-glob: |
-            pyproject.toml
-            uv.lock
-            .github/ci-wheels/*.whl
-          cache-suffix: ${{ github.job }}
-      - name: Install pycubrid
-        run: |
-          uv export --locked --no-build --no-default-groups --group dev --no-emit-project --format requirements-txt --output-file "$RUNNER_TEMP/requirements.txt"
-          uv pip install --system --require-hashes --only-binary :all: -r "$RUNNER_TEMP/requirements.txt"
-          uv pip install --system --no-index --no-deps --no-build-isolation -e .
-          uv pip freeze --system
-      - name: Restore the official oracle build
-        id: oracle-cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v4
-        with:
-          path: ${{ runner.temp }}/official-oracle
-          key: official-oracle-${{ runner.os }}-py${{ steps.python.outputs.python-version }}-${{ hashFiles('scripts/build_official_oracle.py') }}
-      - name: Build the pinned official oracle
-        if: steps.oracle-cache.outputs.cache-hit != 'true'
-        run: python scripts/build_official_oracle.py --out "$RUNNER_TEMP/official-oracle" --work "$RUNNER_TEMP/official-oracle-work"
-      - name: Verify the official oracle
-        run: python scripts/build_official_oracle.py --out "$RUNNER_TEMP/official-oracle" --verify
-      - name: Wait for CUBRID 10.2 and 11.4
-        run: |
-          set -euo pipefail
-          for port in 33102 33114; do
-            CUBRID_TEST_PORT="$port" python scripts/wait_for_cubrid.py
-          done
-      - name: Run the official differential
-        env:
-          CUBRID_TEST_HOST: localhost
-          PYCUBRID_OFFICIAL_ORACLE_REQUIRED: "1"
-          PYCUBRID_DIFFERENTIAL_EVIDENCE: official-evidence.jsonl
-        run: |
-          set -euo pipefail
-          export PYTHONPATH="$RUNNER_TEMP/official-oracle"
-          export PYCUBRID_OFFICIAL_ORACLE_MANIFEST="$RUNNER_TEMP/official-oracle/oracle.json"
-          python scripts/check_official_differential.py
-          python scripts/check_integration_lanes.py
-          for port in 33102 33114; do
-            export CUBRID_TEST_PORT="$port"
-            python -m pytest tests/ -m "integration and official_differential" -v --tb=short \
-              --junitxml="official-$port-results.xml"
-            python scripts/check_integration_lanes.py --lane official --results "official-$port-results.xml"
-          done
-          python scripts/check_official_differential.py --evidence official-evidence.jsonl \
-            --json-out official-evidence-summary.json --summary-out "$GITHUB_STEP_SUMMARY"
-      - name: Upload differential evidence
-        if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
-        with:
-          name: official-differential-evidence
-          path: |
-            official-evidence.jsonl
-            official-evidence-summary.json
-            official-*-results.xml
-            ${{ runner.temp }}/official-oracle/oracle.json
-          if-no-files-found: ignore
-          retention-days: 30
-
   offline-endpoints:
     needs: validate-target
     # The Python 3.11/3.15 offline suite with the 95% floor (#745) at the exact
@@ -897,7 +785,7 @@ jobs:
     name: Full compatibility matrix result
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    needs: [validate-target, integration-full, integration-tls, integration-charset, version-differential, official-differential, offline-endpoints, lint, typecheck, compat-check, repo-tooling-tests]
+    needs: [validate-target, integration-full, integration-tls, integration-charset, version-differential, offline-endpoints, lint, typecheck, compat-check, repo-tooling-tests]
     if: always()
     steps:
       - name: Require the full matrix to pass
@@ -920,10 +808,6 @@ jobs:
           fi
           if [ "${{ needs.version-differential.result }}" != "success" ]; then
             echo "::error::CUBRID version differential failed: ${{ needs.version-differential.result }}"
-            exit 1
-          fi
-          if [ "${{ needs.official-differential.result }}" != "success" ]; then
-            echo "::error::Official driver differential failed: ${{ needs.official-differential.result }}"
             exit 1
           fi
           if [ "${{ needs.offline-endpoints.result }}" != "success" ]; then

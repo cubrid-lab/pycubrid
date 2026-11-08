@@ -26,9 +26,9 @@ supported Python (see [Offline endpoint versions](#offline-endpoint-versions)).
 Other workflow changes select the repository-tooling lane instead (see
 [Workflow change impact](#workflow-change-impact)). Other code
 changes retain the bounded smoke suite. Repository tooling tests run in one Linux lane when tooling changes.
-Every test module with `repo_tooling` tests (such as `tests/test_official_fixture_setup.py`
-and `tests/test_upstream_scenario_ledger.py`) and the files only those tests read (such as
-`tests/fixtures/upstream_scenarios.csv`, `agent-evals/**`, `THIRD_PARTY_LICENSES.md`,
+Every test module with `repo_tooling` tests (such as `tests/test_check_public_api.py`
+and `tests/test_compat_removed.py`) and the files only those tests read (such as
+`agent-evals/**`, `THIRD_PARTY_LICENSES.md`,
 `release-please-config.json` and `api-baseline.json`) explicitly select that same tooling
 lane, and a guard in `tests/test_workflow_path_impact.py`, which the always-on lint job
 also runs, fails when such a module does not;
@@ -65,7 +65,7 @@ before making a cost claim.
 
 The deep bug-hunt workflow runs weekly (Thursday 04:00 UTC) with one Python 3.12/CUBRID 11.4 cell,
 skipping unchanged weeks and retaining its mutation/performance/downstream checks and wide Hypothesis profile.
-TLS, EUC-KR and official differential jobs are selected by related paths on PRs;
+TLS and EUC-KR jobs are selected by related paths on PRs;
 they remain available in main, changed-weekly and full release validation.
 
 ## Event tiers and cost evidence
@@ -153,7 +153,6 @@ Median per-job runner minutes on successful code pushes:
 | Live endpoints | `ci.yml` `integration-tests`; `integration-full.yml` `integration-full` (5 × 4) | Risk PR: 3.14/11.4. Main push, weekly, dispatch: plus 3.11/10.2. Release and full dispatch: all 20 cells |
 | TLS | `ci.yml` `integration-tls` (3.14/11.4); `integration-full.yml` `integration-tls` (3.11 + 3.14 + 3.15) | TLS-path PR, non-PR code; release and full dispatch |
 | EUC-KR charset | `ci.yml` and `integration-full.yml` `integration-charset` | Charset-path PR, non-PR code; release and full dispatch |
-| Official CUBRIDdb differential | `ci.yml` and `integration-full.yml` `official-differential` | Official-path PR, non-PR code; release and full dispatch |
 | CUBRID version differential | `integration-full.yml` `version-differential` | Release and full dispatch |
 | Property, protocol, state-machine, fault, chaos, soak (wide profile) | `bug-hunt.yml` `property-and-fault` | Thursday 04:00 UTC with changes in the previous 7 days, and dispatch |
 | Mutation testing | `bug-hunt.yml` `mutation` | Same as bug hunt |
@@ -197,8 +196,8 @@ Median per-job runner minutes on successful code pushes:
     different cell and profile from `ci.yml`'s 3.11/3.15 cells, so it stays.
 - **The release-merge overlap is kept.**
   - **The overlap.** On a release commit, the `ci.yml` push run's live lanes
-    (`integration-tests` 3.14/11.4 and 3.11/10.2, TLS 3.14/11.4, charset,
-    official differential) are a subset of `integration-full.yml` on the same
+    (`integration-tests` 3.14/11.4 and 3.11/10.2, TLS 3.14/11.4, charset)
+    are a subset of `integration-full.yml` on the same
     SHA, with identical commands. That is about 6.9 runner minutes per release
     (two releases in the window).
   - **Why it stays.** Skipping them would make the push run's evidence depend
@@ -298,7 +297,7 @@ already ran it, so a missing or failed endpoint cell cannot turn the gate green.
 ## Workflow change impact
 
 Changed-path selection follows a per-workflow impact table (#761). Only `ci.yml`
-selects the live PR lanes (`risk`, `tls`, `charset`, `official`), because it defines
+selects the live PR lanes (`risk`, `tls`, `charset`), because it defines
 and runs them. Every other workflow under `.github/` selects the repository-tooling
 lane, whose policy and workflow tests parse and check it; the live lanes of
 `ci.yml` do not execute another workflow's jobs, so running them adds no detection.
@@ -316,8 +315,8 @@ file and against representative source, test and documentation paths.
 
 ## Parallel live lanes
 
-`integration-tests`, `integration-charset`, `integration-tls` and
-`official-differential` depend only on `validate-target` and `detect-changes`
+`integration-tests`, `integration-charset` and `integration-tls`
+depend only on `validate-target` and `detect-changes`
 (#760), so they start alongside lint, type checking and offline tests instead of
 after them. `validate-target` stays a dependency because it verifies the manual
 dispatch SHA against the PR head. `ci-gate` still needs every job, so a lint, type or

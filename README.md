@@ -29,8 +29,8 @@
 > compatible but may change in a MINOR following an individual maintainer
 > decision, user-impact assessment and clear migration notes. Earlier
 > deprecation warnings are preferred when practical; there is no universal
-> 28-day wait for ordinary extensions. The already announced `pycubrid.compat`
-> retirement retains its [separate published-warning and 28-day requirement](docs/COMPAT_MIGRATION.md).
+> 28-day wait for ordinary extensions. The former `pycubrid.compat` namespaces
+> were removed; see the [migration guide](docs/COMPAT_MIGRATION.md).
 > PATCH releases remain compatible except narrow security exceptions.
 > This prospectively revises the earlier broader 1.x extension guarantee:
 > a `<2.0` dependency range alone cannot prevent a disclosed breaking MINOR.
