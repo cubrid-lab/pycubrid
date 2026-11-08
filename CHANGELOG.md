@@ -3705,19 +3705,17 @@ and breaking changes will only occur in major version bumps (2.0+).
 
 ## [0.7.0] - 2026-04-04
 
-### Added
-- `docs/SUPPORT_MATRIX.md`: Comprehensive support matrix documenting Python versions,
-  CUBRID versions, PEP 249 compliance, data type mappings, driver features, and known
-  limitations — defines the 1.0 support boundary
-- Connection pooling section in `docs/CONNECTION.md` clarifying that pycubrid has no
-  built-in pool and recommending SQLAlchemy or external pooling
+This stabilization release documents the intended support boundary for the upcoming 1.0 series. It adds no new database runtime API: its main changes are support guidance and a correction to the connection documentation.
+
+### Documentation
+
+- **Supported versions and feature limits** — Added a Support Matrix describing the then-documented Python 3.10–3.13 and CUBRID 10.2–11.4 range, DB-API support, data-type behavior and known limitations. At this version, collection values are returned as raw bytes, JSON decoding and native async are unavailable, and there is no built-in connection pool ([commit 4f7caf2](https://github.com/cubrid-lab/pycubrid/commit/4f7caf26)) by @yeongseon.
+
+- **External connection pooling** — The Connection guide now explains that each `pycubrid.connect()` establishes a connection and suggests SQLAlchemy's pool or an external pooling library when an application needs reuse ([commit 4f7caf2](https://github.com/cubrid-lab/pycubrid/commit/4f7caf26)) by @yeongseon.
 
 ### Fixed
-- README documentation table: Removed incorrect "connection pool" reference from
-  Connection guide description — pycubrid has no driver-level connection pool
 
-### Changed
-- Version bumped to 0.7.0 (stabilization release on path to 1.0)
+- **README connection guide description** — Removed an incorrect claim that pycubrid itself supplies a connection pool ([commit 4f7caf2](https://github.com/cubrid-lab/pycubrid/commit/4f7caf26)) by @yeongseon.
 
 ## [0.6.0] - 2026-03-28
 
