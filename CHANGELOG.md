@@ -3604,11 +3604,11 @@ This release documents and CI-checks the 1.x public API compatibility contract, 
 
 ## [1.4.0] - 2026-05-13
 
-This release adds TLS to asynchronous connections, improves consistency between synchronous and asynchronous implementations and strengthens type checking. It also validates fetch sizes and expands integration coverage.
+This release adds **async TLS configuration and transport plumbing**, improves consistency between synchronous and asynchronous implementations, and strengthens type checking. **Working SSL=ON broker TLS was not yet available in this tag:** the transport upgraded too early in the handshake; the v1.5.0 release fixes the broker TLS sequence.
 
 ### Added
 
-- **TLS/SSL support for async connections** — `AsyncConnection` now supports `ssl=True`, `ssl=False`, or `ssl=ssl.SSLContext(...)` via `asyncio.open_connection(ssl=...)` with `StreamReader`/`StreamWriter` transport (#129, #136)
+- **Async TLS options (not yet a working broker handshake)** — `AsyncConnection` accepts `ssl=True`, `ssl=False`, or an `ssl.SSLContext` with `asyncio.open_connection()` streams (#129, #136), but the v1.4.0 implementation starts TLS before the required broker handshake. SSL=ON connections require the corrected v1.5.0 protocol sequence.
 - **`mypy --strict` CI gate** — typecheck job added to CI workflow to enforce strict typing (#130)
 - **Sync/async parity integration tests** — expanded test coverage for bytes, datetime, fetch_size, JSON, and edge-case scenarios (#134)
 
@@ -3652,15 +3652,15 @@ This is a documentation-focused update that makes timing instrumentation, bulk-e
 
 ## [1.3.0] - 2026-04-20
 
-This release adds TLS support for synchronous connections and expands network and concurrency tests. Async TLS is not supported yet in this version; the connection guide also documents the UTF-8-only encoding contract.
+This release adds TLS configuration options for synchronous connections and expands network and concurrency tests. **The tagged TLS implementation wraps the socket before the CUBRID broker handshake and does not establish a working TLS session with SSL=ON brokers; this was corrected in v1.5.0.** Async TLS is not supported in v1.3.0. The connection guide also documents the UTF-8-only encoding contract.
 
 ### Upgrade notes
 
-- **Async TLS limitation** — SSL/TLS for async connections raises `NotSupportedError` — `asyncio.loop.sock_*` APIs reject `SSLSocket`. Use the sync interface for TLS, or async without encryption. Tracked for future asyncio integration.
+- **Async TLS limitation** — SSL/TLS for async connections raises `NotSupportedError` — `asyncio.loop.sock_*` APIs reject `SSLSocket`. Neither the synchronous nor asynchronous interface in this release provides a verified working TLS connection to an SSL=ON CUBRID broker. Use a later version containing the v1.5.0 broker-handshake correction for encrypted connections; otherwise async connections remain unencrypted. Tracked for future asyncio integration.
 
 ### Added
 
-- **SSL/TLS support for sync connections** — `ssl=True` (verified context), `ssl=False`/`None` (disabled), or `ssl=ssl.SSLContext(...)` for custom config on `pycubrid.connect()` (#85)
+- **Sync TLS configuration API introduced (not yet functional end-to-end)** — Added `ssl=True`, `ssl=False`/`None` and custom `ssl.SSLContext` options to `pycubrid.connect()` (#85). On an SSL=ON CUBRID broker, this implementation begins TLS before the initial broker handshake, so encrypted connections are not yet operational. See the v1.5.0 handshake fix.
 - **Reconnect / network edge case test suite** — 17 tests covering connection reset, timeout, broken pipe, partial reads, reconnect-after-failure (#87)
 - **Concurrency stress tests** — threaded (16 workers × 25 inserts, 32 readers) and asyncio.gather (16 workers, 32 readers) with own-Connection isolation
 - **Standalone version check script** — `scripts/check_version.py` AST-based pyproject/`__init__.py` consistency check, replaces fragile inline grep in CI (#88)
