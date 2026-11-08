@@ -3721,40 +3721,29 @@ and breaking changes will only occur in major version bumps (2.0+).
 
 ## [0.6.0] - 2026-03-28
 
+This release improves recovery when the broker releases a CAS session and reduces overhead for query fetching and batch DML. **Reconnection applies when the broker explicitly marks the CAS inactive**, not to every network failure.
+
 ### Added
-- Transparent CAS reconnection when broker signals `CAS_INFO_STATUS=INACTIVE`,
-  matching the official CUBRID JDBC driver's `UClientSideConnection.checkReconnect()` behaviour
-- `_check_reconnect()` method inspects `CAS_INFO[0]` before every request and
-  reconnects automatically when the CAS process has been released (`KEEP_CONNECTION=AUTO`)
-- `_invalidate_query_handles()` clears stale cursor query handles after
-  commit/rollback to prevent `CloseQueryPacket` on dead sockets
-- `CAS_INFO` is now updated from every server response so the status byte is always current
+
+- **Broker-signaled CAS reconnection** — Before requests, the driver checks `CAS_INFO_STATUS=INACTIVE` and reconnects when the broker has released the CAS. It also invalidates stale query handles across transaction boundaries to avoid using them on a replacement session ([commit eb5765d](https://github.com/cubrid-lab/pycubrid/commit/eb5765d2faefaa83ff837f8bad231ce892ee007d)) by @paikend.
 
 ### Changed
-- `_send_and_receive()` now calls `_check_reconnect()` instead of `_ensure_connected()`
-  for automatic reconnection support
 
-### Performance
-- Pre-compiled `struct` objects in `packet.py` — eliminates repeated `struct.Struct()`
-  instantiation on every read/write call
-- Dict-based type dispatch table `_TYPE_READERS` in `protocol.py` — replaces
-  long if/elif chain in `_read_value()` for O(1) type dispatch
-- Slice-based `fetchall()`/`fetchmany()` in `cursor.py` — replaces per-row
-  `fetchone()` loop with direct list slicing
-- `executemany()` DML batch path — pre-renders all parameter sets into SQL
-  strings and sends a single `BatchExecutePacket` instead of N round-trips
-- `recv_into()` in `_recv_exact()` — writes directly into a pre-allocated
-  buffer via `memoryview`, avoiding temporary `bytes` allocations
-- `TCP_NODELAY` and `SO_KEEPALIVE` socket options on connection creation
-- Module-level `_CursorClass` cache — eliminates `importlib.import_module()`
-  + `getattr()` on every `Connection.cursor()` call
-- SELECT 10K rows fetch: 96ms → 78ms (−19%)
-- Connection establishment: 2.24ms → 1.66ms (−26%)
-- INSERT execute: 7.81ms → 7.10ms (−9%)
+- **Track current CAS state** — The request path now checks for broker-directed reconnection and updates `CAS_INFO` from each server response for the next operation ([commit eb5765d](https://github.com/cubrid-lab/pycubrid/commit/eb5765d2faefaa83ff837f8bad231ce892ee007d)) by @paikend.
 
 ### Fixed
-- DDL statements (CREATE TABLE, ALTER TABLE) followed by DML on the same
-  connection no longer fail with "connection lost during receive" (closes #23)
+
+- **DDL followed by DML** — Fixed the connection-lost receive error that could occur after CREATE or ALTER TABLE followed by DML on the same connection ([issue #23](https://github.com/cubrid-lab/pycubrid/issues/23), [commit eb5765d](https://github.com/cubrid-lab/pycubrid/commit/eb5765d2faefaa83ff837f8bad231ce892ee007d)) by @paikend.
+
+- **Fetching subsequent results** — Passed column metadata to subsequent fetch packets, avoiding incomplete result decoding after the initial fetch ([commit bb687dc](https://github.com/cubrid-lab/pycubrid/commit/bb687dc37a4403804c7dfe36b1b096672a239d6d)) by @yeongseon.
+
+### Performance
+
+- **Faster buffered fetching and protocol handling** — Reused binary struct parsers, type-reader dispatch, direct slices of buffered rows, preallocated receive buffers and cached cursor lookup. Connections also set `TCP_NODELAY` and `SO_KEEPALIVE` ([commits 16a8634](https://github.com/cubrid-lab/pycubrid/commit/16a863497177d697179105f97b0869bc99f7aedd), [e348288](https://github.com/cubrid-lab/pycubrid/commit/e34828897ddab28acf0459bc2deb889a81f9c205)) by @yeongseon.
+
+- **Batch DML** — `executemany()` sends a single batch request for data-changing SQL instead of a separate request for each parameter set. SELECT statements retain the per-row fallback so cursor results are handled separately ([commit e348288](https://github.com/cubrid-lab/pycubrid/commit/e34828897ddab28acf0459bc2deb889a81f9c205)) by @yeongseon.
+
+- **Historical benchmark observations** — Original release measurements reported fetching 10,000 SELECT rows in 78 ms versus 96 ms previously, connecting in 1.66 ms versus 2.24 ms, and inserting in 7.10 ms versus 7.81 ms. These results depend on their original test environment and are not universal guarantees.
 
 ## [0.5.0] - 2026-03-12
 
