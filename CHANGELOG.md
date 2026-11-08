@@ -3814,10 +3814,12 @@ and breaking changes will only occur in major version bumps (2.0+).
 
 ## [0.1.0] - 2026-03-12
 
+This first release establishes the pycubrid package and its DB-API 2.0 foundations, including error types and CUBRID protocol constants. The v0.1.0 tag does not yet contain the database connection implementation; usable connections and queries arrived in later releases.
+
 ### Added
-- Initial project scaffolding
-- PEP 249 exception hierarchy (Warning, Error, InterfaceError, DatabaseError, DataError,
-  OperationalError, IntegrityError, InternalError, ProgrammingError, NotSupportedError)
-- PEP 249 type objects (STRING, BINARY, NUMBER, DATETIME, ROWID) and constructors (Date, Time,
-  Timestamp, DateFromTicks, TimeFromTicks, TimestampFromTicks, Binary)
-- CAS protocol constants (41 function codes, 27+ data types, isolation levels)
+
+- **Python package setup** — Introduced the installable `pycubrid` package (`pip install pycubrid`) and its DB-API module attributes `apilevel`, `threadsafety` and `paramstyle`. Although `connect()` is exported, the v0.1.0 tag has no `pycubrid.connection` module, so it cannot open a working connection.
+
+- **DB-API errors and type helpers** — Added the PEP 249 exception hierarchy, the `STRING`, `BINARY`, `NUMBER`, `DATETIME` and `ROWID` type objects, and standard date, time, timestamp and binary constructors.
+
+- **CUBRID protocol definitions** — Added CAS function-code, database-type and isolation-level constants to support subsequent connection and query implementations.
