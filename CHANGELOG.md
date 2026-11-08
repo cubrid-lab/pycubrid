@@ -3776,25 +3776,19 @@ and breaking changes will only occur in major version bumps (2.0+).
 
 ## [0.3.0] - 2026-03-12
 
+This release adds the first usable DB-API connection and cursor implementation on top of the CUBRID CAS protocol. It supports basic SQL queries and transactions; later versions expand the driver's capabilities.
+
 ### Added
-- PEP 249 `Connection` class with full CAS handshake lifecycle
-  (`ClientInfoExchange` → `OpenDatabase` → `CloseDatabase`)
-- TCP socket management with partial-read handling
-- `commit()`, `rollback()`, `close()`, `cursor()` methods
-- `autocommit` property for transaction control
-- `get_server_version()` and `get_last_insert_id()` helper methods
-- Context manager protocol (`with conn:` auto-close)
-- PEP 249 `Cursor` class with full query execution
-  (`execute`, `executemany`, `fetchone`, `fetchmany`, `fetchall`)
-- Client-side parameter binding (str, int, float, None, bool, bytes,
-  date, time, datetime, Decimal)
-- `description` and `rowcount` attributes per PEP 249 spec
-- Iterator protocol and context manager for Cursor
-- `callproc()`, `setinputsizes()`, `setoutputsize()` stubs
+
+- **Connect to a database** — Added `Connection` with the CUBRID broker handshake, TCP socket handling and session setup, enabling the package's `connect()` function to establish a database connection.
+
+- **Execute SQL and read results** — Added `Cursor` with `execute()`, `executemany()`, `fetchone()`, `fetchmany()`, `fetchall()`, result `description` and `rowcount`. Client-side binding covers common Python values, including strings, numbers, bytes and date/time values.
+
+- **Manage transactions and resources** — Added `commit()`, `rollback()`, `autocommit` and `close()`, cursor/connection context managers, server-version and last-insert-ID helpers. `callproc()` executes a basic `CALL` with positional arguments but does not handle output parameters; `setinputsizes()` and `setoutputsize()` are no-op size hints.
 
 ### Fixed
-- Double-parse bug in `_send_and_receive()` — now correctly passes
-  response body (without data_length prefix) to packet.parse()
+
+- **CAS reply parsing** — Corrected a double-parsing error by passing the response body without its length prefix to the packet parser.
 
 ## [0.2.0] - 2026-03-12
 
