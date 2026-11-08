@@ -12,6 +12,7 @@ Key invariants:
 - `CHANGELOG.md` combines curated notes with generated Conventional Commit notes and is the only source of published release notes,
   including the Upgrade notes and the [`RELEASE_POLICY.md`](RELEASE_POLICY.md)
   classification. Upgrade notes and history are preserved by the composer.
+- User-facing Release text follows [RELEASE_NOTES_STYLE.md](RELEASE_NOTES_STYLE.md): an impact summary, existing standard sections, readable changes, verified inline human credit and one compare link. Review the final extracted `CHANGELOG.md` body, not just the generated release-please PR body.
 - A release is decided from git facts on `main`, never from a PR title.
 - The workflows never delete PyPI files, never move a tag and never create a
   version that was not merged through a release PR.
