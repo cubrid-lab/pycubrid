@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+This maintenance update improves source builds, setup and migration guidance, and core DB-API regression tests. The changes currently recorded below do not alter normal driver runtime behavior.
+
 ### Fixed
 
 - **Building from source now declares the setuptools it needs (#1108)** — the build requirement
