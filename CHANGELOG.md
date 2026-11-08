@@ -10,45 +10,23 @@ This maintenance update improves source builds, setup and migration guidance, an
 
 ### Fixed
 
-- **Building from source now declares the setuptools it needs (#1108)** — the build requirement
-  allowed setuptools 65 to 76, which reject the `license = "MIT"` field, so a non-isolated build
-  with one of those versions failed. It now needs setuptools 77 or later. The separate `wheel`
-  requirement is gone, because these versions build wheels themselves. Installing a published
-  wheel is not affected.
+- **Source builds** — Declared setuptools 77 or newer because earlier versions reject the package's SPDX license metadata. The separate `wheel` build requirement is no longer needed; installing an already published wheel is unaffected (#1108).
 
 ### Documentation
 
-- **The Troubleshooting Docker examples now wait for a real login and stay local (#1083)** — the
-  health check used `cubrid broker status`, which passes before `testdb` accepts logins, so
-  `docker compose up -d --wait` returned early. The examples published port 33000 on every
-  interface with an empty `dba` password. They now match `docker-compose.yml`.
-- **Published pages no longer link to repository files the site does not serve (#1088)** — links
-  such as `../SECURITY.md` and `../LICENSE` returned 404 on the documentation site, including the
-  vulnerability-reporting link in every translated README. They now use GitHub URLs, and
-  `mkdocs build --strict` fails on a new broken link.
-- **The Performance guide shows how to import large inputs with bounded memory (#1013)** — it
-  gives two tested recipes for splitting the input into several `executemany(prepared=True)`
-  calls, one all-or-nothing and one resumable, with measured memory and what each chunk means for
-  the transaction, `rowcount` and the `batch_*` indices. No new API was added.
-- **The Compat migration guide now shows how to read the isolation level and lock timeout
-  (#1129)** — it said ordinary SQL had no way to do this, which was wrong. `GET TRANSACTION
-  ISOLATION LEVEL TO iso` followed by `SELECT iso` works, as does the `LOCK TIMEOUT` form, on
-  every supported server. The guide also now says that `SET TRANSACTION` does not commit.
-- **The Compat migration guide warns against rewrapping a LOB handle on another connection
-  (#1130)** — the guide said this raises `InterfaceError`, which holds only for another
-  connection's `Lob` object. `Lob(target, ...)` is not refused and can store data that another
-  transaction never committed. Read the bytes and write a new LOB instead.
+- **Safer Docker setup** — Troubleshooting examples now wait until `testdb` accepts an actual login instead of relying on `cubrid broker status`. The examples also bind port 33000 locally rather than exposing an empty-password `dba` connection on every interface (#1083).
+
+- **Working documentation links** — Published pages and translated READMEs now use repository URLs for files such as `SECURITY.md` and `LICENSE` instead of relative links that returned 404. The strict MkDocs build also detects a new broken link (#1088).
+
+- **Bounded-memory imports** — The Performance guide shows two tested ways to split large inputs across `executemany(prepared=True)` calls: all-or-nothing or resumable batches. It explains transaction boundaries, `rowcount` and `batch_*` indices; no new driver API was added (#1013).
+
+- **Checking transaction settings** — The Compat migration guide now shows how to read isolation level and lock timeout using ordinary SQL, including `GET TRANSACTION ISOLATION LEVEL TO iso` followed by `SELECT iso`. It also clarifies that `SET TRANSACTION` does not commit (#1129).
+
+- **Moving LOB data safely** — The Compat migration guide no longer claims that wrapping a LOB handle from another connection always raises `InterfaceError`. Direct `Lob(target, ...)` rewrapping can instead store data that another transaction never committed; read the bytes and write a new LOB (#1130).
 
 ### Tests
 
-- **Core DB-API semantics are covered without Compat (#1123)** — new ordinary sync and async
-  live tests state their own expected values for computed rows and `description`, aliases and
-  duplicate names, commit/rollback visibility, READ COMMITTED versus REPEATABLE READ, text
-  collection elements on the literal and prepared paths, and LOB contents including a large
-  multi-byte CLOB. The failure paths of `Lob.read()`/`Lob.write()` have their own offline cases.
-  Shared test data and regressions moved out of Compat-dependent modules, so ordinary test
-  modules collect without Compat; Compat tests stay, some in another Compat module, until the
-  removal release. No driver or runtime change.
+- **Independent DB-API regressions** — New sync/async tests cover computed and aliased result metadata, commit/rollback visibility, READ COMMITTED versus REPEATABLE READ, collection decoding and large multibyte CLOB contents. Offline cases cover `Lob.read()`/`Lob.write()` failures; common tests no longer depend on Compat fixtures. Compat-specific tests remain until that separately gated removal. Runtime behavior is unchanged (#1123).
 
 ## [1.17.0] - 2026-11-05
 
