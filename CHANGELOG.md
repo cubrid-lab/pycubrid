@@ -3784,7 +3784,7 @@ This release adds the first usable DB-API connection and cursor implementation o
 
 - **Execute SQL and read results** — Added `Cursor` with `execute()`, `executemany()`, `fetchone()`, `fetchmany()`, `fetchall()`, result `description` and `rowcount`. Client-side binding covers common Python values, including strings, numbers, bytes and date/time values.
 
-- **Manage transactions and resources** — Added `commit()`, `rollback()`, `autocommit` and `close()`, cursor/connection context managers, server-version and last-insert-ID helpers. `callproc()`, `setinputsizes()` and `setoutputsize()` remain stubs in this version.
+- **Manage transactions and resources** — Added `commit()`, `rollback()`, `autocommit` and `close()`, cursor/connection context managers, server-version and last-insert-ID helpers. `callproc()` executes a basic `CALL` with positional arguments but does not handle output parameters; `setinputsizes()` and `setoutputsize()` are no-op size hints.
 
 ### Fixed
 
