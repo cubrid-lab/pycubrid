@@ -318,8 +318,8 @@ These rules add to the release procedure above; the procedures and gates in
 - Follow [pycubrid's release-note style](RELEASE_NOTES_STYLE.md): a short user-impact summary, readable result-first entries, verified human credits inline, and no extra Highlights or Contributors gallery. Keep `CHANGELOG.md` as the single publication source.
 
 - `CHANGELOG.md` is the single source of truth. The Release body is the extracted
-  CHANGELOG section plus one `**Full Changelog**` compare link
-  (`scripts/extract_release_notes.py`).
+  CHANGELOG section and, where a previous release tag exists, exactly one `**Full Changelog**`
+  compare link (`scripts/extract_release_notes.py`). The first release has no compare link.
 - Allowed `###` sections, in this order, only when they have content: Upgrade notes,
   Added, Changed, Deprecated, Removed, Fixed, Security, Performance, Documentation, CI,
   Tests. `scripts/lint_changelog.py` enforces this for `[Unreleased]` and for releases
