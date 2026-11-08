@@ -315,6 +315,8 @@ These rules add to the release procedure above; the procedures and gates in
 
 ### Release notes
 
+- Follow [pycubrid's release-note style](RELEASE_NOTES_STYLE.md): a short user-impact summary, readable result-first entries, verified human credits inline, and no extra Highlights or Contributors gallery. Keep `CHANGELOG.md` as the single publication source.
+
 - `CHANGELOG.md` is the single source of truth. The Release body is the extracted
   CHANGELOG section plus one `**Full Changelog**` compare link
   (`scripts/extract_release_notes.py`).
