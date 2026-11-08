@@ -7,7 +7,7 @@ GitHub Releases explain **what changed for Python developers**, not every implem
 - The GitHub Release title is exactly its tag, such as `v1.17.1`.
 - Start the body with **one or two sentences** stating the changes users can observe and any action they need to take. For a documentation/test-only release, say explicitly that the ordinary driver behavior is unchanged when that claim is verified.
 - Use only nonempty standard `###` sections, in the existing order: `Upgrade notes`, `Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`, `Security`, `Performance`, `Documentation`, `CI`, `Tests`. Keep `Documentation` rather than `Docs`.
-- Finish with exactly one `**Full Changelog**` comparison link supplied by `scripts/extract_release_notes.py`. Do not manually duplicate it in the canonical version section.
+- For a release **with a preceding tag**, finish with exactly one `**Full Changelog**` comparison link supplied by `scripts/extract_release_notes.py`. For the first release, omit that link: there is no earlier tag to compare. Do not manually duplicate it in the canonical version section.
 - Do **not** add separate `Highlights`, `Contributors` or `New Contributors` sections. The summary and inline credits serve those purposes without hiding changes in a second list.
 
 ## Write for readers
@@ -47,7 +47,7 @@ In the example above, PR numbers and usernames are fictional. A real release inc
 ## Review and publication
 
 1. Compare every statement with the actual version's tagged changes, relevant merged PRs, source history and supported behavior; verify human and first-contribution credits independently.
-2. Review the **rendered**, extracted `CHANGELOG.md` version body, including the summary, section ordering, distinct change entries, links, paragraph spacing, bylines and single comparison link. Do not approve a candidate based only on its shorter Release Please PR body or `RELEASE_CHANGELOG.md`.
+2. Review the **rendered**, extracted `CHANGELOG.md` version body, including the summary, section ordering, distinct change entries, links, paragraph spacing, bylines and single comparison link where a preceding tag exists. Do not approve a candidate based only on its shorter Release Please PR body or `RELEASE_CHANGELOG.md`.
 3. Run the existing `scripts/lint_changelog.py` checks and `make release-check VERSION=X.Y.Z` on the finished candidate, alongside all required final-head CI. No separate heavyweight test lane or release-note publisher is introduced.
 4. Historical improvements require their own version-scoped review, exact original-body backup, evidence-based corrections and guarded publication of **body text only**. Keep release titles, tags, original publication dates, draft/prerelease states, assets and PyPI packages unchanged. Source PR merge is not proof that a public Release body was updated.
 
