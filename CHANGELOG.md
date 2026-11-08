@@ -10,23 +10,23 @@ This maintenance update improves source builds, setup and migration guidance, an
 
 ### Fixed
 
-- **Source builds** — Declared setuptools 77 or newer because earlier versions reject the package's SPDX license metadata. The separate `wheel` build requirement is no longer needed; installing an already published wheel is unaffected (#1108).
+- **Source builds** — Declared setuptools 77 or newer because earlier versions reject the package's SPDX license metadata. The separate `wheel` build requirement is no longer needed; installing an already published wheel is unaffected ([#1108](https://github.com/cubrid-lab/pycubrid/issues/1108), [PR #1148](https://github.com/cubrid-lab/pycubrid/pull/1148)) by @yeongseon.
 
 ### Documentation
 
-- **Safer Docker setup** — Troubleshooting examples now wait until `testdb` accepts an actual login instead of relying on `cubrid broker status`. The examples also bind port 33000 locally rather than exposing an empty-password `dba` connection on every interface (#1083).
+- **Safer Docker setup** — Troubleshooting examples now wait until `testdb` accepts an actual login instead of relying on `cubrid broker status`. The examples also bind port 33000 locally rather than exposing an empty-password `dba` connection on every interface ([#1083](https://github.com/cubrid-lab/pycubrid/issues/1083), [PR #1146](https://github.com/cubrid-lab/pycubrid/pull/1146)) by @yeongseon.
 
-- **Working documentation links** — Published pages and translated READMEs now use repository URLs for files such as `SECURITY.md` and `LICENSE` instead of relative links that returned 404. The strict MkDocs build also detects a new broken link (#1088).
+- **Working documentation links** — Published pages and translated READMEs now use repository URLs for files such as `SECURITY.md` and `LICENSE` instead of relative links that returned 404. The strict MkDocs build also detects a new broken link ([#1088](https://github.com/cubrid-lab/pycubrid/issues/1088), [PR #1147](https://github.com/cubrid-lab/pycubrid/pull/1147)) by @yeongseon.
 
-- **Bounded-memory imports** — The Performance guide shows two tested ways to split large inputs across `executemany(prepared=True)` calls: all-or-nothing or resumable batches. It explains transaction boundaries, `rowcount` and `batch_*` indices; no new driver API was added (#1013).
+- **Bounded-memory imports** — The Performance guide shows two tested ways to split large inputs across `executemany(prepared=True)` calls: all-or-nothing or resumable batches. It explains transaction boundaries, `rowcount` and `batch_*` indices; no new driver API was added ([#1013](https://github.com/cubrid-lab/pycubrid/issues/1013), [PR #1152](https://github.com/cubrid-lab/pycubrid/pull/1152)) by @yeongseon.
 
-- **Checking transaction settings** — The Compat migration guide now shows how to read isolation level and lock timeout using ordinary SQL, including `GET TRANSACTION ISOLATION LEVEL TO iso` followed by `SELECT iso`. It also clarifies that `SET TRANSACTION` does not commit (#1129).
+- **Checking transaction settings** — The Compat migration guide now shows how to read isolation level and lock timeout using ordinary SQL, including `GET TRANSACTION ISOLATION LEVEL TO iso` followed by `SELECT iso`. It also clarifies that `SET TRANSACTION` does not commit ([#1129](https://github.com/cubrid-lab/pycubrid/issues/1129), [PR #1136](https://github.com/cubrid-lab/pycubrid/pull/1136)) by @yeongseon.
 
-- **Moving LOB data safely** — The Compat migration guide no longer claims that wrapping a LOB handle from another connection always raises `InterfaceError`. Direct `Lob(target, ...)` rewrapping can instead store data that another transaction never committed; read the bytes and write a new LOB (#1130).
+- **Moving LOB data safely** — The Compat migration guide no longer claims that wrapping a LOB handle from another connection always raises `InterfaceError`. Direct `Lob(target, ...)` rewrapping can instead store data that another transaction never committed; read the bytes and write a new LOB ([#1130](https://github.com/cubrid-lab/pycubrid/issues/1130), [PR #1141](https://github.com/cubrid-lab/pycubrid/pull/1141)) by @yeongseon.
 
 ### Tests
 
-- **Independent DB-API regressions** — New sync/async tests cover computed and aliased result metadata, commit/rollback visibility, READ COMMITTED versus REPEATABLE READ, collection decoding and large multibyte CLOB contents. Offline cases cover `Lob.read()`/`Lob.write()` failures; common tests no longer depend on Compat fixtures. Compat-specific tests remain until that separately gated removal. Runtime behavior is unchanged (#1123).
+- **Independent DB-API regressions** — New sync/async tests cover computed and aliased result metadata, commit/rollback visibility, READ COMMITTED versus REPEATABLE READ, collection decoding and large multibyte CLOB contents. Offline cases cover `Lob.read()`/`Lob.write()` failures; common tests no longer depend on Compat fixtures. Compat-specific tests remain until that separately gated removal. Runtime behavior is unchanged ([#1123](https://github.com/cubrid-lab/pycubrid/issues/1123), [PR #1131](https://github.com/cubrid-lab/pycubrid/pull/1131)) by @yeongseon.
 
 ## [1.17.0] - 2026-11-05
 
