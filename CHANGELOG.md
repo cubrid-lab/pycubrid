@@ -3672,13 +3672,25 @@ SSL/TLS for async connections raises `NotSupportedError` — `asyncio.loop.sock_
 
 ## [1.1.0] - 2026-04-18
 
+This release adds native `asyncio` database operations without introducing a separate runtime dependency. It also includes opt-in connection timing measurements and protocol memory-use improvements; existing synchronous applications can keep using the regular `pycubrid` API.
+
 ### Added
-- **Native asyncio support** via `pycubrid.aio` module
-  - `pycubrid.aio.connect()` — async connection factory
-  - `AsyncConnection` — async context manager, commit, rollback, cursor creation
-  - `AsyncCursor` — async execute, fetch (one/many/all), iterate, executemany
-  - Uses `loop.sock_*` non-blocking socket I/O — reuses existing protocol/packet layers
-- 30 new async offline tests (`tests/test_async.py`)
+
+- **Native async connections and queries** — Added `pycubrid.aio.connect()`, `AsyncConnection` and `AsyncCursor` with async context managers, transaction methods, SQL execution, row fetching and iteration. The implementation uses nonblocking `asyncio` socket operations while sharing the existing CAS packet protocol ([commit 2ec57fe](https://github.com/cubrid-lab/pycubrid/commit/2ec57fe8d9e767e9ace12199d662288900e58a81)) by @yeongseon.
+
+- **Optional timing statistics** — `enable_timing=True` or `PYCUBRID_ENABLE_TIMING=1` enables connection-level timing counters for connect, execute, fetch and close through `TimingStats`. Timing is off by default ([commit 0a04866](https://github.com/cubrid-lab/pycubrid/commit/0a04866d3258a974e71da11ee3fe36fef58cdb45)) by @yeongseon.
+
+### Fixed
+
+- **Short CAS type fields** — Corrected parsing of one-byte and two-byte CAS type values as part of the protocol handling improvements ([commit f01ea96](https://github.com/cubrid-lab/pycubrid/commit/f01ea96e50c8fa23f8ee7a82aa757b960c9bd84d)) by @yeongseon.
+
+### Performance
+
+- **Reduce packet allocation overhead** — Updated packet skipping, connection reads, buffer handling and result metadata layout to reduce intermediate allocations; `lastrowid` uses a dedicated insert-ID packet while retaining its integer-or-`None` result contract ([commit f01ea96](https://github.com/cubrid-lab/pycubrid/commit/f01ea96e50c8fa23f8ee7a82aa757b960c9bd84d)) by @yeongseon.
+
+### Tests
+
+- **Async regression coverage** — Added 30 offline tests for the new async connection and cursor functionality ([commit 2ec57fe](https://github.com/cubrid-lab/pycubrid/commit/2ec57fe8d9e767e9ace12199d662288900e58a81)) by @yeongseon.
 
 ## [1.0.0] - 2026-04-11
 
