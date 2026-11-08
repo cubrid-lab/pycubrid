@@ -3682,26 +3682,23 @@ SSL/TLS for async connections raises `NotSupportedError` — `asyncio.loop.sock_
 
 ## [1.0.0] - 2026-04-11
 
-### Compatibility Policy
+This is pycubrid's first release designated Production/Stable. At the time, the project announced a stable 1.x public API contract for Python 3.10–3.13 and listed CUBRID 11.2 and 11.4 as supported environments. The tagged driver uses **CAS protocol version 7**; the old canonical notes incorrectly said version 8.
 
-This release establishes the 1.x compatibility contract: the public API follows semantic versioning,
-and breaking changes will only occur in major version bumps (2.0+).
+### Upgrade notes
 
-### Supported Environments
-
-- **Python**: 3.10, 3.11, 3.12, 3.13
-- **CUBRID**: 11.2, 11.4
-- **Protocol**: CAS wire protocol version 8 (since CUBRID 10.2+)
-
-### Fixed
-- Resolve all mypy errors: explicit `str` return types in `get_server_version`
-  and `get_last_insert_id` (`connection.py`)
-- Resolve all pyright errors: initialize `response_code` in `PrepareAndExecutePacket`
-  and `PreparePacket.__init__` (`protocol.py`); guard `_CursorClass` optional call (`connection.py`)
+- **1.x stability commitment** — This release announced that incompatible changes to the public API would be reserved for a later major version. This describes the published commitment at v1.0.0; any subsequent changes to that policy are documented in their respective later releases ([release commit 0eb299c](https://github.com/cubrid-lab/pycubrid/commit/0eb299cae81bdff049d1865723b19bb56edf3bdc)) by @yeongseon.
 
 ### Changed
-- Development Status classifier updated from "Beta" to "Production/Stable"
-- Version bumped to 1.0.0
+
+- **Stable package classification** — Updated the project's published development-status classifier from Beta to Production/Stable ([release commit 0eb299c](https://github.com/cubrid-lab/pycubrid/commit/0eb299cae81bdff049d1865723b19bb56edf3bdc)) by @yeongseon.
+
+### Fixed
+
+- **Static typing checks** — Fixed mypy and pyright errors by initializing response fields in prepare/execute packets, clarifying connection helper return types, and guarding cursor class initialization. These changes concern type safety, not an expanded database feature set ([release commit 0eb299c](https://github.com/cubrid-lab/pycubrid/commit/0eb299cae81bdff049d1865723b19bb56edf3bdc)) by @yeongseon.
+
+### Documentation
+
+- **Getting started and architecture** — Added architecture diagrams, a MkDocs documentation site, updated examples and quickstart/FAQ material in the changes leading up to the first stable version ([docs commit 3e8f162](https://github.com/cubrid-lab/pycubrid/commit/3e8f16251f)) by @yeongseon.
 
 ## [0.7.0] - 2026-04-04
 
