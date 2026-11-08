@@ -3758,12 +3758,25 @@ and breaking changes will only occur in major version bumps (2.0+).
 
 ## [0.5.0] - 2026-03-12
 
-### Added
-- SQLAlchemy integration via `sqlalchemy-cubrid` v2.1.0 (`cubrid+pycubrid://` URL scheme)
-- Updated README with SQLAlchemy usage examples
+This release documents using pycubrid with the separately installed SQLAlchemy dialect and fixes several CUBRID protocol and result-handling problems. **Compatibility note:** `Cursor.lastrowid` now returns `int | None` instead of `str | None`; callers expecting a string should adapt.
 
 ### Changed
-- Version bumped to 0.5.0
+
+- **Inserted-row ID type** — `Cursor.lastrowid` now obtains `LAST_INSERT_ID()` through SQL and returns an integer or `None`, rather than the previous string form. Code that parses or compares the value as text may need to change ([commit cc8753b](https://github.com/cubrid-lab/pycubrid/commit/cc8753b38722969ed9954758bf52995994ff762e)) by @yeongseon.
+
+### Fixed
+
+- **CAS responses and batch execution** — Corrected reply-frame length handling and broker protocol-version fields, and updated batch execution for newer protocol versions, including timeout and per-result parsing ([commit cc8753b](https://github.com/cubrid-lab/pycubrid/commit/cc8753b38722969ed9954758bf52995994ff762e)) by @yeongseon.
+
+- **Data decoding and DB-API errors** — Corrected date/time wire-format handling and differentiated integrity-constraint and SQL-programming errors from general database errors ([commit cc8753b](https://github.com/cubrid-lab/pycubrid/commit/cc8753b38722969ed9954758bf52995994ff762e)) by @yeongseon.
+
+### Documentation
+
+- **SQLAlchemy connection setup** — Added README installation and usage examples for the separately installed `sqlalchemy-cubrid` dialect (identified as v2.1.0 at the time) with `cubrid+pycubrid://`. SQLAlchemy ORM and engine features come from that dialect, not a new pycubrid API ([commit 1d6c74c](https://github.com/cubrid-lab/pycubrid/commit/1d6c74c310fe188c176a599cb922279f60fa8496)) by @yeongseon.
+
+### Tests
+
+- **Live database coverage** — Added integration tests exercising the connection, cursor and data-handling behavior with CUBRID 11.2 ([commit cc8753b](https://github.com/cubrid-lab/pycubrid/commit/cc8753b38722969ed9954758bf52995994ff762e)) by @yeongseon.
 
 ## [0.4.0] - 2026-03-12
 
