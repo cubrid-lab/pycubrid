@@ -3798,19 +3798,15 @@ and breaking changes will only occur in major version bumps (2.0+).
 
 ## [0.2.0] - 2026-03-12
 
+This release introduces the binary protocol building blocks for communicating with a CUBRID broker, including packet formats and decoded result values. It is not yet a working database connector: the v0.2.0 tag still has no `pycubrid.connection` implementation.
+
 ### Added
-- Wire protocol `PacketWriter` and `PacketReader` for CAS binary frame
-  serialization/deserialization (big-endian, length-prefixed fields)
-- 18 CAS protocol packet classes (`ClientInfoExchangePacket`, `OpenDatabasePacket`,
-  `PreparePacket`, `ExecutePacket`, `PrepareAndExecutePacket`, `FetchPacket`,
-  `CloseQueryPacket`, `CommitPacket`, `RollbackPacket`, `CloseDatabasePacket`,
-  `GetEngineVersionPacket`, `BatchExecutePacket`, `GetSchemaPacket`,
-  `SetDbParameterPacket`, `GetDbParameterPacket`, `GetLastInsertIdPacket`,
-  `LOBNewPacket`, `LOBWritePacket`, `LOBReadPacket`)
-- Response parsing helpers: `_raise_error`, `_parse_column_metadata`,
-  `_parse_result_infos`, `_parse_row_data`, `_read_value`
-- `ColumnMetaData` and `ResultInfo` dataclasses for structured query metadata
-- Full wire-level value deserialization for all 27+ CUBRID data types
+
+- **Binary packet framing** — Added `PacketWriter` and `PacketReader` for the length-prefixed, big-endian CAS wire format used by later database operations.
+
+- **CAS request and response packets** — Implemented 19 packet classes for connection handshakes, statement preparation and execution, fetching rows, transaction operations, schema queries and large-object handling. These are protocol building blocks, not a new usable connection API.
+
+- **Result decoding and metadata** — Added response-parsing helpers and the `ColumnMetaData` and `ResultInfo` types to represent query metadata and decode CUBRID wire values, including the supported data-type families.
 
 ## [0.1.0] - 2026-03-12
 
