@@ -1000,6 +1000,8 @@ This maintenance update improves source builds, setup and migration guidance, an
 
 ## [1.12.0] - 2026-10-12
 
+This release adds an **opt-in prepared batch** for synchronous and asynchronous `executemany(prepared=True)` using typed host variables and an EXECUTE_ARRAY request. Default literal batches remain unchanged; prepared mode has explicit statement, LOB/autocommit and error-handling limits detailed below.
+
 ### Added
 
 - **Opt-in prepared batch for `executemany()` (#839)** — `Cursor.executemany()`
@@ -1640,20 +1642,24 @@ This maintenance update improves source builds, setup and migration guidance, an
 
 ## [1.10.0] - 2026-10-08
 
+This release requires **Python 3.11 or later**. Python 3.10 applications remain on the 1.9.x line until their interpreter is upgraded; the release also removes a Python 3.10-only TLS workaround and updates async deadline, documentation and CI behavior.
+
 ### Upgrade notes
+
 - **Python 3.11 or newer is required (#684).** Python 3.10 reached upstream end
   of life on 2026-10-01 and its retirement was announced in 1.9.0. On Python 3.10
   `pip` keeps installing 1.9.x, the last line that supports it; only the latest
   release line receives fixes, so 1.9.x gets no further releases. Upgrade Python,
   recreate your virtual environment and validate your application before upgrading.
 
-### Removed
-- **Python 3.10 support (#684)** — `requires-python` is `>=3.11` and the 3.10
-  classifier is gone. CI no longer tests 3.10: the oldest integration pair is
-  Python 3.11 × CUBRID 10.2, the full matrix covers Python 3.11–3.14 and the TLS
-  lanes run on 3.11 and 3.14. No driver behavior changes on Python 3.11 or newer.
+### Added
+
+**Additional commit references (generated at release time):**
+
+* **python:** require Python 3.11 or later ([#708](https://github.com/cubrid-lab/pycubrid/issues/708)) ([5b3d9ec](https://github.com/cubrid-lab/pycubrid/commit/5b3d9ecfe8632c5194d1201e9540e4fdf8b8d98e)), closes [#684](https://github.com/cubrid-lab/pycubrid/issues/684)
 
 ### Changed
+
 - **The Python 3.10-only async TLS preflight probe is removed (#685)** —
   `AsyncConnection` no longer carries the blocking certificate-verification probe
   that ran before `loop.start_tls()` on Python 3.10 (#156). It already returned
@@ -1685,24 +1691,21 @@ This maintenance update improves source builds, setup and migration guidance, an
   `python_version = "3.11"` in `pyproject.toml`, matching the minimum supported
   version. The rule selection is unchanged and no source needed a fix.
 
-### Tests
-- **CI fails when a Korean document drifts from its English source (#716)** —
-  `scripts/check_docs_translation.py` compares every `docs/<name>.md` with
-  `docs/ko/<name>.md` and fails on a missing Korean file or a different number
-  of headings (levels 2-4), fenced code blocks or table rows; the lint job runs
-  it on every event. Until now only README drift was checked, and six guides
-  had drifted unnoticed. Documents that are deliberately English-only are
-  listed in the script with a reason. The check compares structure, not wording.
-- **The official-driver differential lane runs on Python 3.11 (#683)** — the
-  pinned CUBRIDdb oracle (cubrid-python `e75ec36`, CCI `7d1eb8f`) was built and
-  compared on Python 3.10 only. The `official-differential` job in `ci.yml` and
-  `integration-full.yml`, the claims fixture and the generated compatibility
-  summaries now use Python 3.11, so the lane no longer depends on the
-  interpreter that 1.10.0 retires. Claims, source pins and the required servers
-  (10.2 and 11.4) are unchanged; earlier evidence recorded on Python 3.10.12
-  stays in `docs/UPSTREAM_COMPATIBILITY.md` as history.
+### Removed
+
+- **Python 3.10 support (#684)** — `requires-python` is `>=3.11` and the 3.10
+  classifier is gone. CI no longer tests 3.10: the oldest integration pair is
+  Python 3.11 × CUBRID 10.2, the full matrix covers Python 3.11–3.14 and the TLS
+  lanes run on 3.11 and 3.14. No driver behavior changes on Python 3.11 or newer.
+
+### Fixed
+
+**Additional commit references (generated at release time):**
+
+* **aio:** restore asyncio.wait_for for driver deadlines on Python 3.11.0–3.11.2 ([#754](https://github.com/cubrid-lab/pycubrid/issues/754)) ([1a44790](https://github.com/cubrid-lab/pycubrid/commit/1a44790cd5e3a6c37357fa42783ef86533106fab))
 
 ### Documentation
+
 - **License inventory check tolerates exact-pin bumps (#771 follow-up)** —
   `tests/test_third_party_licenses.py` now checks exact `==` dev pins for
   presence only, so a Dependabot bump such as `ruff==0.16.11` no longer fails
@@ -1792,19 +1795,7 @@ This maintenance update improves source builds, setup and migration guidance, an
   prepared example and the wrapper cursor's `next()` alias (also added to the
   English text). No behavior change.
 
-### Conventional commits
-
-#### Features
-
-* **python:** require Python 3.11 or later ([#708](https://github.com/cubrid-lab/pycubrid/issues/708)) ([5b3d9ec](https://github.com/cubrid-lab/pycubrid/commit/5b3d9ecfe8632c5194d1201e9540e4fdf8b8d98e)), closes [#684](https://github.com/cubrid-lab/pycubrid/issues/684)
-
-
-#### Bug Fixes
-
-* **aio:** restore asyncio.wait_for for driver deadlines on Python 3.11.0–3.11.2 ([#754](https://github.com/cubrid-lab/pycubrid/issues/754)) ([1a44790](https://github.com/cubrid-lab/pycubrid/commit/1a44790cd5e3a6c37357fa42783ef86533106fab))
-
-
-#### Documentation
+**Additional commit references (generated at release time):**
 
 * **agents:** align contributor ownership and good-first-issue guardrails ([#752](https://github.com/cubrid-lab/pycubrid/issues/752)) ([fb3da8c](https://github.com/cubrid-lab/pycubrid/commit/fb3da8c94b86cf1ad576989f84c6ba465b9e0894)), closes [#743](https://github.com/cubrid-lab/pycubrid/issues/743)
 * **api:** document get_error_description and close the Korean API reference gaps ([#717](https://github.com/cubrid-lab/pycubrid/issues/717)) ([221339e](https://github.com/cubrid-lab/pycubrid/commit/221339eec34912ec0a0adec665673a25541fccdf)), closes [#711](https://github.com/cubrid-lab/pycubrid/issues/711)
@@ -1819,6 +1810,24 @@ This maintenance update improves source builds, setup and migration guidance, an
 * **python:** state Python 3.11 or later in the README and quickstart ([#739](https://github.com/cubrid-lab/pycubrid/issues/739)) ([27e35be](https://github.com/cubrid-lab/pycubrid/commit/27e35be9eee6518c1c673e51195fa25954dd5da4)), closes [#699](https://github.com/cubrid-lab/pycubrid/issues/699)
 * **site:** generate heading anchors that match the links in the documents ([#729](https://github.com/cubrid-lab/pycubrid/issues/729)) ([c2a4f1d](https://github.com/cubrid-lab/pycubrid/commit/c2a4f1db875c65a3c497daf6427711d643401dec)), closes [#728](https://github.com/cubrid-lab/pycubrid/issues/728)
 * **tls:** remove Python 3.10 preflight probe guidance ([#737](https://github.com/cubrid-lab/pycubrid/issues/737)) ([4df5db0](https://github.com/cubrid-lab/pycubrid/commit/4df5db0331c2072440d22b0b08ed20323ecaec93)), closes [#686](https://github.com/cubrid-lab/pycubrid/issues/686)
+
+### Tests
+
+- **CI fails when a Korean document drifts from its English source (#716)** —
+  `scripts/check_docs_translation.py` compares every `docs/<name>.md` with
+  `docs/ko/<name>.md` and fails on a missing Korean file or a different number
+  of headings (levels 2-4), fenced code blocks or table rows; the lint job runs
+  it on every event. Until now only README drift was checked, and six guides
+  had drifted unnoticed. Documents that are deliberately English-only are
+  listed in the script with a reason. The check compares structure, not wording.
+- **The official-driver differential lane runs on Python 3.11 (#683)** — the
+  pinned CUBRIDdb oracle (cubrid-python `e75ec36`, CCI `7d1eb8f`) was built and
+  compared on Python 3.10 only. The `official-differential` job in `ci.yml` and
+  `integration-full.yml`, the claims fixture and the generated compatibility
+  summaries now use Python 3.11, so the lane no longer depends on the
+  interpreter that 1.10.0 retires. Claims, source pins and the required servers
+  (10.2 and 11.4) are unchanged; earlier evidence recorded on Python 3.10.12
+  stays in `docs/UPSTREAM_COMPATIBILITY.md` as history.
 
 ## [1.9.0] - 2026-10-04
 
@@ -3206,7 +3215,10 @@ Behavior changes you may notice (details in the entries below):
 
 ## [1.8.0] - 2026-09-29
 
+This release improves transaction/session behavior, result safety and the opt-in official-driver compatibility surface. **Review the upgrade notes before deploying:** exception types, nullable metadata, collection decoding, unfinished SELECT behavior and session time-zone retention may change application-visible results; reconnect does not replay SQL or guarantee session state preservation.
+
 ### Upgrade notes
+
 Behavior changes you may notice (details in the entries below):
 - Native NOT NULL (`-631`) and invalid foreign-key (`-922`) violations now raise
   `IntegrityError` (SQLSTATE `23000`, still a `DatabaseError` subclass) instead
@@ -3263,6 +3275,7 @@ unchanged):
   (#457).
 
 ### Added
+
 - Explicit `pycubrid.compat.native` sync prepared scalar cursor (#439): one
   physical-session-owned FC2 handle supports repeated typed FC3 execution of
   INT32, UTF-8 CHAR and SQL NULL, tuple-only row fetch, current-generation
@@ -3293,22 +3306,8 @@ unchanged):
 
   A warning rather than a hard `TypeError` is deliberate: wrapper layers (connection pools, ORM dialects such as `sqlalchemy-cubrid`) legitimately forward extra keywords, so rejecting them would be a breaking change under `RELEASE_POLICY.md` §3 and cannot land on the 1.x line. Callers choose their own strictness with the standard `warnings` machinery — `warnings.simplefilter("error", pycubrid.UnknownConnectionOptionWarning)` to reject unknown options, `"ignore"` to silence them. Additive surface change (`api-baseline.json` regenerated).
 
-### Documentation
-- Define the bounded typed-CAS prepared binding design (#418) for a future
-  sync-only compatibility scalar slice (#439): exact FC2/FC3/FC6 framing,
-  session-owned handle/result states, explicit pooling-on evidence limits,
-  and failing-first test IDs. This is design evidence, not a shipped prepared
-  API, ordinary 1.x behavior change, or full native-parity claim.
-- Verify owned CLASS/VCLASS/ATTRIBUTE/index/composite PK/FK schema rows on CUBRID 10.2/11.4 in both sync and async modes, with real multi-FETCH/close evidence. Correct schema examples to consume/close results and supply ATTRIBUTE's second filter; document row-order/qualifier/index-family boundaries without claiming native parity. (#457)
-- Select a conservative additive compatibility design (#438): separate wrapper/native namespaces, unchanged ordinary 1.x/SQLAlchemy contracts, classified safe deviations and focused migration/acceptance boundaries. This design preceded the construction-only #465 slice and does not authorize a 2.0/default or release migration.
-- Record the pinned official-driver source declaration inventory and reviewed assertion subcases in a scenario ledger, keeping unknown/duplicate candidates and execution evidence separate; validate candidate links against ledger declarations. This accounting does not certify functional parity. (#437)
-- Private FC9 request/condensed-column groundwork (#455) preceded atomic getter activation and owned row consumption in #456. Its wire fixtures alone were not live-getter or native-parity certification.
-- Add a source-referenced official-driver public API inventory and compatibility guide; catalog consistency checks do not certify functional parity. (#436)
-- Added a README "First contribution" guide (with Korean translation) pointing newcomers to the right sibling repo for their first PR, and documented the `good first issue` → `status: in progress` label lifecycle in AGENTS.md.
-- Acknowledge CUBRID/cubrid-python's reference test scenarios in the README, NOTICE and third-party provenance notes, with source links and explicit licensing-verification limits.
-- Clarify contributor and maintainer review/label/translation responsibilities, validate populated standalone docs exceptions with executable event-JSON checks, and pin the two verified shared workflow callers. CI code/security/release gates and security support policy are unchanged.
-
 ### Fixed
+
 - Recover when the CAS closes the socket after a transaction boundary, and
   release open query handles at END_TRAN (#485). Since #468 the session survives
   commit/rollback, but the CAS may still close the socket right after an OUT_TRAN
@@ -3388,13 +3387,33 @@ unchanged):
 - **Batch execution closes an existing query handle (#374)** — `executemany_batch()` now releases an active server-side query handle before sending a batch request, matching `execute()` and preventing the prior result-set handle from leaking. Sync and async cursors keep the same behavior.
 - Format very large integer parameters as decimal strings without converting them to floats, avoiding `OverflowError`. Float NaN/infinity rejection and boolean formatting are unchanged. (#368)
 
+### Documentation
+
+- Define the bounded typed-CAS prepared binding design (#418) for a future
+  sync-only compatibility scalar slice (#439): exact FC2/FC3/FC6 framing,
+  session-owned handle/result states, explicit pooling-on evidence limits,
+  and failing-first test IDs. This is design evidence, not a shipped prepared
+  API, ordinary 1.x behavior change, or full native-parity claim.
+- Verify owned CLASS/VCLASS/ATTRIBUTE/index/composite PK/FK schema rows on CUBRID 10.2/11.4 in both sync and async modes, with real multi-FETCH/close evidence. Correct schema examples to consume/close results and supply ATTRIBUTE's second filter; document row-order/qualifier/index-family boundaries without claiming native parity. (#457)
+- Select a conservative additive compatibility design (#438): separate wrapper/native namespaces, unchanged ordinary 1.x/SQLAlchemy contracts, classified safe deviations and focused migration/acceptance boundaries. This design preceded the construction-only #465 slice and does not authorize a 2.0/default or release migration.
+- Record the pinned official-driver source declaration inventory and reviewed assertion subcases in a scenario ledger, keeping unknown/duplicate candidates and execution evidence separate; validate candidate links against ledger declarations. This accounting does not certify functional parity. (#437)
+- Private FC9 request/condensed-column groundwork (#455) preceded atomic getter activation and owned row consumption in #456. Its wire fixtures alone were not live-getter or native-parity certification.
+- Add a source-referenced official-driver public API inventory and compatibility guide; catalog consistency checks do not certify functional parity. (#436)
+- Added a README "First contribution" guide (with Korean translation) pointing newcomers to the right sibling repo for their first PR, and documented the `good first issue` → `status: in progress` label lifecycle in AGENTS.md.
+- Acknowledge CUBRID/cubrid-python's reference test scenarios in the README, NOTICE and third-party provenance notes, with source links and explicit licensing-verification limits.
+- Clarify contributor and maintainer review/label/translation responsibilities, validate populated standalone docs exceptions with executable event-JSON checks, and pin the two verified shared workflow callers. CI code/security/release gates and security support policy are unchanged.
+
 ## [1.7.1] - 2026-09-18
 
+This maintenance release fixes silent truncation when reading large LOB values and improves release automation and translated documentation. Callers using `Lob.read(n)` now receive the requested bytes up to end-of-LOB rather than a silently short first broker packet.
+
 ### Fixed
+
 - **`Lob.read(n)` no longer silently truncates large reads (#362)** — the CUBRID broker caps each `LOB_READ` response at a fixed size (~81908 bytes), so a single request returned a short buffer for any LOB larger than that, with no error (silent partial-read data loss). `Lob.read` now loops, advancing the offset by the bytes the broker actually returned, until the full requested length is collected or the broker signals end-of-LOB. As a side benefit, `read(0)` now short-circuits with no server round-trip (previously it triggered a server-side transaction abort).
 - **create-release.yml: dropped `--target` from `gh release create`** — with an already-pushed tag (the normal tag-push trigger) `--verify-tag` already guarantees the tag exists, and passing `target_commitish` for an existing tag makes the Releases API return `422 Validation Failed`, so the first tag-triggered run of this workflow always failed. Verified live by the v0.4.0 tag attempt in cubrid-mcp-server.
 
 ### Documentation
+
 - **Demo GIF embedded in README** — auto-generated terminal demo showing pip install → connect → query → zero dependencies. Rendered from `demos/pycubrid-demo.json` via `demos/render_gif.py`.
 - **한국어 문서 페이지 — 배치 3 완결 (#317)** — TROUBLESHOOTING(1,246줄) 번역으로 13페이지 전체 완성. #317의 배치 작업 종료.
 - **한국어 문서 페이지 — 배치 3 (Project 축, #317)** — DEVELOPMENT(개발 가이드) 번역 추가. TROUBLESHOOTING만 남음.
