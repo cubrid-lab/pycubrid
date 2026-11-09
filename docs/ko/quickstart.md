@@ -105,12 +105,15 @@ Windows에서는(미확인) 대신 PowerShell로 활성화하세요.
 
 ```powershell
 py -m venv .venv
-.venv\Scripts\Activate.ps1
+.\.venv\Scripts\Activate.ps1
 python -m pip install pycubrid
 python -c "import pycubrid; print(pycubrid.__version__)"
 ```
 
 cmd에서는 `Activate.ps1` 줄 대신 `.venv\Scripts\activate.bat`을 사용하세요.
+
+PowerShell 실행 정책 때문에 `Activate.ps1`이 실행되지 않으면, 허용하는 방법은
+[Python의 venv 문서](https://docs.python.org/3/library/venv.html)를 참고하거나 위의 cmd 대안을 사용하세요.
 
 마지막 명령은 설치된 버전(예: `1.13.0`)을 출력합니다. 아래의 모든 `python` 명령은 가상 환경이
 활성화된 이 터미널에서 실행하세요. 다음으로 [첫 쿼리를 실행하세요](first-query.md).

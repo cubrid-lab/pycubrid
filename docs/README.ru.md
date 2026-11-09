@@ -369,7 +369,6 @@ Python 3.11, 3.12, 3.13, 3.14 и 3.15 (стандартные сборки с GI
 
 См. [`ROADMAP.md`](https://github.com/cubrid-lab/pycubrid/blob/main/ROADMAP.md), чтобы узнать о направлении проекта и следующих этапах.
 
-Для обзора по всей экосистеме см. [CUBRID Labs Ecosystem Roadmap](https://github.com/cubrid-lab/.github/blob/main/ROADMAP.md).
 
 ## Участие в проекте
 

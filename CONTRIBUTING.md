@@ -244,7 +244,7 @@ Normal testing, docs and review requirements still apply. Maintainers decide whe
 
 ## Pull request and commit titles
 
-This section covers pull request titles and commit subjects in this repository. Issue titles use a type-only prefix (`feat:`, `bug:`, etc.) without a required scope; see the [organization writing standard](https://github.com/cubrid-lab/.github/blob/main/docs/ISSUE_PR_COMMIT_STANDARD.md). Pull requests are squash-merged and the pull request
+This section covers pull request titles and commit subjects in this repository. Issue titles use a type-only prefix (`feat:`, `bug:`, etc.) without a required scope; follow the issue forms and local guidance in [AGENTS.md](AGENTS.md). Pull requests are squash-merged and the pull request
 title becomes the commit title on `main`, so the pull request title is the one
 that must be right. The `PR title` check enforces it.
 

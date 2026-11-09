@@ -195,12 +195,16 @@ On Windows (unverified), activate with PowerShell instead:
 
 ```powershell
 py -m venv .venv
-.venv\Scripts\Activate.ps1
+.\.venv\Scripts\Activate.ps1
 python -m pip install pycubrid
 python -c "import pycubrid; print(pycubrid.__version__)"
 ```
 
 In cmd, use `.venv\Scripts\activate.bat` instead of the `Activate.ps1` line.
+
+If PowerShell refuses to run `Activate.ps1` because of its execution policy, see
+[Python's venv documentation](https://docs.python.org/3/library/venv.html) for how to allow it,
+or use the cmd alternative above instead.
 
 The last command prints the installed version, for example `1.13.0`. Run every
 `python` command below in this same terminal, with the virtual environment

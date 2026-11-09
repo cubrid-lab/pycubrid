@@ -354,7 +354,6 @@ CUBRID 10.2、11.0、11.2 和 11.4 已在 CI 中测试。
 
 项目方向和后续里程碑请参见 [`ROADMAP.md`](https://github.com/cubrid-lab/pycubrid/blob/main/ROADMAP.md)。
 
-生态系统全貌请参见 [CUBRID Labs Ecosystem Roadmap](https://github.com/cubrid-lab/.github/blob/main/ROADMAP.md)。
 
 ## 贡献
 
