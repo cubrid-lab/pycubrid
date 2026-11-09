@@ -30,6 +30,8 @@ This maintenance update improves source builds, setup and migration guidance, an
 
 ## [1.17.0] - 2026-11-05
 
+**Compatibility policy change:** this release explicitly withdraws the earlier promise that the `pycubrid.compat` names shipped in v1.8.0 would remain supported for all of 1.x. Compat now emits `FutureWarning` on connection creation and may be removed in a future **minor** release after the stated notice and migration requirements. The ordinary `pycubrid` and `pycubrid.aio` APIs retain the major-version compatibility policy. **No Compat removal version or date was set in this release.**
+
 ### Upgrade notes
 
 - **The 1.x guarantee for 1.8.0 `pycubrid.compat` names is withdrawn (#1124).** The
@@ -78,6 +80,8 @@ This maintenance update improves source builds, setup and migration guidance, an
 
 ## [1.16.0] - 2026-11-05
 
+This release adds a limited `schema_info()` compatibility surface to the opt-in `pycubrid.compat.native` connection. Only the verified first-row CLASS/VCLASS and ATTRIBUTE/CLASS_ATTRIBUTE cases are supported; **this is not broad official driver parity**. The limitations and live CUBRID versions tested are detailed below.
+
 ### Added
 
 - **Native `connection.schema_info()` first-row subset (#1011)** — the opt-in
@@ -116,6 +120,8 @@ This maintenance update improves source builds, setup and migration guidance, an
 * use the Python yellow from the brand tokens in the site theme ([#1103](https://github.com/cubrid-lab/pycubrid/issues/1103)) ([c18d35a](https://github.com/cubrid-lab/pycubrid/commit/c18d35a3057e879989868163481068a351bdcbaa))
 
 ## [1.15.0] - 2026-10-27
+
+This release improves reproducible test-result reporting and documentation presentation. `make verify` now records per-phase summaries, artifacts and interrupted or incomplete outcomes; it does not change ordinary driver query behavior.
 
 ### Added
 
@@ -156,6 +162,8 @@ This maintenance update improves source builds, setup and migration guidance, an
   which a `make verify` in the same checkout reads. No Makefile, driver or runtime change.
 
 ## [1.14.0] - 2026-10-25
+
+This release changes developer verification: `make verify` now runs the live CUBRID integration lane after static and offline checks. A machine running that command therefore needs Docker and a working test broker; `make test` stays offline. The specific CI and failure behavior is documented below.
 
 ### Added
 
