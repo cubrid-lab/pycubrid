@@ -127,6 +127,217 @@ def _split(text: str, origin: str, aliases: dict[str, str]) -> tuple[str, dict[s
     return preamble, bodies
 
 
+# Only same-repository, explicit PR/issue/commit links can identify a duplicate.
+# A generated primary PR link is adjacent to its commit link. A bare "refs"
+# issue link is weaker and needs independent provenance and wording evidence.
+_ENTRY = re.compile(r"^[-*] ", re.MULTILINE)
+_OWN_PR = re.compile(r"https://github\.com/cubrid-lab/pycubrid/pull/([0-9]+)")
+_OWN_ISSUE = re.compile(r"https://github\.com/cubrid-lab/pycubrid/issues/([0-9]+)")
+_GENERATED_PR = re.compile(
+    r"\(\[#(?P<number>[0-9]+)\]"
+    r"\(https://github\.com/cubrid-lab/pycubrid/(?:issues|pull)/(?P=number)\)\)"
+    r"\s+\(\[[0-9a-f]{7,40}\]"
+    r"\(https://github\.com/cubrid-lab/pycubrid/commit/[0-9a-f]{7,40}\)\)"
+)
+_PRIMARY_CHANGE = re.compile(
+    r"\(\[#[0-9]+\]\(https://github\.com/[^)\s]+/(?:issues|pull)/[0-9]+\)\)"
+)
+_OWN_COMMIT = re.compile(
+    r"\(\[(?P<short>[0-9a-f]{7,40})\]"
+    r"\(https://github\.com/cubrid-lab/pycubrid/commit/(?P<full>[0-9a-f]{7,40})\)\)"
+)
+_WORD = re.compile(r"[a-z][a-z0-9_]{2,}", re.IGNORECASE)
+_COMMON = {
+    "the",
+    "and",
+    "for",
+    "with",
+    "from",
+    "that",
+    "this",
+    "are",
+    "was",
+    "now",
+    "not",
+    "how",
+    "can",
+    "via",
+    "its",
+    "into",
+    "using",
+    "when",
+    "also",
+    "make",
+    "show",
+    "docs",
+    "documentation",
+    "release",
+    "refs",
+    "github",
+    "cubrid",
+    "pycubrid",
+    "issues",
+    "pull",
+    "commit",
+}
+
+
+def _unfenced_prose(notes: str) -> str:
+    """Extract visible prose for matching, never links inside Markdown examples."""
+    output: list[str] = []
+    fence: str | None = None
+    for line in notes.splitlines(keepends=True):
+        found = FENCE.match(line)
+        if found:
+            marker = found.group(1)
+            if fence is None:
+                fence = marker
+            elif (
+                marker[0] == fence[0]
+                and len(marker) >= len(fence)
+                and not line[found.end() :].strip()
+            ):
+                fence = None
+            continue
+        if fence is None:
+            output.append(line)
+    return "".join(output)
+
+
+def _entries(notes: str, origin: str) -> list[str]:
+    """Find top-level bullets outside either Markdown fence style."""
+    starts: list[int] = []
+    fence: str | None = None
+    pos = 0
+    for line in notes.splitlines(keepends=True):
+        marker_match = FENCE.match(line)
+        if marker_match:
+            marker = marker_match.group(1)
+            if fence is None:
+                fence = marker
+            elif (
+                marker[0] == fence[0]
+                and len(marker) >= len(fence)
+                and not line[marker_match.end() :].strip()
+            ):
+                fence = None
+        elif fence is None and _ENTRY.match(line):
+            starts.append(pos)
+        pos += len(line)
+    if fence is not None:
+        raise ValueError(f"unclosed code fence in {origin}")
+    return [
+        notes[start : starts[i + 1] if i + 1 < len(starts) else len(notes)]
+        for i, start in enumerate(starts)
+    ]
+
+
+def _words(notes: str) -> set[str]:
+    """Compare wording only after fenced examples and URLs have been excluded."""
+    prose = re.sub(r"https?://[^\s)]+", " ", notes)
+    return {word for word in _WORD.findall(prose.lower()) if word not in _COMMON}
+
+
+def _dedupe_generated(
+    curated: dict[str, list[str]], generated: dict[str, list[str]]
+) -> dict[str, list[str]]:
+    """Conservatively omit generated copies of clearly matching curated changes.
+
+    Use unique same-repository PR identities plus shared behavior wording, or
+    unique issue-only references with local commit provenance and a stronger
+    wording match. Any ambiguity leaves the original generated entry intact.
+    """
+    from collections import Counter
+
+    curated_entries = [
+        entry
+        for blocks in curated.values()
+        for block in blocks
+        for entry in _entries(block, "curated entries")
+    ]
+    generated_entries = [
+        entry
+        for blocks in generated.values()
+        for block in blocks
+        for entry in _entries(block, "generated entries")
+    ]
+    curated_prose = [_unfenced_prose(entry) for entry in curated_entries]
+    generated_prose = [_unfenced_prose(entry) for entry in generated_entries]
+    curated_pr_count = Counter(
+        number for prose in curated_prose for number in set(_OWN_PR.findall(prose))
+    )
+    generated_pr_count = Counter(
+        number
+        for prose in generated_prose
+        for number in {match.group("number") for match in _GENERATED_PR.finditer(prose)}
+    )
+    curated_issue_count = Counter(
+        number for prose in curated_prose for number in set(_OWN_ISSUE.findall(prose))
+    )
+    # Count every reference, including those attached to a separate PR bullet.
+    # Otherwise a shared issue falsely appears to have one generated use.
+    generated_issue_count = Counter(
+        number for prose in generated_prose for number in set(_OWN_ISSUE.findall(prose))
+    )
+
+    def is_duplicate(entry: str) -> bool:
+        prose = _unfenced_prose(entry)
+        pr_ids = {match.group("number") for match in _GENERATED_PR.finditer(prose)}
+        if len(pr_ids) == 1:
+            number = next(iter(pr_ids))
+            if curated_pr_count[number] != 1 or generated_pr_count[number] != 1:
+                return False
+            matches = [part for part in curated_prose if number in _OWN_PR.findall(part)]
+            return len(matches) == 1 and len(_words(prose) & _words(matches[0])) >= 2
+        if pr_ids or _PRIMARY_CHANGE.search(prose):
+            return False
+
+        issue_ids = set(_OWN_ISSUE.findall(prose))
+        if len(issue_ids) != 1:
+            return False
+        issue = next(iter(issue_ids))
+        if curated_issue_count[issue] != 1 or generated_issue_count[issue] != 1:
+            return False
+        if not re.search(
+            rf"\brefs\s+\[#{issue}\]\(https://github\.com/cubrid-lab/pycubrid/issues/{issue}\)",
+            prose,
+            flags=re.IGNORECASE,
+        ):
+            return False
+        # An issue reference alone does not prove a generated change. The link
+        # must include an actual local commit SHA/link pair, not a foreign PR.
+        if not any(
+            match.group("full").startswith(match.group("short"))
+            for match in _OWN_COMMIT.finditer(prose)
+        ):
+            return False
+        matches = [part for part in curated_prose if issue in _OWN_ISSUE.findall(part)]
+        return len(matches) == 1 and len(_words(prose) & _words(matches[0])) >= 3
+
+    result: dict[str, list[str]] = {}
+    for section, blocks in generated.items():
+        retained: list[str] = []
+        for block in blocks:
+            heads = _find(_ENTRY, block, "generated entries")
+            if not heads or block[: heads[0].start()].strip():
+                # Preserve an independent section introduction; never silently
+                # drop its text as a side effect of removing a nearby bullet.
+                retained.append(block)
+                continue
+            entries = _entries(block, "generated entries")
+            duplicates = {i for i, entry in enumerate(entries) if is_duplicate(entry)}
+            if not duplicates:
+                retained.append(block)
+                continue
+            if remaining := [
+                entry.strip("\n") for i, entry in enumerate(entries) if i not in duplicates
+            ]:
+                retained.append("\n\n".join(remaining))
+        if retained:
+            result[section] = retained
+    return result
+
+
 def compose(base: str, generated: str, version: str) -> str:
     """Pure, fail-closed and deterministic at a given generator base/input."""
     if not VERSION.fullmatch(version):
@@ -166,6 +377,7 @@ def compose(base: str, generated: str, version: str) -> str:
     curated_preamble, curated_bodies = _split(
         base[head.end() : history_start], "curated [Unreleased]", {}
     )
+    generated_bodies = _dedupe_generated(curated_bodies, generated_bodies)
     # Merge curated and generated entries under one standard heading each, in the
     # standard order; curated text comes first and is copied unchanged.
     blocks = [curated_preamble] if curated_preamble.strip() else []
