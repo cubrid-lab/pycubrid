@@ -421,7 +421,6 @@ Browse open [`good first issue`](https://github.com/cubrid-lab/pycubrid/issues?q
 
 See [`ROADMAP.md`](ROADMAP.md) for this project's direction and next milestones.
 
-For the ecosystem-wide view, see the [CUBRID Labs Ecosystem Roadmap](https://github.com/cubrid-lab/.github/blob/main/ROADMAP.md).
 
 ### Related Projects
 
