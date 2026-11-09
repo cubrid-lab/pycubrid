@@ -31,6 +31,8 @@ This maintenance update improves source builds, setup and migration guidance, an
 
 - **Moving LOB data safely** — The Compat migration guide no longer claims that wrapping a LOB handle from another connection always raises `InterfaceError`. Direct `Lob(target, ...)` rewrapping can instead store data that another transaction never committed; read the bytes and write a new LOB ([#1130](https://github.com/cubrid-lab/pycubrid/issues/1130), [PR #1141](https://github.com/cubrid-lab/pycubrid/pull/1141)) by @yeongseon.
 
+- **Runnable example scripts** — The Examples page (English and Korean) now names the five scripts in `examples/`, the environment variables they read with their defaults, the run command, and the tables they leave behind, with a `DROP TABLE` cleanup ([#1087](https://github.com/cubrid-lab/pycubrid/issues/1087)) by @CloudCorpRecords.
+
 ### Tests
 
 - **Independent DB-API regressions** — New sync/async tests cover computed and aliased result metadata, commit/rollback visibility, READ COMMITTED versus REPEATABLE READ, collection decoding and large multibyte CLOB contents. Offline cases cover `Lob.read()`/`Lob.write()` failures; common tests no longer depend on Compat fixtures. Compat-specific tests remain until that separately gated removal. Runtime behavior is unchanged ([#1123](https://github.com/cubrid-lab/pycubrid/issues/1123), [PR #1131](https://github.com/cubrid-lab/pycubrid/pull/1131)) by @yeongseon.
