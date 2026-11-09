@@ -185,11 +185,15 @@ This maintenance update improves source builds, setup and migration guidance, an
 
 ## [1.13.5] - 2026-10-25
 
+This documentation-only release clarifies contributor attribution and the validation evidence expected for repository changes. No driver runtime or public API change is recorded for this release.
+
 ### Documentation
 
 * **agents:** clarify commit attribution and validation evidence ([#1048](https://github.com/cubrid-lab/pycubrid/issues/1048)) ([48d8d0e](https://github.com/cubrid-lab/pycubrid/commit/48d8d0eeca8341422d29622a8bb2148e0327a2ed))
 
 ## [1.13.4] - 2026-10-24
+
+This maintenance release improves the safety of stored test-run metadata by masking common password and secret patterns; it also records the corresponding documentation changes. Redaction is best-effort and does not replace keeping credentials out of command lines.
 
 ### Fixed
 
@@ -210,6 +214,8 @@ This maintenance update improves source builds, setup and migration guidance, an
 * **examples:** document prepared executemany batches ([1f1ddd9](https://github.com/cubrid-lab/pycubrid/commit/1f1ddd994403e19eb8bfe0176cd9a4531189a62d)), refs [#891](https://github.com/cubrid-lab/pycubrid/issues/891)
 
 ## [1.13.3] - 2026-10-24
+
+This is the next actually published release after v1.13.1. **v1.13.2 was never published**, so the release includes that candidate's intended changes along with the fixes documented below; do not treat v1.13.2 as an available PyPI or GitHub version.
 
 ### Upgrade notes
 
@@ -335,6 +341,8 @@ This maintenance update improves source builds, setup and migration guidance, an
   the CI gate still requires. `make check` and `maintenance.yml` are unchanged.
 
 ## [1.13.1] - 2026-10-21
+
+This maintenance release corrects several database result/transaction behaviors and CI documentation checks. **Review the upgrade notes:** empty BIT values, exception handling and session behavior may affect application comparisons and error classification.
 
 ### Upgrade notes
 
@@ -701,6 +709,8 @@ This maintenance update improves source builds, setup and migration guidance, an
   positive.
 
 ## [1.13.0] - 2026-10-14
+
+This release tightens authentication-error reporting and network/connection behavior while expanding validation and documented compatibility boundaries. **Authentication failures are now `OperationalError` with SQLSTATE `28000`**, so code matching exact exception classes or treating all operational errors as transient should inspect the documented error details below.
 
 ### Upgrade notes
 
