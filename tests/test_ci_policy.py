@@ -876,3 +876,113 @@ def test_docs_only_change_that_selects_the_site_passes_only_with_a_green_build()
     # Not selected: a skipped build passes, a failed one still blocks.
     assert run_gate(base - {"docs-build"}, {}).returncode == 0
     assert run_gate(base - {"docs-build"}, {"docs-build": "failure"}).returncode != 0
+
+
+# --- Documentation-only security scans -------------------------------------
+
+
+@pytest.mark.parametrize("workflow_name", ["codeql.yml", "security.yml"])
+@pytest.mark.parametrize(
+    "files,changed_count,broken,expected",
+    [
+        (["CHANGELOG.md", "docs/README.ko.md"], None, "", "true"),
+        (["README.md", "AGENTS.md", "RELEASE_NOTES_STYLE.md"], None, "", "true"),
+        (["docs/examples/example.py"], None, "", "false"),
+        (["pycubrid/connection.py"], None, "", "false"),
+        ([".github/workflows/codeql.yml"], None, "", "false"),
+        (["README.md", "scripts/run_verify.py"], None, "", "false"),
+        (
+            [{"filename": "README.md", "status": "renamed", "previous_filename": "driver.py"}],
+            None,
+            "",
+            "false",
+        ),
+        (
+            [{"filename": "README.md", "status": "renamed", "previous_filename": "older.md"}],
+            None,
+            "",
+            "true",
+        ),
+        ([{"filename": "README.md", "status": "renamed"}], None, "", "false"),
+        (["README.md"], 3000, "", "false"),
+        (["README.md"], 3001, "", "false"),
+        (["README.md"], 2, "", "false"),
+        ([], None, "", "false"),
+        (["README.md"], None, "files", "false"),
+        (["README.md"], None, "metadata", "false"),
+    ],
+)
+def test_security_docs_only_classification(
+    workflow_name: str,
+    files: list[object],
+    changed_count: int | None,
+    broken: str,
+    expected: str,
+) -> None:
+    """A capped/renamed/unknown file list must never bypass security scans."""
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("GitHub script regression requires Node.js")
+    detector = workflow(workflow_name)["jobs"]["docs-only"]
+    script = detector["steps"][0]["with"]["script"]
+    harness = r"""
+const fs = require('fs');
+const {script, files, changedCount, broken} = JSON.parse(fs.readFileSync(0, 'utf8'));
+const result = {};
+const core = {setOutput(key, value) { result[key] = value; }, warning() {}};
+const github = {
+  rest: {pulls: {
+    listFiles() {},
+    get: async () => {
+      if (broken === 'metadata') throw Error('simulated metadata outage');
+      return {data: {changed_files: changedCount === null ? files.length : changedCount}};
+    },
+  }},
+  paginate: async () => {
+    if (broken === 'files') throw Error('simulated file-list outage');
+    return files.map(file => typeof file === 'string'
+      ? {filename: file, status: 'modified'} : file);
+  },
+};
+const context = {repo: {owner: 'cubrid-lab', repo: 'pycubrid'},
+                 payload: {pull_request: {number: 1180}}};
+const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
+new AsyncFunction('github', 'context', 'core', script)(github, context, core)
+ .then(() => process.stdout.write(JSON.stringify(result)))
+ .catch(error => { console.error(error); process.exitCode = 1; });
+"""
+    completed = subprocess.run(
+        [node, "-e", harness],
+        input=json.dumps(
+            {"script": script, "files": files, "changedCount": changed_count, "broken": broken}
+        ),
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30,
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert json.loads(completed.stdout)["skip"] == expected
+
+
+def test_security_scans_keep_non_pr_and_failed_detection_fail_open() -> None:
+    """Job names and broad push/weekly coverage remain, even if PR detection fails."""
+    condition = (
+        "${{ always() && (github.event_name != 'pull_request' || "
+        "needs.docs-only.outputs.skip != 'true') }}"
+    )
+    for name, scans in (
+        ("codeql.yml", ("analyze",)),
+        ("security.yml", ("bandit", "semgrep")),
+    ):
+        data = workflow(name)
+        events = data.get("on", data.get(True))
+        assert {"pull_request", "push", "schedule"} <= set(events), name
+        detector = data["jobs"]["docs-only"]
+        assert detector["if"] == "github.event_name == 'pull_request'"
+        assert detector["permissions"] == {"pull-requests": "read"}
+        assert detector["outputs"]["skip"] == "${{ steps.classify.outputs.skip }}"
+        for scan in scans:
+            job = data["jobs"][scan]
+            assert job["needs"] == "docs-only"
+            assert job["if"] == condition

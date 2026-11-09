@@ -20,7 +20,53 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  docs-only:
+    name: Classify documentation-only PR
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      pull-requests: read
+    outputs:
+      skip: ${{ steps.classify.outputs.skip }}
+    steps:
+      - name: Inspect every changed file (fail open to security scans)
+        id: classify
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            let skip = false;
+            try {
+              const files = await github.paginate(github.rest.pulls.listFiles, {
+                ...context.repo,
+                pull_number: context.payload.pull_request.number,
+                per_page: 100,
+              });
+              // The list-files endpoint caps results at 3,000. Compare with
+              // the PR's declared count and never exempt an incomplete list.
+              const pr = await github.rest.pulls.get({
+                ...context.repo,
+                pull_number: context.payload.pull_request.number,
+              });
+              const changed = pr.data.changed_files;
+              skip = Number.isInteger(changed) && changed > 0 && changed < 3000
+                && files.length === changed
+                && files.every(file =>
+                  typeof file.filename === 'string'
+                  && /\.md$/i.test(file.filename)
+                  // Source -> Markdown renames are still source changes.
+                  && (file.status !== 'renamed'
+                    || (typeof file.previous_filename === 'string'
+                      && /\.md$/i.test(file.previous_filename)))
+                );
+            } catch (error) {
+              core.warning(`Cannot inspect changed files; run security scans: ${error.message}`);
+            }
+            core.setOutput('skip', String(skip));
+
   analyze:
+    needs: docs-only
+    if: ${{ always() && (github.event_name != 'pull_request' || needs.docs-only.outputs.skip != 'true') }}
     name: Analyze
     uses: cubrid-lab/.github/.github/workflows/codeql.yml@f7d8c0f6c28392c10306f367de38b40f13eed4b7
     with:
