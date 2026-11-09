@@ -1,8 +1,8 @@
 # AGENTS.md
 
-## Organization-wide issue, PR, and commit writing
+## Issue, PR, and commit writing (pycubrid)
 
-Follow the [cubrid-lab writing standard](https://github.com/cubrid-lab/.github/blob/main/docs/ISSUE_PR_COMMIT_STANDARD.md). **Issue titles** use only a type prefix (for example, `feat: ...` or `bug: ...`); do not require a module scope. Describe the problem or goal in plain English, with reproducible evidence and verifiable acceptance criteria appropriate to the issue. **Triage** validates scope, duplicates, type, priority and size; **PRs and commits** retain the existing Conventional Commits format and PR CI validators. Keep issue goals distinct from implementation/PR evidence and avoid internal IDs, personal comments or agent bookkeeping in the title/body.
+**Issue titles** use only a type prefix (for example, `feat: ...` or `bug: ...`); do not require a module scope. Describe the problem or goal in plain English, with reproducible evidence and verifiable acceptance criteria appropriate to the issue. **Triage** validates scope, duplicates, type, priority and size; **PRs and commits** retain the existing Conventional Commits format and PR CI validators. Keep issue goals distinct from implementation/PR evidence and avoid internal IDs, personal comments or agent bookkeeping in the title/body.
 
 Project knowledge base for AI coding agents.
 
@@ -103,7 +103,7 @@ make integration CUBRID_TEST_PORT=33522   # any free port; default 33000
 - No Python 2 constructs
 - No empty `except` blocks
 
-## Development Workflow (cubrid-lab org standard)
+## Development Workflow (pycubrid)
 
 Every contribution follows the **same review criteria**, whether implemented
 by a person, OpenCode, Codex, Claude Code, ChatGPT, Copilot, or another tool.
@@ -445,7 +445,7 @@ because their own events do not retrigger the workflow.
 This is issue management, **not** a required PR check or a license to
 weaken protected code, CI, security, integration or release requirements.
 
-## Issue Labeling (cubrid-lab org standard)
+## Issue Labeling (pycubrid)
 
 Write GitHub issues, PRs and comments in English; localized documentation remains
 welcome, and no specific translation tool is required.
@@ -459,7 +459,7 @@ issue title or body. Reporters describe urgency and effort without needing label
 permissions. All newly filed issues enter `status: needs triage` first; priority and size
 are finalized during maintainer triage, not guessed from the issue title.
 
-Issue titles use a type-only prefix (`feat:`, `bug:`, etc.) without a required scope; see the [organization writing standard](https://github.com/cubrid-lab/.github/blob/main/docs/ISSUE_PR_COMMIT_STANDARD.md).
+Issue titles use a type-only prefix (`feat:`, `bug:`, etc.) without a required scope; see the [local contribution guide](CONTRIBUTING.md) and issue templates.
 `.github/workflows/issue-triage.yml` marks every externally opened issue as
 `status: needs triage`. Automation using `GITHUB_TOKEN` must attach this status
 when creating the issue, because those actions may not trigger another workflow.
@@ -591,8 +591,7 @@ documentation, presentations, and other maintainer-facing writing.
   wording rather than adding redundant follow-up comments.
 
 Source comments, test names and docstrings, examples, PR descriptions and
-review replies follow the organization's canonical rule,
-[Explanations in code, tests, reviews and agent-written text](https://github.com/cubrid-lab/.github/blob/main/docs/ISSUE_PR_COMMIT_STANDARD.md#6-explanations-in-code-tests-reviews-and-agent-written-text).
+review replies follow the local explanation rule below.
 Say what happens, why it matters, and the invariant or constraint (for
 example, which session owns a query handle and when it may be released)
 before any issue number or protocol code such as `#488` or `FC41`; keep those
@@ -600,6 +599,6 @@ identifiers afterwards for traceability. Do not rename tests, fixtures or
 other machine-readable identifiers to satisfy this rule, and revise existing
 comments only where a new reader would be confused.
 
-This is a shared writing convention, not a new CI check, reviewer approval,
-or merge gate. This repository's DB-API, protocol, test, security and release
-rules keep precedence over it.
+These are local writing expectations, not an extra CI check, reviewer approval,
+or merge gate. The DB-API, protocol, test, security and release requirements
+in this repository remain authoritative.
