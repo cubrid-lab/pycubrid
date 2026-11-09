@@ -3859,11 +3859,11 @@ This release adds ways to work with CUBRID large objects, inspect database schem
 
 ### Added
 
-- **Read and write large objects** — Added the `Lob` API for BLOB and CLOB values, with creation, reading and writing. `Connection.create_lob()` creates a server-side LOB; `Lob` is also available from the package's top-level imports.
+- **Read and write large objects** — Added the `Lob` API for BLOB and CLOB values, with creation, reading and writing. `Connection.create_lob()` creates a server-side LOB; `Lob` is also available from the package's top-level imports ([commit f3fd1ca](https://github.com/cubrid-lab/pycubrid/commit/f3fd1cac17a678a647c889d9c2d2870b29dbd36a)) by @yeongseon.
 
-- **Inspect database structure** — Added `Connection.get_schema_info()` to retrieve schema information through the CAS protocol.
+- **Inspect database structure** — Added `Connection.get_schema_info()` to retrieve schema information through the CAS protocol ([commit f3fd1ca](https://github.com/cubrid-lab/pycubrid/commit/f3fd1cac17a678a647c889d9c2d2870b29dbd36a)) by @yeongseon.
 
-- **Execute SQL batches** — Added `Cursor.executemany_batch()` to send multiple SQL statements in one batch request, with an optional auto-commit setting.
+- **Execute SQL batches** — Added `Cursor.executemany_batch()` to send multiple SQL statements in one batch request, with an optional auto-commit setting ([commit f3fd1ca](https://github.com/cubrid-lab/pycubrid/commit/f3fd1cac17a678a647c889d9c2d2870b29dbd36a)) by @yeongseon.
 
 ## [0.3.0] - 2026-03-12
 
@@ -3871,15 +3871,15 @@ This release adds the first usable DB-API connection and cursor implementation o
 
 ### Added
 
-- **Connect to a database** — Added `Connection` with the CUBRID broker handshake, TCP socket handling and session setup, enabling the package's `connect()` function to establish a database connection.
+- **Connect to a database** — Added `Connection` with the CUBRID broker handshake, TCP socket handling and session setup, enabling the package's `connect()` function to establish a database connection ([commit 12974e3](https://github.com/cubrid-lab/pycubrid/commit/12974e396c75e7dd8c19e839b54789c3e2daf0d2)) by @yeongseon.
 
-- **Execute SQL and read results** — Added `Cursor` with `execute()`, `executemany()`, `fetchone()`, `fetchmany()`, `fetchall()`, result `description` and `rowcount`. Client-side binding covers common Python values, including strings, numbers, bytes and date/time values.
+- **Execute SQL and read results** — Added `Cursor` with `execute()`, `executemany()`, `fetchone()`, `fetchmany()`, `fetchall()`, result `description` and `rowcount`. Client-side binding covers common Python values, including strings, numbers, bytes and date/time values ([commit 12974e3](https://github.com/cubrid-lab/pycubrid/commit/12974e396c75e7dd8c19e839b54789c3e2daf0d2)) by @yeongseon.
 
-- **Manage transactions and resources** — Added `commit()`, `rollback()`, `autocommit` and `close()`, cursor/connection context managers, server-version and last-insert-ID helpers. `callproc()` executes a basic `CALL` with positional arguments but does not handle output parameters; `setinputsizes()` and `setoutputsize()` are no-op size hints.
+- **Manage transactions and resources** — Added `commit()`, `rollback()`, `autocommit` and `close()`, cursor/connection context managers, server-version and last-insert-ID helpers. `callproc()` executes a basic `CALL` with positional arguments but does not handle output parameters; `setinputsizes()` and `setoutputsize()` are no-op size hints ([commit 12974e3](https://github.com/cubrid-lab/pycubrid/commit/12974e396c75e7dd8c19e839b54789c3e2daf0d2)) by @yeongseon.
 
 ### Fixed
 
-- **CAS reply parsing** — Corrected a double-parsing error by passing the response body without its length prefix to the packet parser.
+- **CAS reply parsing** — Corrected a double-parsing error by passing the response body without its length prefix to the packet parser ([commit 12974e3](https://github.com/cubrid-lab/pycubrid/commit/12974e396c75e7dd8c19e839b54789c3e2daf0d2)) by @yeongseon.
 
 ## [0.2.0] - 2026-03-12
 
@@ -3887,11 +3887,11 @@ This release introduces the binary protocol building blocks for communicating wi
 
 ### Added
 
-- **Binary packet framing** — Added `PacketWriter` and `PacketReader` for the length-prefixed, big-endian CAS wire format used by later database operations.
+- **Binary packet framing** — Added `PacketWriter` and `PacketReader` for the length-prefixed, big-endian CAS wire format used by later database operations ([commit 8340a03](https://github.com/cubrid-lab/pycubrid/commit/8340a03acde19bfa954748bcb0ae996c639d2271)) by @yeongseon.
 
-- **CAS request and response packets** — Implemented 19 packet classes for connection handshakes, statement preparation and execution, fetching rows, transaction operations, schema queries and large-object handling. These are protocol building blocks, not a new usable connection API.
+- **CAS request and response packets** — Implemented 19 packet classes for connection handshakes, statement preparation and execution, fetching rows, transaction operations, schema queries and large-object handling. These are protocol building blocks, not a new usable connection API ([commit 3846d98](https://github.com/cubrid-lab/pycubrid/commit/3846d98a7d541a914e7adb83e4cd6cd86b1934a7)) by @yeongseon.
 
-- **Result decoding and metadata** — Added response-parsing helpers and the `ColumnMetaData` and `ResultInfo` types to represent query metadata and decode CUBRID wire values, including the supported data-type families.
+- **Result decoding and metadata** — Added response-parsing helpers and the `ColumnMetaData` and `ResultInfo` types to represent query metadata and decode CUBRID wire values, including the supported data-type families ([commit 3846d98](https://github.com/cubrid-lab/pycubrid/commit/3846d98a7d541a914e7adb83e4cd6cd86b1934a7)) by @yeongseon.
 
 ## [0.1.0] - 2026-03-12
 
@@ -3899,8 +3899,8 @@ This first release establishes the pycubrid package and its DB-API 2.0 foundatio
 
 ### Added
 
-- **Python package setup** — Introduced the installable `pycubrid` package (`pip install pycubrid`) and its DB-API module attributes `apilevel`, `threadsafety` and `paramstyle`. Although `connect()` is exported, the v0.1.0 tag has no `pycubrid.connection` module, so it cannot open a working connection.
+- **Python package setup** — Introduced the installable `pycubrid` package (`pip install pycubrid`) and its DB-API module attributes `apilevel`, `threadsafety` and `paramstyle`. Although `connect()` is exported, the v0.1.0 tag has no `pycubrid.connection` module, so it cannot open a working connection ([commit 9e4041a](https://github.com/cubrid-lab/pycubrid/commit/9e4041a22edee7a9ca8396f86c618240016a53b5)) by @yeongseon.
 
-- **DB-API errors and type helpers** — Added the PEP 249 exception hierarchy, the `STRING`, `BINARY`, `NUMBER`, `DATETIME` and `ROWID` type objects, and standard date, time, timestamp and binary constructors.
+- **DB-API errors and type helpers** — Added the PEP 249 exception hierarchy, the `STRING`, `BINARY`, `NUMBER`, `DATETIME` and `ROWID` type objects, and standard date, time, timestamp and binary constructors ([commit 9e4041a](https://github.com/cubrid-lab/pycubrid/commit/9e4041a22edee7a9ca8396f86c618240016a53b5)) by @yeongseon.
 
-- **CUBRID protocol definitions** — Added CAS function-code, database-type and isolation-level constants to support subsequent connection and query implementations.
+- **CUBRID protocol definitions** — Added CAS function-code, database-type and isolation-level constants to support subsequent connection and query implementations ([commit 9e4041a](https://github.com/cubrid-lab/pycubrid/commit/9e4041a22edee7a9ca8396f86c618240016a53b5)) by @yeongseon.
