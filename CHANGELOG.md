@@ -14,6 +14,13 @@ This maintenance update improves source builds, setup and migration guidance, an
 
 ### Documentation
 
+- **Step 1 now gives a Windows activation command, and later lessons point back to it (#1092)** —
+  Step 1 and the later lessons' reminders gave only `source .venv/bin/activate`, which fails in
+  both cmd and PowerShell, although the package declares Windows support and carries a
+  Windows-only dependency. Step 1 (English and Korean) now also shows the PowerShell and cmd
+  forms, marked unverified, and the later lessons and the `ModuleNotFoundError` row link back to
+  Step 1 instead of repeating only the POSIX command.
+
 - **Safer Docker setup** — Troubleshooting examples now wait until `testdb` accepts an actual login instead of relying on `cubrid broker status`. The examples also bind port 33000 locally rather than exposing an empty-password `dba` connection on every interface ([#1083](https://github.com/cubrid-lab/pycubrid/issues/1083), [PR #1146](https://github.com/cubrid-lab/pycubrid/pull/1146)) by @yeongseon.
 
 - **Working documentation links** — Published pages and translated READMEs now use repository URLs for files such as `SECURITY.md` and `LICENSE` instead of relative links that returned 404. The strict MkDocs build also detects a new broken link ([#1088](https://github.com/cubrid-lab/pycubrid/issues/1088), [PR #1147](https://github.com/cubrid-lab/pycubrid/pull/1147)) by @yeongseon.

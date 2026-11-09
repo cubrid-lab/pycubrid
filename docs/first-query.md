@@ -18,8 +18,9 @@ You need what the preparation lesson set up:
   ([Step 1](quickstart.md#step-1-install-pycubrid-in-a-virtual-environment)).
 
 Work in the same folder as Step 1. In a new terminal, activate the virtual
-environment again with `source .venv/bin/activate`. Each step is a file that you
-run from the terminal, so nothing carries over from an earlier Python session.
+environment again, as in [Step 1](quickstart.md#step-1-install-pycubrid-in-a-virtual-environment).
+Each step is a file that you run from the terminal, so nothing carries over
+from an earlier Python session.
 
 ---
 

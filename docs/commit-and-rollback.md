@@ -13,8 +13,8 @@ You need what the earlier lessons set up:
 - `first_saved_row.py` from [Save a Row and Read It Back](save-a-row.md)
   printed `Rows seen by a new connection: [(1, 'my first saved row')]`, so the
   table `pycubrid_quickstart_notes` exists with one row;
-- the same folder and an active virtual environment (in a new terminal, run
-  `source .venv/bin/activate` again).
+- the same folder and an active virtual environment (in a new terminal,
+  activate it again as in [Step 1](quickstart.md#step-1-install-pycubrid-in-a-virtual-environment)).
 
 ---
 
