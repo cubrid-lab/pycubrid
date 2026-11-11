@@ -1,14 +1,14 @@
 """Regression checks for executable lane coverage and explicit skip exceptions."""
 
 from __future__ import annotations
-
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
-
 from scripts.check_integration_lanes import (
     OFFICIAL_SKIP_REASON,
     ROOT,
+    Inventory,
     skip_category,
     verify_results,
     verify_workflows,
@@ -180,3 +180,102 @@ def test_missing_version_differential_lane_fails_workflow_audit(tmp_path: Path) 
         (target / name).write_text(content)
     with pytest.raises(ValueError, match="no executable version marker selection"):
         verify_workflows(tmp_path)
+
+
+@pytest.mark.parametrize(
+    ("markers", "expected_lanes"),
+    [
+        (["integration"], ["normal"]),
+        (["integration", "slow"], ["slow"]),
+        (["integration", "tls"], ["tls"]),
+        (["integration", "slow", "tls"], ["tls"]),
+        (["integration", "version_matrix"], ["normal", "version"]),
+        (["integration", "official_differential"], ["normal", "official"]),
+    ],
+)
+def test_inventory_classifies_integration_markers(markers, expected_lanes) -> None:
+    inventory = Inventory()
+    item = SimpleNamespace(
+        nodeid="tests/test_example.py::test_case",
+        get_closest_marker=lambda name: object() if name in markers else None,
+    )
+
+    inventory.pytest_collection_modifyitems([item])
+
+    for lane, nodes in inventory.lanes.items():
+        assert nodes == ([item.nodeid] if lane in expected_lanes else [])
+    assert inventory.invalid == []
+
+
+@pytest.mark.parametrize(
+    "marker",
+    ["slow", "tls", "version_matrix", "official_differential"],
+)
+def test_inventory_rejects_lane_markers_without_integration(marker) -> None:
+    inventory = Inventory()
+    item = SimpleNamespace(
+        nodeid="tests/test_example.py::test_case",
+        get_closest_marker=lambda name: object() if name == marker else None,
+    )
+
+    inventory.pytest_collection_modifyitems([item])
+
+    assert all(not nodes for nodes in inventory.lanes.values())
+    assert len(inventory.invalid) == 1
+    assert "requires integration" in inventory.invalid[0]
+
+
+def test_inventory_ignores_unmarked_items() -> None:
+    inventory = Inventory()
+    item = SimpleNamespace(
+        nodeid="tests/test_example.py::test_case",
+        get_closest_marker=lambda name: None,
+    )
+
+    inventory.pytest_collection_modifyitems([item])
+
+    assert all(not nodes for nodes in inventory.lanes.values())
+    assert inventory.invalid == []
+
+
+def test_inventory_classifies_known_collection_skip() -> None:
+    inventory = Inventory()
+    report = SimpleNamespace(
+        skipped=True,
+        nodeid="tests/test_version_differential.py",
+        longrepr="Skipped: CUBRID_VERSION_MATRIX not set",
+    )
+
+    inventory.pytest_collectreport(report)
+
+    assert inventory.collection_skips == [{"node": report.nodeid, "category": "version-lane-only"}]
+    assert inventory.invalid == []
+
+
+def test_inventory_rejects_unknown_collection_skip() -> None:
+    inventory = Inventory()
+    report = SimpleNamespace(
+        skipped=True,
+        nodeid="tests/test_example.py",
+        longrepr="Skipped: broker down",
+    )
+
+    inventory.pytest_collectreport(report)
+
+    assert inventory.collection_skips == []
+    assert len(inventory.invalid) == 1
+    assert "unclassified integration skip" in inventory.invalid[0]
+
+
+def test_inventory_ignores_non_skipped_collection_report() -> None:
+    inventory = Inventory()
+    report = SimpleNamespace(
+        skipped=False,
+        nodeid="tests/test_example.py",
+        longrepr="",
+    )
+
+    inventory.pytest_collectreport(report)
+
+    assert inventory.collection_skips == []
+    assert inventory.invalid == []
