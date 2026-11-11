@@ -318,3 +318,243 @@ def test_release_pr_body_cli_writes_a_patch_payload_only_on_change(tmp_path: Pat
         MODULE.main(["--pr-body", str(pr_json)])
     with pytest.raises(SystemExit):
         MODULE.main(["--pr-body", str(pr_json), "--output", str(out), "--version", "1.9.0"])
+
+
+# One-to-one correlation is deliberate: never merge based only on fuzzy prose.
+REPO = "https://github.com/cubrid-lab/pycubrid"
+ISSUE_1083 = f"[#1083]({REPO}/issues/1083)"
+PR_1141 = f"[PR #1141]({REPO}/pull/1141)"
+GENERATED_PR_1141 = (
+    f"* **compat:** warn against rewrapping a LOB handle across connections "
+    f"([#1141]({REPO}/issues/1141)) "
+    f"([5c7f769]({REPO}/commit/5c7f7698d3179b2106d84d940e8d0cd165be2caf)), "
+    f"refs [#1130]({REPO}/issues/1130)"
+)
+
+
+def test_removes_single_pr_correlated_duplicate_and_keeps_human_credit() -> None:
+    base = BASE.replace(
+        "Keep this **exactly**.",
+        f"- **LOB safety** — Do not rewrap a LOB across connections ({PR_1141}) by @alice.",
+    )
+    generated = NOTES.replace("* new API", GENERATED_PR_1141)
+    candidate = compose(base, generated, "1.9.0")
+    section = candidate.split("## [1.9.0]", 1)[1].split("## [1.8.0]", 1)[0]
+    assert section.count("**LOB safety**") == 1
+    assert PR_1141 in section and "by @alice" in section
+    assert "warn against rewrapping" not in section
+    assert section.count("### Upgrade notes") == 1
+    assert "### Added" not in section
+
+
+def test_issue_only_correlation_requires_unique_reference_and_shared_meaning() -> None:
+    curated = (
+        "### Documentation\n\n"
+        f"- **Safer Docker setup** — Wait for a real Docker login ({ISSUE_1083}) by @alice.\n"
+    )
+    base = BASE.replace("### Upgrade notes\n\nKeep this **exactly**.", curated)
+    generated_entry = (
+        "* **troubleshooting:** wait for a real Docker login and bind locally "
+        f"([deba70f]({REPO}/commit/deba70fac7041b336e83f2a667727e0000f815fb)), "
+        f"refs {ISSUE_1083}"
+    )
+    generated = NOTES.replace("* new API", generated_entry)
+    result = compose(base, generated, "1.9.0")
+    version = result.split("## [1.9.0]", 1)[1].split("## [1.8.0]", 1)[0]
+    assert "Safer Docker setup" in version
+    assert "troubleshooting" not in version
+    assert "by @alice" in version
+
+
+def test_issue_reference_with_unrelated_subject_is_not_silently_dropped() -> None:
+    curated = f"### Documentation\n\n- **Docker login** — Fix Docker readiness ({ISSUE_1083}).\n"
+    base = BASE.replace("### Upgrade notes\n\nKeep this **exactly**.", curated)
+    generated_entry = f"* **Database:** change number conversion, refs {ISSUE_1083}"
+    output = compose(base, NOTES.replace("* new API", generated_entry), "1.9.0")
+    assert "change number conversion" in output
+
+
+def test_matching_issue_is_ambiguous_when_two_generated_entries_refer_to_it() -> None:
+    curated = f"### Documentation\n\n- **Docker login** — Fix Docker readiness ({ISSUE_1083}).\n"
+    base = BASE.replace("### Upgrade notes\n\nKeep this **exactly**.", curated)
+    both = (
+        f"* **Docker:** fix Docker login, refs {ISSUE_1083}\n"
+        f"* **Docker:** clarify Docker port binding, refs {ISSUE_1083}"
+    )
+    output = compose(base, NOTES.replace("* new API", both), "1.9.0")
+    assert "fix Docker login" in output and "clarify Docker port binding" in output
+
+
+def test_same_pr_with_two_generated_entries_is_not_deleted() -> None:
+    curated = f"### Documentation\n\n- **Driver setup** — Source build setup ({PR_1141}).\n"
+    base = BASE.replace("### Upgrade notes\n\nKeep this **exactly**.", curated)
+    generated = NOTES.replace(
+        "* new API",
+        GENERATED_PR_1141 + "\n" + GENERATED_PR_1141.replace("LOB handle", "unrelated API"),
+    )
+    output = compose(base, generated, "1.9.0")
+    assert "warn against rewrapping" in output
+    assert "unrelated API" in output
+
+
+def test_deduplication_is_repo_local_and_preserves_unrelated_entries() -> None:
+    base = BASE.replace(
+        "Keep this **exactly**.",
+        f"- **LOB handling across connections** — Use a safe LOB path ({PR_1141}) by @alice.",
+    )
+    duplicate = GENERATED_PR_1141
+    foreign = (
+        "* **driver:** unrelated new API "
+        "([#1141](https://github.com/other/repository/issues/1141)) "
+        f"([234aaaa]({REPO}/commit/234aaaa0000000000000000000000000000000000))"
+    )
+    result = compose(base, NOTES.replace("* new API", duplicate + "\n" + foreign), "1.9.0")
+    version = result.split("## [1.9.0]", 1)[1].split("## [1.8.0]", 1)[0]
+    assert "warn against rewrapping" not in version
+    assert "unrelated new API" in version
+    assert "by @alice" in version
+    assert "### Added" in version
+
+
+def test_no_overlap_preserves_generated_section_byte_for_byte() -> None:
+    assert "### Added" in compose(BASE, NOTES, "1.9.0")
+    version = compose(BASE, NOTES, "1.9.0")
+    assert "* new API\n" in version
+
+
+def test_deduplication_does_not_rewrite_history() -> None:
+    base = BASE.replace(
+        "Keep this **exactly**.",
+        f"- **LOB safety** — Do not rewrap a LOB ({PR_1141}).",
+    )
+    result = compose(base, NOTES.replace("* new API", GENERATED_PR_1141), "1.9.0")
+    assert result[result.index("## [1.8.0]") :] == base[base.index("## [1.8.0]") :]
+
+
+def test_matching_pr_with_different_behavior_is_not_deduplicated() -> None:
+    base = BASE.replace(
+        "Keep this **exactly**.",
+        f"- **Query speed** — Accelerated integer execution ({PR_1141}) by @alice.",
+    )
+    generated = NOTES.replace("* new API", GENERATED_PR_1141)
+    composed = compose(base, generated, "1.9.0")
+    assert "Accelerated integer execution" in composed
+    assert "warn against rewrapping" in composed
+
+
+def test_generated_explanatory_paragraph_is_preserved_when_entry_matches() -> None:
+    base = BASE.replace(
+        "Keep this **exactly**.",
+        f"- **LOB safety** — Do not rewrap a LOB across connections ({PR_1141}).",
+    )
+    generated = NOTES.replace(
+        "* new API",
+        "Important independent upgrade context.\n\n" + GENERATED_PR_1141,
+    )
+    composed = compose(base, generated, "1.9.0")
+    assert "Important independent upgrade context." in composed
+    assert "warn against rewrapping" in composed
+
+
+def test_fenced_pr_link_is_not_release_provenance() -> None:
+    fenced = (
+        "### Documentation\n\n"
+        "- **LOB safety example** — Explain LOB handles across connections.\n\n"
+        "  ~~~markdown\n"
+        f"  {PR_1141}\n"
+        "  ~~~\n"
+    )
+    base = BASE.replace("### Upgrade notes\n\nKeep this **exactly**.", fenced)
+    composed = compose(base, NOTES.replace("* new API", GENERATED_PR_1141), "1.9.0")
+    assert "warn against rewrapping" in composed
+    assert f"  {PR_1141}" in composed
+
+
+def test_issue_correlation_does_not_hide_a_second_pr_using_the_same_issue() -> None:
+    curated = (
+        "### Documentation\n\n"
+        f"- **Safer Docker setup** — Wait for a real Docker login ({ISSUE_1083}).\n"
+    )
+    base = BASE.replace("### Upgrade notes\n\nKeep this **exactly**.", curated)
+    issue_only = (
+        "* **Docker:** wait for a real Docker login "
+        f"([deba70f]({REPO}/commit/deba70fac7041b336e83f2a667727e0000f815fb)), "
+        f"refs {ISSUE_1083}"
+    )
+    another_pr = (
+        "* **Docker:** clarify the same issue separately "
+        f"([#500]({REPO}/issues/500)) "
+        f"([aaaabbb]({REPO}/commit/aaaabbb0000000000000000000000000000000000)), "
+        f"refs {ISSUE_1083}"
+    )
+    composed = compose(base, NOTES.replace("* new API", issue_only + "\n" + another_pr), "1.9.0")
+    assert "wait for a real Docker login" in composed
+    assert another_pr in composed
+
+
+def test_issue_fallback_requires_local_commit_and_no_primary_pr() -> None:
+    curated = (
+        "### Documentation\n\n"
+        f"- **Safer Docker setup** — Wait for a real Docker login ({ISSUE_1083}).\n"
+    )
+    base = BASE.replace("### Upgrade notes\n\nKeep this **exactly**.", curated)
+    missing_commit = f"* **Docker:** wait for a real Docker login, refs {ISSUE_1083}"
+    foreign_primary = (
+        "* **Docker:** wait for a real Docker login "
+        "([#800](https://github.com/other/repository/issues/800)) "
+        f"([deba70f]({REPO}/commit/deba70fac7041b336e83f2a667727e0000f815fb)), "
+        f"refs {ISSUE_1083}"
+    )
+    for candidate in (missing_commit, foreign_primary):
+        composed = compose(base, NOTES.replace("* new API", candidate), "1.9.0")
+        assert candidate in composed
+
+
+def test_curated_fenced_issue_link_does_not_make_generated_issue_entry_disappear() -> None:
+    curated = (
+        "### Documentation\n\n"
+        "- **Docker example** — Demonstrate waiting for a real Docker login.\n\n"
+        "  ~~~markdown\n"
+        f"  refs {ISSUE_1083}\n"
+        "  ~~~\n"
+    )
+    base = BASE.replace("### Upgrade notes\n\nKeep this **exactly**.", curated)
+    generated = (
+        "* **Docker:** wait for a real Docker login "
+        f"([deba70f]({REPO}/commit/deba70fac7041b336e83f2a667727e0000f815fb)), "
+        f"refs {ISSUE_1083}"
+    )
+    composed = compose(base, NOTES.replace("* new API", generated), "1.9.0")
+    assert generated in composed
+
+
+def test_tilde_fenced_example_bullet_is_not_treated_as_a_generated_entry() -> None:
+    base = BASE.replace(
+        "Keep this **exactly**.",
+        f"- **LOB handling across connections** — Use a safe LOB path ({PR_1141}).",
+    )
+    generated = NOTES.replace(
+        "* new API",
+        "* **Markdown examples** — Add an example.\n\n"
+        f"~~~markdown\n{GENERATED_PR_1141}\n~~~\n\n"
+        "* **Distinct change** — Keep this change.",
+    )
+    result = compose(base, generated, "1.9.0")
+    assert "Markdown examples" in result
+    assert "warn against rewrapping" in result
+    assert "Distinct change" in result
+
+
+def test_removing_a_duplicate_keeps_the_remaining_list_tight() -> None:
+    base = BASE.replace(
+        "Keep this **exactly**.",
+        f"- **LOB safety** — Do not rewrap a LOB across connections ({PR_1141}) by @alice.",
+    )
+    kept = [
+        f"* first unrelated note ([aaaaaaa]({REPO}/commit/aaaaaaa000000000000000000000000000000000))",
+        f"* second unrelated note ([bbbbbbb]({REPO}/commit/bbbbbbb000000000000000000000000000000000))",
+    ]
+    generated = NOTES.replace("* new API", "\n".join([kept[0], GENERATED_PR_1141, kept[1]]))
+    version = compose(base, generated, "1.9.0").split("## [1.9.0]", 1)[1]
+    assert "warn against rewrapping" not in version
+    assert "\n".join(kept) + "\n" in version
