@@ -108,6 +108,12 @@ entry point and must not be used to open a second production release PR.
   invoking release-please and before pushing composed notes. Wait for any
   in-flight preparation run to finish before editing. Removing the label
   authorizes regeneration; unfrozen branch-only edits can be overwritten.
+- Freeze only when the maintainer starts reviewing that candidate for release
+  (see [Release cadence](#release-cadence)), not days ahead. A frozen candidate
+  is not regenerated, so each later merge to `main` leaves it behind the strict
+  branch rule; between releases, keep it unfrozen and merge ordinary PRs
+  normally. An agent may regenerate, freeze, curate and validate a candidate,
+  but merging the release PR, which publishes, is the maintainer's decision.
 - While unfrozen, put curated Upgrade/policy notes in main's Unreleased section
   through ordinary reviewed PRs. At a fixed main/generated input, composition
   is deterministic; a new upstream generation may change its generated date.
