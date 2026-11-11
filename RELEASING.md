@@ -111,7 +111,8 @@ entry point and must not be used to open a second production release PR.
 - Freeze only when the maintainer starts reviewing that candidate for release
   (see [Release cadence](#release-cadence)), not days ahead. A frozen candidate
   is not regenerated, so each later merge to `main` leaves it out of date, and
-  the `main` ruleset requires a pull request to be up to date before it merges.
+  branch protection on `main` requires a pull request to be up to date before
+  it merges.
   Between releases, keep it unfrozen and merge ordinary PRs normally; once the
   review starts, hold ordinary merges until the release PR merges or the review
   is dropped. An agent may regenerate, freeze, curate and validate a candidate,
