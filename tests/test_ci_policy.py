@@ -601,14 +601,26 @@ def detect_output(key: str, event: str, filt: dict[str, str], reuse: dict[str, s
     expr = DETECT["outputs"][key].strip().removeprefix("${{").removesuffix("}}")
     names: dict[str, str] = {"event": event}
     for prefix, values in (("filter", filt), ("reuse", reuse)):
-        for name in ("code", "tooling", "risk", "tls", "charset", "official", "docs"):
+        for name in (
+            "runtime_code",
+            "code",
+            "tooling",
+            "risk",
+            "tls",
+            "charset",
+            "official",
+            "docs",
+        ):
             names[f"{prefix}_{name}"] = values.get(name, "")
             expr = expr.replace(f"steps.{prefix}.outputs.{name}", f"{prefix}_{name}")
     expr = expr.replace("github.event_name", "event").replace("&&", " and ").replace("||", " or ")
     return bool(eval(expr, {"__builtins__": {}}, names))  # noqa: S307 - fixed workflow text
 
 
-ALL_CHANGED = {name: "true" for name in ("code", "tooling", "risk", "tls", "charset", "official")}
+ALL_CHANGED = {
+    name: "true"
+    for name in ("runtime_code", "code", "tooling", "risk", "tls", "charset", "official")
+}
 
 
 @pytest.mark.parametrize("key", CODE_FAMILY)
@@ -986,3 +998,77 @@ def test_security_scans_keep_non_pr_and_failed_detection_fail_open() -> None:
             job = data["jobs"][scan]
             assert job["needs"] == "docs-only"
             assert job["if"] == condition
+
+
+def _filter_outputs(paths: list[str]) -> dict[str, str]:
+    """paths-filter outputs for a diff, from the workflow's own filter lists."""
+    from tests.test_workflow_path_impact import _selected
+
+    groups = set().union(*(_selected(path) for path in paths))
+    return {name: "true" if name in groups else "false" for name in _filters_names()}
+
+
+def _filters_names() -> list[str]:
+    return list(yaml.safe_load(DETECT["steps"][-1]["with"]["filters"]))
+
+
+RELEASE_ONLY = ["scripts/compose_release_changelog.py", "tests/test_compose_release_changelog.py"]
+# A deleted path is still reported by paths-filter, so it selects like an edit.
+DELETED_RELEASE_SCRIPT = ["scripts/audit_historical_releases.py"]
+WORKFLOW_ONLY = [".github/workflows/release-please.yml"]
+MIXED = [*RELEASE_ONLY, "pycubrid/protocol.py"]
+# A rename across the list boundary reports both the old and the new path.
+RENAMED_OUT_OF_LIST = ["scripts/release_detect.py", "scripts/release_detect_v2.py"]
+
+
+@pytest.mark.parametrize("paths", [RELEASE_ONLY, DELETED_RELEASE_SCRIPT, WORKFLOW_ONLY])
+def test_release_tooling_only_pr_skips_code_lanes_but_runs_release_tests(
+    paths: list[str],
+) -> None:
+    filt = _filter_outputs(paths)
+    assert filt["release_tooling"] == "true"
+    for key in CODE_FAMILY:
+        assert detect_output(key, "pull_request", filt, {}) is False, key
+    jobs = workflow("ci.yml")["jobs"]
+    assert jobs["release-tests"]["if"] == "needs.detect-changes.outputs.release_tooling == 'true'"
+    assert DETECT["outputs"]["release_tooling"] == "${{ steps.filter.outputs.release_tooling }}"
+
+
+@pytest.mark.parametrize("event", ["push", "schedule", "workflow_dispatch"])
+@pytest.mark.parametrize("paths", [RELEASE_ONLY, DELETED_RELEASE_SCRIPT])
+def test_release_tooling_only_changes_keep_full_validation_outside_pull_requests(
+    event: str, paths: list[str]
+) -> None:
+    filt = _filter_outputs(paths)
+    assert filt["code"] == "true" and filt["runtime_code"] == "false"
+    assert detect_output("code", event, filt, {}) is True
+    # Non-PR events select every code lane regardless of the PR-only path groups.
+    for key in ("live", "extended", "tls", "charset", "official"):
+        assert detect_output(key, event, filt, {}) is True, key
+    # The weekly same-SHA reuse guard still applies to proven code lanes.
+    if event == "schedule":
+        assert detect_output("code", event, filt, {"code": "true"}) is False
+
+
+@pytest.mark.parametrize("paths", [MIXED, RENAMED_OUT_OF_LIST])
+def test_release_tooling_mixed_with_runtime_paths_selects_code_on_pull_requests(
+    paths: list[str],
+) -> None:
+    filt = _filter_outputs(paths)
+    assert filt["runtime_code"] == "true"
+    assert detect_output("code", "pull_request", filt, {}) is True
+
+
+def test_unknown_path_is_runtime_code_on_pull_requests() -> None:
+    filt = _filter_outputs(["some/new/file.cfg"])
+    assert filt["runtime_code"] == filt["code"] == "true"
+    assert detect_output("code", "pull_request", filt, {}) is True
+
+
+def test_runtime_code_is_code_minus_exactly_the_release_tooling_list() -> None:
+    filters = yaml.safe_load(DETECT["steps"][-1]["with"]["filters"])
+    (code,) = filters["code"]
+    (runtime,) = filters["runtime_code"]
+    assert runtime.startswith(code[:-1] + ",") and runtime.endswith("}")
+    extra = runtime[len(code) : -1].split(",")
+    assert extra == filters["release_tooling"]

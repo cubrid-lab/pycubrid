@@ -66,17 +66,17 @@ jobs:
     # On the weekly schedule, `reuse` is 'true' for a lane family already proven at
     # this exact SHA by a successful push run; elsewhere it is empty and changes nothing.
     outputs:
-      code: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.code == 'true' && steps.reuse.outputs.code != 'true' }}
+      code: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && steps.filter.outputs.runtime_code == 'true' || github.event_name != 'pull_request' && steps.filter.outputs.code == 'true') && steps.reuse.outputs.code != 'true' }}
       docs: ${{ steps.filter.outputs.docs }}
       release_tooling: ${{ steps.filter.outputs.release_tooling }}
       site: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.site == 'true' }}
       tooling: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.tooling == 'true' && steps.reuse.outputs.tooling != 'true' }}
       risk: ${{ steps.filter.outputs.risk }}
-      live: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.code == 'true' && steps.reuse.outputs.code != 'true' && (github.event_name != 'pull_request' || steps.filter.outputs.risk == 'true') }}
-      extended: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.code == 'true' && steps.reuse.outputs.code != 'true' && github.event_name != 'pull_request' }}
-      tls: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.code == 'true' && steps.reuse.outputs.code != 'true' && (github.event_name != 'pull_request' || steps.filter.outputs.tls == 'true') }}
-      charset: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.code == 'true' && steps.reuse.outputs.code != 'true' && (github.event_name != 'pull_request' || steps.filter.outputs.charset == 'true') }}
-      official: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.code == 'true' && steps.reuse.outputs.code != 'true' && (github.event_name != 'pull_request' || steps.filter.outputs.official == 'true') }}
+      live: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && steps.filter.outputs.runtime_code == 'true' || github.event_name != 'pull_request' && steps.filter.outputs.code == 'true') && steps.reuse.outputs.code != 'true' && (github.event_name != 'pull_request' || steps.filter.outputs.risk == 'true') }}
+      extended: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && steps.filter.outputs.runtime_code == 'true' || github.event_name != 'pull_request' && steps.filter.outputs.code == 'true') && steps.reuse.outputs.code != 'true' && github.event_name != 'pull_request' }}
+      tls: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && steps.filter.outputs.runtime_code == 'true' || github.event_name != 'pull_request' && steps.filter.outputs.code == 'true') && steps.reuse.outputs.code != 'true' && (github.event_name != 'pull_request' || steps.filter.outputs.tls == 'true') }}
+      charset: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && steps.filter.outputs.runtime_code == 'true' || github.event_name != 'pull_request' && steps.filter.outputs.code == 'true') && steps.reuse.outputs.code != 'true' && (github.event_name != 'pull_request' || steps.filter.outputs.charset == 'true') }}
+      official: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && steps.filter.outputs.runtime_code == 'true' || github.event_name != 'pull_request' && steps.filter.outputs.code == 'true') && steps.reuse.outputs.code != 'true' && (github.event_name != 'pull_request' || steps.filter.outputs.official == 'true') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -170,6 +170,10 @@ jobs:
               - 'tests/test_audit_historical_releases.py'
               - 'tests/test_check_release_note_wrap.py'
             code:
+              - '!{docs/**,*.md,**/*.md,LICENSE,LICENSE.*,NOTICE,llms.txt,.gitignore,.gitattributes}'
+            # The same paths without the release_tooling list. Only pull requests
+            # use it; push, weekly and dispatch runs keep `code` (#1157).
+            runtime_code:
               - '!{docs/**,*.md,**/*.md,LICENSE,LICENSE.*,NOTICE,llms.txt,.gitignore,.gitattributes,scripts/check_release_please.cjs,scripts/compose_release_changelog.py,scripts/check_release_title.py,scripts/extract_release_notes.py,scripts/lint_changelog.py,scripts/prepare_release.py,scripts/reconcile_release_labels.py,scripts/release_detect.py,scripts/release_summary.py,scripts/annotate_release_contributors.py,scripts/audit_historical_releases.py,scripts/check_release_note_wrap.py,.github/workflows/release-please.yml,tests/test_compose_release_changelog.py,tests/test_check_release_title.py,tests/test_extract_release_notes.py,tests/test_lint_changelog_subsections.py,tests/test_prepare_release.py,tests/test_reconcile_release_labels.py,tests/test_release_detect.py,tests/test_release_summary.py,tests/test_release_workflows.py,tests/test_release_please_config.py,tests/test_annotate_release_contributors.py,tests/test_audit_historical_releases.py,tests/test_check_release_note_wrap.py}'
             risk:
               - 'pycubrid/**'
@@ -588,7 +592,6 @@ jobs:
           version: "0.12.17"
           enable-cache: true
           cache-suffix: ${{ github.job }}
-          enable-cache: true
           cache-dependency-glob: |
             pyproject.toml
             uv.lock
