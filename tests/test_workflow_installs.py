@@ -22,7 +22,7 @@ FULL_SHA = re.compile(r"[0-9a-f]{40}")
 UV_VERSION = "0.12.17"
 # The release gate keeps setup-uv's event guard (`auto`); routine CI always caches.
 WORKFLOWS = {"ci.yml": True, "integration-full.yml": "auto"}
-EXPECTED_JOBS = {"ci.yml": 12, "integration-full.yml": 10}
+EXPECTED_JOBS = {"ci.yml": 13, "integration-full.yml": 10}
 PIP_INSTALL = re.compile(r"\bpip3?\s+install\b")
 PIP_SMOKE_ALLOWED = ("/tmp/test-wheel/bin/pip install", "/tmp/test-sdist/bin/pip install")
 

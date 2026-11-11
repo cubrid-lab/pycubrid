@@ -71,6 +71,9 @@ def test_workflow_impact_table(name: str) -> None:
     groups = _selected(f".github/workflows/{name}")
     # Every workflow is validated by the tooling lane (policy/workflow tests).
     assert "tooling" in groups, name
+    if name == "release-please.yml":
+        assert "release_tooling" in groups
+        assert "runtime_code" not in groups
     # #786: only the workflows that define or mirror the docs build select it.
     assert ("site" in groups) == (name in {"ci.yml", "docs.yml"}), name
     if name == "ci.yml":
@@ -88,6 +91,12 @@ def test_workflow_impact_table(name: str) -> None:
         ("pycubrid/_prepared_binding.py", {"code", "risk", "charset", "official"}),
         ("tests/test_tls_matrix_offline.py", {"code", "risk", "tls"}),
         ("scripts/wait_for_cubrid.py", {"code", "risk", "tooling", "official"}),
+        (
+            "scripts/compose_release_changelog.py",
+            {"code", "risk", "tooling", "official", "release_tooling"},
+        ),
+        ("tests/test_compose_release_changelog.py", {"code", "risk", "tooling", "release_tooling"}),
+        (".github/workflows/release-please.yml", {"code", "tooling", "release_tooling"}),
         ("pyproject.toml", {"code", "risk", "tooling", "site"}),
         ("uv.lock", {"code", "risk", "tooling", "site"}),
         (".github/ci-wheels/pyyaml-6.0.3-1-py3-none-any.whl", {"code", "risk", "tooling", "site"}),
@@ -118,7 +127,10 @@ def test_workflow_impact_table(name: str) -> None:
     ],
 )
 def test_representative_paths_select_the_expected_tiers(path: str, expected: set[str]) -> None:
-    assert _selected(path) == expected, path
+    groups = _selected(path)
+    # runtime_code is code minus the release tooling list (pull requests only).
+    assert ("runtime_code" in groups) == ("code" in groups and "release_tooling" not in groups)
+    assert groups - {"runtime_code"} == expected, path
 
 
 # The optional ``)`` covers ``Path(".github") / "workflows"``, which ast.unparse

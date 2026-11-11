@@ -159,6 +159,7 @@ GitHub 요금이 어느 워크플로나 러너 SKU에서 발생하는지는 확�
 | 공개 API 기준선 | `ci.yml` `compat-check`, `integration-full.yml` `compat-check` (같은 단계) | 모든 코드 이벤트, 릴리스와 전체 수동 실행 |
 | 패키징 | `ci.yml` `packaging-smoke-test`, `publish-pypi.yml` `consistency`와 `build` | 위험 PR, PR이 아닌 코드 이벤트, 릴리스 |
 | 저장소 도구 | `ci.yml` `repo-tooling-tests`, `integration-full.yml` `repo-tooling-tests` (같은 단계) | 도구 경로 이벤트, 릴리스와 전체 수동 실행 |
+| 릴리스 자동화 테스트 | `ci.yml` `release-tests` (Python 3.12) | 목록에 있는 릴리스 스크립트, 그 테스트 또는 `release-please.yml`을 바꾸는 모든 이벤트. 이 파일만 바꾸는 PR은 코드 레인과 라이브 CUBRID를 건너뛰고, main 푸시·주간·수동 실행은 그대로 전체 코드 레인을 실행합니다 (#1157) |
 | Python 3.15 패키징 검사 (권고용) | `python-canary.yml` | 수동 실행만 |
 
 ### 통합

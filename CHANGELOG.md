@@ -33,6 +33,10 @@ This maintenance update improves source builds, setup and migration guidance, an
 
 - **Runnable example scripts** — The Examples page (English and Korean) now names the five scripts in `examples/`, the environment variables they read with their defaults, the run command, and the tables they leave behind, with a `DROP TABLE` cleanup ([#1087](https://github.com/cubrid-lab/pycubrid/issues/1087)) by @CloudCorpRecords.
 
+### CI
+
+- **Release automation tests without CUBRID** — A pull request that changes only the release scripts, their tests or `release-please.yml` now runs a focused Python 3.12 `release-tests` job instead of the offline, live CUBRID and differential lanes. Pushes to `main`, the weekly run and manual dispatch still run every code lane for those files ([#1157](https://github.com/cubrid-lab/pycubrid/issues/1157)) by @yeongseon.
+
 ### Tests
 
 - **Independent DB-API regressions** — New sync/async tests cover computed and aliased result metadata, commit/rollback visibility, READ COMMITTED versus REPEATABLE READ, collection decoding and large multibyte CLOB contents. Offline cases cover `Lob.read()`/`Lob.write()` failures; common tests no longer depend on Compat fixtures. Compat-specific tests remain until that separately gated removal. Runtime behavior is unchanged ([#1123](https://github.com/cubrid-lab/pycubrid/issues/1123), [PR #1131](https://github.com/cubrid-lab/pycubrid/pull/1131)) by @yeongseon.
