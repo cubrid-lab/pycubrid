@@ -35,6 +35,7 @@
 - [에러 처리](#에러-처리)
 - [SQLAlchemy 연동](#sqlalchemy-연동)
 - [커넥션 풀링 패턴](#커넥션-풀링-패턴)
+- [실행 가능한 예제 스크립트](#실행-가능한-예제-스크립트)
 
 ---
 
@@ -827,4 +828,33 @@ engine = create_engine(
     max_overflow=10,
     pool_pre_ping=True,
 )
+```
+
+---
+
+## 실행 가능한 예제 스크립트
+
+`examples/` 폴더에는 CUBRID 서버에 대해 바로 실행할 수 있는 스크립트 다섯 개가 들어 있습니다. 저장소 루트에서 실행합니다:
+
+```bash
+python examples/01_connect.py
+```
+
+모든 스크립트는 같은 환경 변수를 읽습니다: `CUBRID_HOST`(기본값 `localhost`), `CUBRID_PORT`(기본값 `33000`), `CUBRID_DATABASE`(기본값 `testdb`), `CUBRID_USER`(기본값 `dba`), `CUBRID_PASSWORD`(기본값 비어 있음).
+
+| 스크립트 | 하는 일 | 남는 테이블 |
+| --- | --- | --- |
+| `01_connect.py` | 연결하고 첫 쿼리를 실행합니다 | 없음 |
+| `02_crud.py` | 테이블을 만들고 행을 삽입, 조회, 수정, 삭제합니다 | `example_users` |
+| `03_transactions.py` | 삽입 하나를 커밋하고 다른 하나를 롤백합니다. 실행할 때마다 행이 추가됩니다 | `example_ledger` |
+| `04_lob.py` | CLOB과 BLOB 값을 저장하고 다시 읽습니다 | `example_documents` |
+| `05_batch.py` | `executemany`로 여러 행을 삽입합니다 | `example_batch_users` |
+
+02번부터 05번 스크립트는 `IF NOT EXISTS`로 테이블을 만들고 지우지 않습니다. 끝나면 삭제하세요:
+
+```sql
+DROP TABLE example_users;
+DROP TABLE example_ledger;
+DROP TABLE example_documents;
+DROP TABLE example_batch_users;
 ```

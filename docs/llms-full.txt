@@ -5065,6 +5065,7 @@ Practical examples for using pycubrid — from basic CRUD to advanced features.
 - [Error Handling](#error-handling)
 - [SQLAlchemy Integration](#sqlalchemy-integration)
 - [Connection Pooling Pattern](#connection-pooling-pattern)
+- [Runnable Example Scripts](#runnable-example-scripts)
 
 ---
 
@@ -5863,6 +5864,35 @@ engine = create_engine(
     max_overflow=10,
     pool_pre_ping=True,
 )
+```
+
+---
+
+## Runnable Example Scripts
+
+The `examples/` folder ships five scripts you can run as-is against a CUBRID server. From the repository root:
+
+```bash
+python examples/01_connect.py
+```
+
+Every script reads the same environment variables: `CUBRID_HOST` (default `localhost`), `CUBRID_PORT` (default `33000`), `CUBRID_DATABASE` (default `testdb`), `CUBRID_USER` (default `dba`) and `CUBRID_PASSWORD` (default empty).
+
+| Script | What it does | Table left behind |
+| --- | --- | --- |
+| `01_connect.py` | Connects and runs a first query | None |
+| `02_crud.py` | Creates a table, then inserts, reads, updates and deletes a row | `example_users` |
+| `03_transactions.py` | Commits one insert and rolls another back; adds a row on every run | `example_ledger` |
+| `04_lob.py` | Stores and reads back CLOB and BLOB values | `example_documents` |
+| `05_batch.py` | Inserts many rows with `executemany` | `example_batch_users` |
+
+Scripts 02 to 05 create their tables with `IF NOT EXISTS` and never drop them. Remove them when you are done:
+
+```sql
+DROP TABLE example_users;
+DROP TABLE example_ledger;
+DROP TABLE example_documents;
+DROP TABLE example_batch_users;
 ```
 
 ============================================================
