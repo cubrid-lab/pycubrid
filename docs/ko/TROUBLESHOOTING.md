@@ -101,6 +101,22 @@ flowchart TD
 **증상:**
 
 ```
+OperationalError: failed to connect to CUBRID broker
+```
+
+(동기 `pycubrid.connect()`) 또는
+
+```
+OperationalError: could not connect to localhost:33000
+```
+
+(비동기 `pycubrid.aio.connect()`, 호스트와 포트는 연결 인자에 따라 다릅니다).
+두 드라이버 모두 연결 중 발생한 모든 `OSError`를 `OperationalError`로 감싸므로
+이것이 트레이스백의 마지막 줄, 즉 여기에서 찾아야 할 줄입니다. 원래 네트워크
+오류는 체인된 원인으로 남아 `The above exception was the direct cause of the
+following exception:` 줄 위에 출력됩니다:
+
+```
 ConnectionRefusedError: [Errno 111] Connection refused
 ```
 
@@ -194,6 +210,21 @@ conn = pycubrid.connect(
 ### TimeoutError 또는 socket.timeout
 
 **증상:**
+
+```
+OperationalError: failed to connect to CUBRID broker
+OperationalError: could not connect to remote-server.example.com:33000
+OperationalError: read timeout during connect handshake
+```
+
+첫 번째 줄은 `connect_timeout`을 초과한 동기 `pycubrid.connect()`입니다.
+두 번째는 TCP 연결(`connect_timeout`)에서 타임아웃된 비동기
+`pycubrid.aio.connect()`입니다. 세 번째는 CAS 핸드셰이크(`read_timeout`)에서
+타임아웃된 비동기 연결입니다. 두 드라이버 모두 원래 `OSError`를
+`OperationalError`로 감싸므로 이것들이 트레이스백의 마지막 줄, 즉 여기에서
+찾아야 할 줄입니다. 원래 네트워크 오류는 체인된 원인으로 남아
+`The above exception was the direct cause of the following exception:` 줄
+위에 출력됩니다:
 
 ```
 TimeoutError: [Errno 110] Connection timed out

@@ -99,6 +99,22 @@ flowchart TD
 **Symptom:**
 
 ```
+OperationalError: failed to connect to CUBRID broker
+```
+
+(sync `pycubrid.connect()`) or
+
+```
+OperationalError: could not connect to localhost:33000
+```
+
+(async `pycubrid.aio.connect()`, with your own host and port). Both drivers
+wrap every `OSError` raised while connecting in `OperationalError`, so this is
+the last line of the traceback — the line to look up here. The original
+network error is kept as the chained cause, printed above the
+`The above exception was the direct cause of the following exception:` line:
+
+```
 ConnectionRefusedError: [Errno 111] Connection refused
 ```
 
@@ -192,6 +208,21 @@ conn = pycubrid.connect(
 ### TimeoutError or socket.timeout
 
 **Symptom:**
+
+```
+OperationalError: failed to connect to CUBRID broker
+OperationalError: could not connect to remote-server.example.com:33000
+OperationalError: read timeout during connect handshake
+```
+
+The first line is sync `pycubrid.connect()` with `connect_timeout` exceeded.
+The second is async `pycubrid.aio.connect()` timing out on the TCP connect
+(`connect_timeout`). The third is async timing out on the CAS handshake
+(`read_timeout`). Both drivers wrap the underlying `OSError` in
+`OperationalError`, so these are the last lines of the traceback — the lines
+to look up here. The original network error is kept as the chained cause,
+printed above the
+`The above exception was the direct cause of the following exception:` line:
 
 ```
 TimeoutError: [Errno 110] Connection timed out
