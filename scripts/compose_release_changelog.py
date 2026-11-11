@@ -329,10 +329,12 @@ def _dedupe_generated(
             if not duplicates:
                 retained.append(block)
                 continue
-            if remaining := [
-                entry.strip("\n") for i, entry in enumerate(entries) if i not in duplicates
-            ]:
-                retained.append("\n\n".join(remaining))
+            # Each entry keeps its own trailing separator, so joining the kept
+            # entries leaves a tight list tight and a loose list loose.
+            if remaining := "".join(
+                entry for i, entry in enumerate(entries) if i not in duplicates
+            ).rstrip("\n"):
+                retained.append(remaining)
         if retained:
             result[section] = retained
     return result

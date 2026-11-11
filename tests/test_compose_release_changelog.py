@@ -543,3 +543,18 @@ def test_tilde_fenced_example_bullet_is_not_treated_as_a_generated_entry() -> No
     assert "Markdown examples" in result
     assert "warn against rewrapping" in result
     assert "Distinct change" in result
+
+
+def test_removing_a_duplicate_keeps_the_remaining_list_tight() -> None:
+    base = BASE.replace(
+        "Keep this **exactly**.",
+        f"- **LOB safety** — Do not rewrap a LOB across connections ({PR_1141}) by @alice.",
+    )
+    kept = [
+        f"* first unrelated note ([aaaaaaa]({REPO}/commit/aaaaaaa000000000000000000000000000000000))",
+        f"* second unrelated note ([bbbbbbb]({REPO}/commit/bbbbbbb000000000000000000000000000000000))",
+    ]
+    generated = NOTES.replace("* new API", "\n".join([kept[0], GENERATED_PR_1141, kept[1]]))
+    version = compose(base, generated, "1.9.0").split("## [1.9.0]", 1)[1]
+    assert "warn against rewrapping" not in version
+    assert "\n".join(kept) + "\n" in version
