@@ -1225,32 +1225,50 @@ make docker-fix-db-host
 
 ### 데이터베이스를 찾을 수 없음
 
-**증상:**
+**증상:** 브로커는 응답하지만 데이터베이스를 여는 단계에서 실패합니다.
 
 ```
-OperationalError: ... database 'mydb' not found
+DatabaseError: Failed to connect to database server, 'mydb', on the following host(s): localhost (errno=-191, sqlstate='HY000')
 ```
 
-**Docker 이미지는 `CUBRID_DB`에 지정된 데이터베이스만 생성합니다:**
+데이터베이스는 있지만 그 서버가 시작되지 않은 경우에도 같은
+`Failed to connect to database server, '<name>'` 줄이 나옵니다. 이때 CUBRID 11.4는
+`-191` 대신 `errno=-677`을 보고합니다. pycubrid는 두 코드 모두 더 구체적인 클래스로
+매핑하지 않으므로 둘 다 `DatabaseError`로 전달됩니다. 예전 컨테이너 ID와 `errno=-353`이
+나오는 줄은 다른 문제입니다.
+[컨테이너를 다시 만든 뒤 데이터베이스 서버 호스트를 찾을 수 없음](#컨테이너를-다시-만든-뒤-데이터베이스-서버-호스트를-찾을-수-없음)을
+참고하세요.
 
-```yaml
-# docker-compose.yml
-services:
-  cubrid:
-    image: cubrid/cubrid:11.2
-    environment:
-      CUBRID_DB: testdb  # 이 데이터베이스만 생성됨
-```
+**원인:** Docker 이미지는 `CUBRID_DB`에 지정된 데이터베이스만 만듭니다. 저장소의
+`docker-compose.yml`과 퀵스타트의 `docker run` 명령에서는 `testdb`입니다.
 
 **해결:** 둘 중 하나:
 
-1. `CUBRID_DB`를 연결의 데이터베이스 이름과 일치하도록 설정
-2. 컨테이너 안에서 수동으로 데이터베이스 생성:
+1. 컨테이너가 만든 데이터베이스(`testdb`)로 연결하거나, 컨테이너를 처음 시작하기 전에
+   `CUBRID_DB`를 연결할 데이터베이스 이름으로 설정합니다.
+2. 기존 데이터베이스를 소유한 `cubrid` 사용자로 컨테이너 안에서 데이터베이스를 만들고
+   시작합니다. 먼저 컨테이너 안의 셸을 엽니다.
 
    ```bash
-   docker compose exec cubrid cubrid createdb mydb
-   docker compose exec cubrid cubrid server start mydb
+   # 저장소의 docker-compose.yml(기여자용), 저장소 루트에서 실행
+   docker compose exec -u cubrid cubrid bash
+
+   # 퀵스타트 실습 컨테이너
+   docker exec -it -u cubrid pycubrid-quickstart bash
    ```
+
+   그 셸에서 다음을 실행합니다.
+
+   ```bash
+   mkdir -p "$CUBRID_DATABASES/mydb" && cd "$CUBRID_DATABASES/mydb"
+   cubrid createdb mydb en_US.utf8
+   cubrid server start mydb
+   ```
+
+   `createdb`는 데이터베이스 이름 뒤에 로캘과 문자셋을 반드시 받고, 데이터베이스 파일을
+   현재 디렉터리에 만듭니다. 그래서 첫 줄에서 이미지의 데이터베이스 디렉터리로 이동합니다.
+   기본 볼륨 크기로는 디스크가 약 1.5GB 필요하고 몇 분 걸릴 수 있습니다. 데이터베이스가
+   이미 있다면 `cubrid server start mydb`만 실행하세요.
 
 ---
 

@@ -1231,31 +1231,49 @@ database. Use it only for a volume whose data you do not need.
 
 ### Database Not Found
 
-**Symptom:**
+**Symptom:** the broker answers, but opening the database fails:
 
 ```
-OperationalError: ... database 'mydb' not found
+DatabaseError: Failed to connect to database server, 'mydb', on the following host(s): localhost (errno=-191, sqlstate='HY000')
 ```
 
-**The Docker image creates only the database specified in `CUBRID_DB`:**
+The same `Failed to connect to database server, '<name>'` line also appears when the
+database exists but its server is not started; CUBRID 11.4 then reports `errno=-677`
+instead of `-191`. pycubrid has no narrower class for either code, so both arrive as
+`DatabaseError`. A line naming an old container ID with `errno=-353` is a different
+problem: see
+[Database Server Host Not Found After Recreating the Container](#database-server-host-not-found-after-recreating-the-container).
 
-```yaml
-# docker-compose.yml
-services:
-  cubrid:
-    image: cubrid/cubrid:11.2
-    environment:
-      CUBRID_DB: testdb  # Only this database is created
-```
+**Cause:** the Docker image creates only the database named in `CUBRID_DB`: `testdb` in
+the repository's `docker-compose.yml` and in the quickstart's `docker run` command.
 
 **Fix:** Either:
-1. Set `CUBRID_DB` to match your connection's database name
-2. Create the database manually inside the container:
+
+1. Connect to the database the container created (`testdb`), or set `CUBRID_DB` to your
+   connection's database name before the container first starts.
+2. Create and start the database inside the container, as the `cubrid` user that owns the
+   existing databases. First open a shell in the container:
 
    ```bash
-   docker compose exec cubrid cubrid createdb mydb
-   docker compose exec cubrid cubrid server start mydb
+   # Repository docker-compose.yml (contributors), from the repository root
+   docker compose exec -u cubrid cubrid bash
+
+   # Quickstart lab container
+   docker exec -it -u cubrid pycubrid-quickstart bash
    ```
+
+   Then run, in that shell:
+
+   ```bash
+   mkdir -p "$CUBRID_DATABASES/mydb" && cd "$CUBRID_DATABASES/mydb"
+   cubrid createdb mydb en_US.utf8
+   cubrid server start mydb
+   ```
+
+   `createdb` requires the locale and charset after the database name, and writes the
+   database files to the current directory, so the first line moves into the image's
+   database directory. With the default volume sizes it needs about 1.5 GB of disk and can
+   take a few minutes. If the database already exists, run only `cubrid server start mydb`.
 
 ---
 
