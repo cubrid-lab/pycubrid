@@ -175,7 +175,10 @@ def test_remote_font_statement_matches_mkdocs_config() -> None:
     fonts_disabled = re.search(r"^  font:\s*false\s*$", theme_block.group(1), re.M)
     site = _site_section()
     remote = site[site.index("### Assets loaded remotely") :]
-    assert ("fonts.googleapis.com" in remote) is (fonts_disabled is None)
+    # A regex search on Markdown text, not URL validation: the inventory either
+    # names the Google Fonts host or does not.
+    names_google_fonts = re.search(r"\bfonts\.googleapis\.com\b", remote) is not None
+    assert names_google_fonts is (fonts_disabled is None)
 
 
 def _dist(**headers: object):
