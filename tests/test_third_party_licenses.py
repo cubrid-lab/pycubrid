@@ -1,8 +1,9 @@
 """THIRD_PARTY_LICENSES.md stays consistent with pyproject.toml (#735).
 
 The inventory is a generated snapshot; this check makes drift visible instead of
-silent: every dependency of the dev/mutation dependency groups must appear (within its declared
-range, unless it is an exact ``==`` pin, which pyproject.toml already records),
+silent: every dependency of the dev/mutation/docs dependency groups must appear
+(within its declared range, unless it is an exact ``==`` pin, which pyproject.toml
+already records),
 every row's category must be what the generator assigns to its
 license, and every MPL or "Needs review" row must be explained in the prose.
 """
@@ -35,6 +36,7 @@ _spec.loader.exec_module(generator)
 SECTIONS = {
     "dev": "## Development / test dependencies: `dev` dependency group",
     "mutation": "## Mutation-testing dependencies: `mutation` dependency group",
+    "docs": "## Documentation-site build dependencies: `docs` dependency group",
 }
 
 
@@ -140,6 +142,43 @@ def test_generation_inputs_are_recorded() -> None:
     assert re.search(r"CPython 3\.\d+\.\d+ on Linux", record)
     assert "scripts/generate_third_party_licenses.py --exclude pycubrid" in record
     assert "-e . --group dev" in record and "-e . --group mutation" in record
+    # The docs table follows the locked set that .github/workflows/docs.yml installs.
+    assert "uv export --locked --no-build --only-group docs --no-emit-project" in record
+    workflow = (ROOT / ".github" / "workflows" / "docs.yml").read_text(encoding="utf-8")
+    assert "uv export --locked --no-build --only-group docs --no-emit-project" in workflow
+
+
+def _site_section() -> str:
+    start = DOC.index("## Documentation site\n")
+    return DOC[start : DOC.index("\n## ", start + 1)]
+
+
+def test_documentation_site_scope_separates_bundled_and_remote_assets() -> None:
+    site = _site_section()
+    bundled = site[site.index("### Third-party assets bundled into the built site") :]
+    remote = bundled[bundled.index("### Assets loaded remotely by visitors' browsers") :]
+    bundled = bundled[: bundled.index("### Assets loaded remotely")]
+    assert "### Build tools (not published)" in site
+    for asset in ("Material for MkDocs", "lunr.js", "lunr-languages", "TinySegmenter"):
+        assert asset in bundled, asset
+    for asset in ("fonts.googleapis.com", "unpkg.com/mermaid@11"):
+        assert asset in remote, asset
+        assert asset not in bundled, asset
+
+
+def test_remote_font_statement_matches_mkdocs_config() -> None:
+    # Material links Google Fonts unless theme.font is set to false; the
+    # inventory must say which of the two the site does.
+    config = (ROOT / "mkdocs.yml").read_text(encoding="utf-8")
+    theme_block = re.search(r"^theme:\n((?:[ \t].*\n|\n)*)", config, re.M)
+    assert theme_block, "mkdocs.yml has no theme block"
+    fonts_disabled = re.search(r"^  font:\s*false\s*$", theme_block.group(1), re.M)
+    site = _site_section()
+    remote = site[site.index("### Assets loaded remotely") :]
+    # A regex search on Markdown text, not URL validation: the inventory either
+    # names the Google Fonts host or does not.
+    names_google_fonts = re.search(r"\bfonts\.googleapis\.com\b", remote) is not None
+    assert names_google_fonts is (fonts_disabled is None)
 
 
 def _dist(**headers: object):
