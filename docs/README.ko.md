@@ -76,7 +76,7 @@ conn.close()
 값입니다. 다른 데이터베이스에서는 그 데이터베이스의 값을 쓰세요. 연결이 실패하면
 [첫 연결이 실패할 때](ko/quickstart.md#첫-연결이-실패할-때)를 보세요.
 
-<img src="https://github.com/cubrid-lab/pycubrid/raw/main/docs/demo.gif" alt="pycubrid 데모" width="100%"/>
+<img src="https://raw.githubusercontent.com/cubrid-lab/pycubrid/main/docs/demo.gif" alt="pycubrid 데모" width="100%"/>
 
 ## 사용하기
 
