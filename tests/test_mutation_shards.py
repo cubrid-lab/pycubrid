@@ -21,7 +21,8 @@ JOB = yaml.safe_load((ROOT / ".github/workflows/bug-hunt.yml").read_text())["job
 SHARDS = {
     entry["shard"]: entry["mutants"].split() for entry in JOB["strategy"]["matrix"]["include"]
 }
-ONLY_MUTATE = tomllib.loads((ROOT / "pyproject.toml").read_text())["tool"]["mutmut"]["only_mutate"]
+MUTMUT = tomllib.loads((ROOT / "pyproject.toml").read_text())["tool"]["mutmut"]
+ONLY_MUTATE = MUTMUT["only_mutate"]
 
 
 def _module(path: str) -> str:
@@ -47,3 +48,24 @@ def test_shard_names_reach_mutmut_unexpanded() -> None:
 def test_each_shard_uploads_its_own_cache() -> None:
     (upload,) = [s for s in JOB["steps"] if s.get("name") == "Upload mutation cache"]
     assert upload["with"]["name"] == "mutation-cache-${{ matrix.shard }}"
+
+
+def test_every_also_copy_entry_exists() -> None:
+    # mutmut copies these into mutants/ for the stats run; a renamed or deleted
+    # path would make the sandbox differ from the repository again (#1107).
+    missing = [entry for entry in MUTMUT["also_copy"] if not (ROOT / entry).exists()]
+    assert missing == []
+
+
+def test_every_deselected_mutation_test_still_exists() -> None:
+    # A deselect that no longer names a test silently stops excluding anything;
+    # the trampoline-incompatible test would then fail the stats run again (#1107).
+    args = MUTMUT["pytest_add_cli_args"]
+    targets = [args[i + 1] for i, arg in enumerate(args) if arg == "--deselect"]
+    assert targets
+    for target in targets:
+        path, *names = target.split("::")
+        source = (ROOT / path).read_text()
+        for name in names:
+            keyword = "class" if name[0].isupper() else "def"
+            assert f"{keyword} {name}" in source, target

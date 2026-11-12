@@ -192,26 +192,47 @@ only_mutate = [
 # Into mutants/ mutmut copies source_paths plus a built-in list (tests/, test/,
 # pyproject.toml, lock files) and nothing else; entries here are added to that
 # list, not substituted for it. The offline suite imports scripts/ and reads
-# .github/workflows/ and docs/, tests/test_record_demo.py imports demos/ and
-# tests/test_makefile_integration_cleanup.py runs the real Makefile and
-# tests/test_third_party_licenses.py reads THIRD_PARTY_LICENSES.md, so the
-# sandbox needs them. A missing entry fails the stats run before any mutant is
-# tested ("failed to collect stats").
-also_copy = ["scripts", ".github", "docs", "demos", "Makefile", "THIRD_PARTY_LICENSES.md"]
+# .github/workflows/ and docs/, tests/test_record_demo.py imports demos/,
+# tests/test_makefile_integration_cleanup.py runs the real Makefile and reads
+# docker-compose.yml, tests/test_third_party_licenses.py reads
+# THIRD_PARTY_LICENSES.md, tests/test_agent_eval.py lists agent-evals/ at import
+# time, tests/test_compat_deprecation.py reads mkdocs.yml and
+# tests/test_makefile_targets.py reads .gitignore, so the sandbox needs them. A
+# missing entry fails the stats run before any mutant is tested ("failed to
+# collect stats"), and mutmut hides the pytest output that names the file.
+also_copy = [
+    "scripts",
+    ".github",
+    "docs",
+    "demos",
+    "agent-evals",
+    "Makefile",
+    "THIRD_PARTY_LICENSES.md",
+    "docker-compose.yml",
+    "mkdocs.yml",
+    ".gitignore",
+]
 # mutmut 3 adds -x -q itself. repo_tooling checks exercise repository policy and
 # carry no driver behavior (see the marker definition above), so they cannot kill
 # a driver mutant; they only lengthen the run. This is the same selection CI's
 # offline job uses.
 #
-# The two deselected tests inspect pycubrid's own source rather than its
-# behavior, so mutmut's trampoline wrapping defeats them no matter which mutant
-# is active: the first asserts an UnknownConnectionOptionWarning is blamed on the
-# caller's file and gets pycubrid/_connection_common.py (the trampoline adds a
-# frame, shifting stacklevel); the second compares the hand-written option
-# allow-list against inspect.signature() of the connection constructors, which
-# the trampoline rewrites. Running the offline lane inside mutants/ without -x
-# shows these are the only two, so the rest of the lane stays selected. Both are
-# covered normally by every other lane.
+# The deselected tests inspect pycubrid's own functions and modules rather than
+# their behavior, so mutmut's trampoline wrapping defeats them no matter which
+# mutant is active:
+# - two warning tests assert that a warning is blamed on the caller's file, but
+#   the trampoline adds a stack frame, so warnings.warn(stacklevel=...) lands in
+#   mutmut's trampoline.py or in pycubrid itself;
+# - the option allow-list test compares against inspect.signature() of the
+#   connection constructors, and the executemany test reads
+#   Cursor.executemany.__kwdefaults__; the trampoline replaces both functions
+#   with wrappers that have a different signature and no keyword defaults;
+# - the re-export test parses every name defined in _prepared_binding.py, and
+#   the mutated copy also defines the generated mutant functions, which
+#   protocol does not import.
+# Running the offline lane inside mutants/ without -x shows these are the only
+# ones, so the rest of the lane stays selected. All are covered normally by
+# every other lane.
 pytest_add_cli_args = [
     "-m",
     "not integration and not repo_tooling",
@@ -221,6 +242,12 @@ pytest_add_cli_args = [
     "tests/test_unknown_options.py::TestUnknownOptionsWarn::test_warning_points_at_the_caller_not_at_pycubrid",
     "--deselect",
     "tests/test_unknown_options.py::TestAllowListDoesNotDrift::test_allow_list_matches_public_signatures_and_kwargs_reads",
+    "--deselect",
+    "tests/test_aio_cursor_parity.py::test_fetchmany_nonpositive_deprecation_names_the_caller_line",
+    "--deselect",
+    "tests/test_execute_array.py::test_cursor_type_is_exported",
+    "--deselect",
+    "tests/test_import_boundaries.py::test_prepared_binding_names_are_reexported_from_protocol_as_the_same_objects",
 ]
 pytest_add_cli_args_test_selection = ["tests"]
 # Default "fork" isolation forks each mutant from a process that has already run

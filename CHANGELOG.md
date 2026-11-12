@@ -39,6 +39,8 @@ This maintenance update improves source builds, setup and migration guidance, an
 
 ### CI
 
+- **Weekly mutation testing runs again** — The four mutation-testing shards of the weekly Bug Hunt had failed before testing any mutant since mid-October with `failed to collect stats`. The mutation sandbox now also copies `agent-evals/`, `docker-compose.yml`, `mkdocs.yml` and `.gitignore`, which offline tests read, and leaves out three more tests that inspect the driver's own functions, which mutmut's function wrappers change. Every other lane still runs those tests ([#1107](https://github.com/cubrid-lab/pycubrid/issues/1107)) by @yeongseon.
+
 - **Release automation tests without CUBRID** — A pull request that changes only the release scripts, their tests or `release-please.yml` now runs a focused Python 3.12 `release-tests` job instead of the offline, live CUBRID and differential lanes. Pushes to `main`, the weekly run and manual dispatch still run every code lane for those files ([#1157](https://github.com/cubrid-lab/pycubrid/issues/1157)) by @yeongseon.
 
 ### Tests
