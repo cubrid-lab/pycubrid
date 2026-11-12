@@ -89,3 +89,22 @@ pycubrid 사용 관련 자주 묻는 질문과 실용적인 답변.
     ```
 
     분류별 에러 진단은 [문제 해결](TROUBLESHOOTING.md)을 참고하세요.
+
+## 그래도 해결되지 않나요?
+
+- **pycubrid 사용법에 관한 질문:** [GitHub Discussions](https://github.com/cubrid-lab/pycubrid/discussions)에 올려 주세요.
+- **재현할 수 있는 pycubrid 결함:**
+  [버그 리포트](https://github.com/cubrid-lab/pycubrid/issues/new?template=bug_report.yml)를 열어 주세요.
+- **보안 문제:** 공개적으로 올리지 말고
+  [SECURITY.md](https://github.com/cubrid-lab/pycubrid/blob/main/SECURITY.md)에 안내된 대로 비공개로 제보해 주세요.
+
+질문하거나 제보할 때 다음 정보를 가능한 만큼 함께 알려 주세요.
+
+- pycubrid 버전(`python -c "import pycubrid; print(pycubrid.__version__)"`)
+- Python 버전과 운영체제
+- CUBRID 서버 버전(서버에서 `cubrid_rel` 실행)
+- 연결 방식: 로컬 Docker 컨테이너, 원격 서버 또는 그 밖의 구성
+- 마지막 줄만이 아닌 전체 트레이스백
+- 문제를 재현하는 최소한의 스크립트
+
+올리기 전에 비밀번호, 호스트 이름, 사용자 이름 등 접속 정보와 실제 데이터는 다른 값으로 바꿔 주세요.
