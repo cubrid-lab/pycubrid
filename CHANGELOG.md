@@ -35,6 +35,8 @@ This maintenance update improves source builds, setup and migration guidance, an
 
 - **Connection errors in Troubleshooting** — The "ConnectionRefusedError on Port 33000" and timeout entries (English and Korean) now start with the `OperationalError` that ends the traceback: `failed to connect to CUBRID broker` (sync), `could not connect to <host>:<port>` (async TCP connect) and `read timeout during connect handshake` (async handshake). The original network error stays shown as the chained cause, and the anchors are unchanged ([#1080](https://github.com/cubrid-lab/pycubrid/issues/1080), [PR #1212](https://github.com/cubrid-lab/pycubrid/pull/1212)) by @Mr-Neutr0n.
 
+- **A first step in the translated READMEs** — The German, Hindi, Russian and Chinese READMEs now have a short "Start here" section before Requirements, explaining that CUBRID is a separate server that must already be running, and link the English [Your First CUBRID Connection](docs/quickstart.md) lesson and its first-connection troubleshooting section. Their documentation tables also list the lesson ([#1089](https://github.com/cubrid-lab/pycubrid/issues/1089)) by @yeongseon.
+
 ### CI
 
 - **Release automation tests without CUBRID** — A pull request that changes only the release scripts, their tests or `release-please.yml` now runs a focused Python 3.12 `release-tests` job instead of the offline, live CUBRID and differential lanes. Pushes to `main`, the weekly run and manual dispatch still run every code lane for those files ([#1157](https://github.com/cubrid-lab/pycubrid/issues/1157)) by @yeongseon.
