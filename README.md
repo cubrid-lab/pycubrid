@@ -8,7 +8,7 @@
 
 **Pure Python DB-API 2.0 driver for the CUBRID database** — no C extensions, no compilation, implements the PEP 249 (DB-API 2.0) interface.
 
-[🇰🇷 한국어](docs/README.ko.md) · [🇺🇸 English](README.md) · [🇨🇳 中文](docs/README.zh.md) · [🇮🇳 हिन्दी](docs/README.hi.md) · [🇩🇪 Deutsch](docs/README.de.md) · [🇷🇺 Русский](docs/README.ru.md)
+[🇰🇷 한국어](https://github.com/cubrid-lab/pycubrid/blob/main/docs/README.ko.md) · [🇺🇸 English](https://github.com/cubrid-lab/pycubrid/blob/main/README.md) · [🇨🇳 中文](https://github.com/cubrid-lab/pycubrid/blob/main/docs/README.zh.md) · [🇮🇳 हिन्दी](https://github.com/cubrid-lab/pycubrid/blob/main/docs/README.hi.md) · [🇩🇪 Deutsch](https://github.com/cubrid-lab/pycubrid/blob/main/docs/README.de.md) · [🇷🇺 Русский](https://github.com/cubrid-lab/pycubrid/blob/main/docs/README.ru.md)
 
 <!-- BADGES:START -->
 [![PyPI version](https://img.shields.io/pypi/v/pycubrid)](https://pypi.org/project/pycubrid)
@@ -30,18 +30,18 @@
 > decision, user-impact assessment and clear migration notes. Earlier
 > deprecation warnings are preferred when practical; there is no universal
 > 28-day wait for ordinary extensions. The already announced `pycubrid.compat`
-> retirement retains its [separate published-warning and 28-day requirement](docs/COMPAT_MIGRATION.md).
+> retirement retains its [separate published-warning and 28-day requirement](https://github.com/cubrid-lab/pycubrid/blob/main/docs/COMPAT_MIGRATION.md).
 > PATCH releases remain compatible except narrow security exceptions.
 > This prospectively revises the earlier broader 1.x extension guarantee:
 > a `<2.0` dependency range alone cannot prevent a disclosed breaking MINOR.
-> Review [Upgrade notes](CHANGELOG.md) and the [release policy](RELEASE_POLICY.md).
+> Review [Upgrade notes](https://github.com/cubrid-lab/pycubrid/blob/main/CHANGELOG.md) and the [release policy](https://github.com/cubrid-lab/pycubrid/blob/main/RELEASE_POLICY.md).
 
 ## Start here
 
 pycubrid lets a Python program talk to a CUBRID database. CUBRID itself is a
 separate database server that must already be running; installing pycubrid
 does not install CUBRID or create a database. New to CUBRID? Follow
-[Your First CUBRID Connection](docs/quickstart.md): it shows what to prepare
+[Your First CUBRID Connection](https://github.com/cubrid-lab/pycubrid/blob/main/docs/quickstart.md): it shows what to prepare
 when you already have a database, how to start a disposable local one with
 Docker, and walks you to a first query and a first saved row.
 
@@ -72,11 +72,11 @@ cur.close()
 conn.close()
 ```
 
-The connection values are those of the [local Docker lab](docs/quickstart.md#option-b-i-need-a-disposable-local-database);
+The connection values are those of the [local Docker lab](https://github.com/cubrid-lab/pycubrid/blob/main/docs/quickstart.md#option-b-i-need-a-disposable-local-database);
 use your own for any other database. If the connection fails, see
-[If the first connection fails](docs/quickstart.md#if-the-first-connection-fails).
+[If the first connection fails](https://github.com/cubrid-lab/pycubrid/blob/main/docs/quickstart.md#if-the-first-connection-fails).
 
-<img src="docs/demo.gif" alt="pycubrid in action" width="100%"/>
+<img src="https://raw.githubusercontent.com/cubrid-lab/pycubrid/main/docs/demo.gif" alt="pycubrid in action" width="100%"/>
 
 ## Usage
 
@@ -195,7 +195,7 @@ except ProgrammingError as exc:
 
 ##### Cleanup
 
-After setup succeeds, run this cleanup even if an example fails; it removes only the table created above. For more examples, see [EXAMPLES.md](docs/EXAMPLES.md).
+After setup succeeds, run this cleanup even if an example fails; it removes only the table created above. For more examples, see [EXAMPLES.md](https://github.com/cubrid-lab/pycubrid/blob/main/docs/EXAMPLES.md).
 
 ```python
 conn.rollback()
@@ -239,7 +239,7 @@ Korean public-sector and enterprise applications. The existing C-extension drive
 
 - **Pure Python implementation** — no C build dependencies, install with `pip install` only
 - **Implements PEP 249 (DB-API 2.0)** — standard exception hierarchy, type objects, cursor interface
-- **Offline regression suite** with a **95% coverage floor on full coverage runs** — see [measured coverage](https://codecov.io/gh/cubrid-lab/pycubrid) and the [CI execution policy](docs/CI_POLICY.md); routine PR smoke does not measure coverage
+- **Offline regression suite** with a **95% coverage floor on full coverage runs** — see [measured coverage](https://codecov.io/gh/cubrid-lab/pycubrid) and the [CI execution policy](https://github.com/cubrid-lab/pycubrid/blob/main/docs/CI_POLICY.md); routine PR smoke does not measure coverage
 - **TLS/SSL for sync and async connections** — opt-in `ssl=True` (verified context, TLS 1.2 minimum) or custom `ssl.SSLContext` on `connect()` and `pycubrid.aio.connect()`.
 - **Native asyncio support** — async/await API via `pycubrid.aio` for high-concurrency applications
 - **PEP 561 typed package** — `py.typed` marker for modern IDE and static analysis support
@@ -297,22 +297,22 @@ Ordinary PRs use one Ubuntu/Python 3.12 offline smoke lane; high-risk changes ad
 Python 3.14/CUBRID 11.4. Main/changed-weekly validation also runs Python
 3.11/CUBRID 10.2 live and the full offline suite on Python 3.11 and 3.15. The full
 5 × 4 live matrix runs on explicit dispatch and every release.
-See [CI execution policy](docs/CI_POLICY.md) and [support matrix](docs/SUPPORT_MATRIX.md).
+See [CI execution policy](https://github.com/cubrid-lab/pycubrid/blob/main/docs/CI_POLICY.md) and [support matrix](https://github.com/cubrid-lab/pycubrid/blob/main/docs/SUPPORT_MATRIX.md).
 
 ### Documentation
 
 | Guide | Description |
 |---|---|
-| [Your First CUBRID Connection](docs/quickstart.md) | Start here: prepare a database, first query, first saved row, first-connection problems |
-| [Connection](docs/CONNECTION.md) | Connection strings, URL format, configuration |
-| [Type Mapping](docs/TYPES.md) | Full type mapping, CUBRID-specific types, collection types |
-| [Parameter Binding](docs/PARAMETER_BINDING.md) | Driver-side literal-binding contract: per-type SQL mapping, escaping rules, non-guarantees |
-| [API Reference](docs/API_REFERENCE.md) | Complete API documentation — modules, classes, functions |
-| [Protocol](docs/PROTOCOL.md) | CAS wire protocol reference |
-| [CAS Concepts](docs/CAS_OVERVIEW.md) | Advanced: Broker, CAS process, CAS wire protocol and CCI, and how DB-API calls map to them |
-| [Development](docs/DEVELOPMENT.md) | Dev setup, testing, Docker, coverage, CI/CD |
-| [Examples](docs/EXAMPLES.md) | Practical usage examples with code |
-| [Troubleshooting](docs/TROUBLESHOOTING.md) | Connection errors, query problems, LOB handling, debugging |
+| [Your First CUBRID Connection](https://github.com/cubrid-lab/pycubrid/blob/main/docs/quickstart.md) | Start here: prepare a database, first query, first saved row, first-connection problems |
+| [Connection](https://github.com/cubrid-lab/pycubrid/blob/main/docs/CONNECTION.md) | Connection strings, URL format, configuration |
+| [Type Mapping](https://github.com/cubrid-lab/pycubrid/blob/main/docs/TYPES.md) | Full type mapping, CUBRID-specific types, collection types |
+| [Parameter Binding](https://github.com/cubrid-lab/pycubrid/blob/main/docs/PARAMETER_BINDING.md) | Driver-side literal-binding contract: per-type SQL mapping, escaping rules, non-guarantees |
+| [API Reference](https://github.com/cubrid-lab/pycubrid/blob/main/docs/API_REFERENCE.md) | Complete API documentation — modules, classes, functions |
+| [Protocol](https://github.com/cubrid-lab/pycubrid/blob/main/docs/PROTOCOL.md) | CAS wire protocol reference |
+| [CAS Concepts](https://github.com/cubrid-lab/pycubrid/blob/main/docs/CAS_OVERVIEW.md) | Advanced: Broker, CAS process, CAS wire protocol and CCI, and how DB-API calls map to them |
+| [Development](https://github.com/cubrid-lab/pycubrid/blob/main/docs/DEVELOPMENT.md) | Dev setup, testing, Docker, coverage, CI/CD |
+| [Examples](https://github.com/cubrid-lab/pycubrid/blob/main/docs/EXAMPLES.md) | Practical usage examples with code |
+| [Troubleshooting](https://github.com/cubrid-lab/pycubrid/blob/main/docs/TROUBLESHOOTING.md) | Connection errors, query problems, LOB handling, debugging |
 
 ### Architecture
 
@@ -373,7 +373,7 @@ conn = pycubrid.connect(host="localhost", port=33000, database="testdb", user="d
 
 Question mark (`qmark`) style: `cursor.execute("SELECT * FROM users WHERE id = ?", (1,))`
 
-Parameters are bound **driver-side** — pycubrid escapes and interpolates values into the SQL string locally before sending the final query to the server. This is **not** server-side prepared statement binding, except for the opt-in `executemany(..., prepared=True)`, which sends typed values with one `PREPARE` and one `EXECUTE_ARRAY` request (see [docs/API_REFERENCE.md](docs/API_REFERENCE.md)). The escaping logic is type-aware (strings, bytes, dates, decimals, None → NULL) and safe against SQL injection when used correctly via `?` placeholders. **Never use f-strings or `%` formatting to inject untrusted parameter *values* into SQL** — always pass them through `?` placeholders. Using f-strings to assemble the SQL *structure itself* from trusted inputs (for example, expanding an `IN`-clause with `','.join('?' * len(ids))`) is fine. See [docs/PARAMETER_BINDING.md](docs/PARAMETER_BINDING.md) for the full 1.x contract — per-type mapping, escaping modes, and explicit non-guarantees.
+Parameters are bound **driver-side** — pycubrid escapes and interpolates values into the SQL string locally before sending the final query to the server. This is **not** server-side prepared statement binding, except for the opt-in `executemany(..., prepared=True)`, which sends typed values with one `PREPARE` and one `EXECUTE_ARRAY` request (see [docs/API_REFERENCE.md](https://github.com/cubrid-lab/pycubrid/blob/main/docs/API_REFERENCE.md)). The escaping logic is type-aware (strings, bytes, dates, decimals, None → NULL) and safe against SQL injection when used correctly via `?` placeholders. **Never use f-strings or `%` formatting to inject untrusted parameter *values* into SQL** — always pass them through `?` placeholders. Using f-strings to assemble the SQL *structure itself* from trusted inputs (for example, expanding an `IN`-clause with `','.join('?' * len(ids))`) is fine. See [docs/PARAMETER_BINDING.md](https://github.com/cubrid-lab/pycubrid/blob/main/docs/PARAMETER_BINDING.md) for the full 1.x contract — per-type mapping, escaping modes, and explicit non-guarantees.
 
 #### Does pycubrid work with SQLAlchemy?
 
@@ -403,7 +403,7 @@ Yes. Use `pycubrid.aio.connect()` for native asyncio support. The async surface 
 
 ### Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines and [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for development setup.
+See [CONTRIBUTING.md](https://github.com/cubrid-lab/pycubrid/blob/main/CONTRIBUTING.md) for guidelines and [docs/DEVELOPMENT.md](https://github.com/cubrid-lab/pycubrid/blob/main/docs/DEVELOPMENT.md) for development setup.
 
 #### First contribution
 
@@ -419,7 +419,7 @@ Browse open [`good first issue`](https://github.com/cubrid-lab/pycubrid/issues?q
 
 ### Roadmap
 
-See [`ROADMAP.md`](ROADMAP.md) for this project's direction and next milestones.
+See [`ROADMAP.md`](https://github.com/cubrid-lab/pycubrid/blob/main/ROADMAP.md) for this project's direction and next milestones.
 
 
 ### Related Projects
@@ -429,13 +429,13 @@ See [`ROADMAP.md`](ROADMAP.md) for this project's direction and next milestones.
 
 ## Security
 
-Report vulnerabilities privately through GitHub's private vulnerability reporting (email is the fallback) — see [SECURITY.md](SECURITY.md). Do not open public issues for security concerns.
+Report vulnerabilities privately through GitHub's private vulnerability reporting (email is the fallback) — see [SECURITY.md](https://github.com/cubrid-lab/pycubrid/blob/main/SECURITY.md). Do not open public issues for security concerns.
 
 ## Acknowledgments
 
-During pycubrid's initial development, the official CUBRID Node.js driver — [node-cubrid](https://github.com/CUBRID/node-cubrid) (© 2008–2012 Search Solution Corporation, BSD-3-Clause) — was consulted as a reference implementation to understand CUBRID's CAS (Common Application Server) wire protocol: its packet structure and function codes. pycubrid is an independent pure-Python implementation; see [NOTICE](NOTICE) for details.
+During pycubrid's initial development, the official CUBRID Node.js driver — [node-cubrid](https://github.com/CUBRID/node-cubrid) (© 2008–2012 Search Solution Corporation, BSD-3-Clause) — was consulted as a reference implementation to understand CUBRID's CAS (Common Application Server) wire protocol: its packet structure and function codes. pycubrid is an independent pure-Python implementation; see [NOTICE](https://github.com/cubrid-lab/pycubrid/blob/main/NOTICE) for details.
 
-We also thank the maintainers and contributors of [CUBRID/cubrid-python](https://github.com/CUBRID/cubrid-python). Its `tests3` suite informed the SQL-feature and type/data regression scenarios added in #409, #410 and #433: INDEX, PARTITION, VIEW, TRIGGER, collections, ENUM and LOB round-trips. These scenarios were adapted to pycubrid's APIs and documented differences, not a claim of full CUBRIDdb API parity. See [NOTICE](NOTICE) for the source files and [third-party notes](THIRD_PARTY_LICENSES.md#reference-test-suite) for provenance and licensing limits.
+We also thank the maintainers and contributors of [CUBRID/cubrid-python](https://github.com/CUBRID/cubrid-python). Its `tests3` suite informed the SQL-feature and type/data regression scenarios added in #409, #410 and #433: INDEX, PARTITION, VIEW, TRIGGER, collections, ENUM and LOB round-trips. These scenarios were adapted to pycubrid's APIs and documented differences, not a claim of full CUBRIDdb API parity. See [NOTICE](https://github.com/cubrid-lab/pycubrid/blob/main/NOTICE) for the source files and [third-party notes](https://github.com/cubrid-lab/pycubrid/blob/main/THIRD_PARTY_LICENSES.md#reference-test-suite) for provenance and licensing limits.
 
 ## Disclaimer
 
@@ -443,4 +443,4 @@ We also thank the maintainers and contributors of [CUBRID/cubrid-python](https:/
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT — see [LICENSE](https://github.com/cubrid-lab/pycubrid/blob/main/LICENSE).

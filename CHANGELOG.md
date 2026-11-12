@@ -25,6 +25,8 @@ This maintenance update improves source builds, setup and migration guidance, an
 
 - **Working documentation links** — Published pages and translated READMEs now use repository URLs for files such as `SECURITY.md` and `LICENSE` instead of relative links that returned 404. The strict MkDocs build also detects a new broken link ([#1088](https://github.com/cubrid-lab/pycubrid/issues/1088), [PR #1147](https://github.com/cubrid-lab/pycubrid/pull/1147)) by @yeongseon.
 
+- **PyPI project page shows the demo and working links** — The README, which is also the PyPI project description, now uses absolute URLs for the demo GIF and for links to the guides, translations and repository files such as `CONTRIBUTING.md` and `SECURITY.md`. On PyPI the relative targets left the demo image broken and the links unusable ([#1106](https://github.com/cubrid-lab/pycubrid/issues/1106)) by @yeongseon.
+
 - **Bounded-memory imports** — The Performance guide shows two tested ways to split large inputs across `executemany(prepared=True)` calls: all-or-nothing or resumable batches. It explains transaction boundaries, `rowcount` and `batch_*` indices; no new driver API was added ([#1013](https://github.com/cubrid-lab/pycubrid/issues/1013), [PR #1152](https://github.com/cubrid-lab/pycubrid/pull/1152)) by @yeongseon.
 
 - **Checking transaction settings** — The Compat migration guide now shows how to read isolation level and lock timeout using ordinary SQL, including `GET TRANSACTION ISOLATION LEVEL TO iso` followed by `SELECT iso`. It also clarifies that `SET TRANSACTION` does not commit ([#1129](https://github.com/cubrid-lab/pycubrid/issues/1129), [PR #1136](https://github.com/cubrid-lab/pycubrid/pull/1136)) by @yeongseon.

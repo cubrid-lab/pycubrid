@@ -815,3 +815,51 @@ def test_parse_uses_the_site_slugifier(tmp_path: Path, slugifier: str, site: set
     path.write_text("# Résumé\n\n## 한글 제목\n\n## 다른 제목\n", encoding="utf-8")
     github = {"résumé", "한글-제목", "다른-제목"}
     assert parse(path, getattr(_markdown, slugifier)).anchors == github | site
+
+
+# README.md is also the PyPI long description (``readme`` in pyproject.toml). PyPI
+# cannot resolve a repository-relative image or link, so every README target is an
+# absolute URL; one into this repository must still name an existing file and
+# anchor, which check_docs_links no longer sees once the target is external (#1106).
+_REPO_URL_PREFIXES = (
+    "https://github.com/cubrid-lab/pycubrid/blob/main/",
+    "https://raw.githubusercontent.com/cubrid-lab/pycubrid/main/",
+)
+
+
+def _pypi_readme_problems(root: Path) -> list[str]:
+    readme = root / "README.md"
+    checker = check.Checker(root)
+    parsed = parse(readme)
+    problems = []
+    for link in parsed.links + parsed.definitions:
+        if not _markdown.is_external(link.target):
+            problems.append(f"README.md:{link.line}: {link.target!r} is not an absolute URL")
+            continue
+        prefix = next((p for p in _REPO_URL_PREFIXES if link.target.startswith(p)), None)
+        if prefix is None:
+            continue
+        problem = checker.check_target(readme, link.target.removeprefix(prefix))
+        if problem:
+            problems.append(f"README.md:{link.line}: {problem}")
+    return problems
+
+
+def test_readme_uses_absolute_urls_that_resolve_in_this_repository() -> None:
+    assert _pypi_readme_problems(ROOT) == []
+
+
+def test_readme_check_rejects_relative_and_stale_repository_targets(tmp_path: Path) -> None:
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs/quickstart.md").write_text("# Quickstart\n\n## Option B\n", encoding="utf-8")
+    base = _REPO_URL_PREFIXES[0]
+    (tmp_path / "README.md").write_text(
+        f"[ok]({base}docs/quickstart.md#option-b)\n"
+        '<img src="docs/demo.gif">\n'
+        f"[gone]({base}docs/missing.md)\n"
+        f"[anchor]({base}docs/quickstart.md#option-c)\n",
+        encoding="utf-8",
+    )
+    problems = _pypi_readme_problems(tmp_path)
+    assert [p.split(":")[1] for p in problems] == ["2", "3", "4"]
+    assert "'docs/demo.gif' is not an absolute URL" in problems[0]
