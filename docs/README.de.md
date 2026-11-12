@@ -58,6 +58,18 @@ Probleme bei der Plattformkompatibilität.
 - **Direkte Implementierung des CUBRID-CAS-Protokolls** — keine zusätzliche Middleware erforderlich
 - **LOB-Unterstützung (CLOB/BLOB)** — Verarbeitung großer Text- und Binärdaten
 
+## Hier starten
+
+pycubrid ermöglicht einem Python-Programm die Kommunikation mit einer
+CUBRID-Datenbank. CUBRID selbst ist ein separater Datenbankserver, der bereits
+laufen muss; die Installation von pycubrid installiert weder CUBRID noch legt
+sie eine Datenbank an. Neu bei CUBRID? Folgen Sie der Anleitung
+[Ihre erste CUBRID-Verbindung](quickstart.md) (auf Englisch): Sie zeigt, was
+Sie bei einer bereits vorhandenen Datenbank vorbereiten müssen und wie Sie mit
+Docker eine lokale Wegwerf-Datenbank starten, und führt Sie zur ersten Abfrage
+und zur ersten gespeicherten Zeile. Schlägt die erste Verbindung fehl, lesen Sie
+[Wenn die erste Verbindung fehlschlägt](quickstart.md#if-the-first-connection-fails).
+
 ## Anforderungen
 
 **Ende der Unterstützung für Python 3.10:** Python 3.10 hat am 2026-10-01 das
@@ -260,6 +272,7 @@ SQLAlchemy-Funktionen (ORM, Core, Alembic-Migrationen, Schema-Reflexion) sind ü
 
 | Leitfaden | Beschreibung |
 |---|---|
+| [Ihre erste CUBRID-Verbindung](quickstart.md) | Hier starten: Datenbank vorbereiten, erste Abfrage, erste gespeicherte Zeile, Probleme bei der ersten Verbindung |
 | [Verbindung](CONNECTION.md) | Verbindungszeichenfolgen, URL-Format, Konfiguration |
 | [Typzuordnung](TYPES.md) | Vollständige Typzuordnung, CUBRID-spezifische Typen, Sammlungstypen |
 | [API-Referenz](API_REFERENCE.md) | Vollständige API-Dokumentation — Module, Klassen, Funktionen |
