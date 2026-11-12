@@ -383,7 +383,7 @@ jobs:
         working-directory: downstream
         run: |
           status=0
-          python -m pytest tests/test_ai_agent.py -v --tb=short \
+          python -m pytest templates/ai-agent/tests/test_live.py -v --tb=short \
             --junitxml="$RUNNER_TEMP/downstream-corpus/ai.xml" || status=1
           # Generic app/database/models modules must not cross-contaminate.
           python -m pytest templates/async-worker/tests -v --tb=short \

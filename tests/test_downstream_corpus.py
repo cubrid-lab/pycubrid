@@ -427,11 +427,14 @@ def test_bug_hunt_runs_only_selected_advisory_downstream_workloads() -> None:
         "test/test_dogfood_orm.py",
         "test/test_stress_pool.py",
         "tests/test_integration.py",
-        "tests/test_ai_agent.py",
+        "templates/ai-agent/tests/test_live.py",
         "templates/async-worker/tests",
     ):
         assert selected in corpus
     assert "python -m pytest test/ " not in corpus
+    # The cookbook moved its live AI-agent suite out of tests/ (#1222); the old
+    # path collects nothing, which the report then rejects as missing evidence.
+    assert "tests/test_ai_agent.py" not in corpus
     for step_id in ("sa_tests", "mcp_tests", "cookbook_tests"):
         assert f"id: {step_id}" in corpus
         assert f"steps.{step_id}.outcome" in corpus
