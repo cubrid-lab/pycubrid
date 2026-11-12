@@ -125,36 +125,58 @@ ConnectionRefusedError: [Errno 111] Connection refused
 !!! warning
     Docker 기반 설정에서 CUBRID 기동은 비동기입니다. 컨테이너가 성공적으로 시작했다고 브로커가 이미 접속을 받는 것은 아닙니다.
 
+이 페이지의 Docker 명령은 두 가지입니다. `docker compose ...`는 이 저장소의
+`docker-compose.yml`(기여자용)에 쓰며 저장소 루트에서 실행합니다.
+`docker ... pycubrid-quickstart`는 [퀵스타트 방법 B](quickstart.md#방법-b-버리고-다시-만들-수-있는-로컬-데이터베이스가-필요합니다)에서 시작한
+단일 컨테이너에 씁니다.
+
 1. **CUBRID 브로커가 실행 중이 아님**
 
    ```bash
-   # 브로커 실행 확인
+   # CUBRID 서버 호스트에서(Docker가 아닌 로컬 설치)
    cubrid broker status
-
-   # 브로커 시작
    cubrid broker start
+
+   # 저장소의 docker-compose.yml
+   docker compose exec -u cubrid cubrid cubrid broker status
+
+   # 퀵스타트 실습 컨테이너
+   docker exec -u cubrid pycubrid-quickstart cubrid broker status
    ```
+
+   컨테이너 안의 `cubrid` 명령은 `cubrid` 사용자(`-u cubrid`)로 실행하세요. root로
+   실행하면 브로커가 실행 중이어도 `cubrid broker status`가 실행 중이 아니라고
+   보고합니다. 컨테이너는 브로커를 스스로 시작합니다. 브로커가 정말 실행 중이 아니면
+   컨테이너 로그를 확인하세요(원인 3).
 
 2. **잘못된 포트** — 브로커가 다른 포트에 설정되어 있을 수 있습니다.
 
    ```bash
-   # 설정에서 브로커 포트 확인
-   cat $CUBRID/conf/cubrid_broker.conf | grep BROKER_PORT
+   # CUBRID 서버 호스트에서: 설정의 브로커 포트 확인
+   grep BROKER_PORT "$CUBRID/conf/cubrid_broker.conf"
    ```
+
+   Docker에서는 `-p` 또는 `ports:`로 공개한 포트가 호스트 포트입니다.
+   `docker compose ps` 또는 `docker ps --filter name=pycubrid-quickstart`로 확인합니다.
 
 3. **Docker 컨테이너 미준비** — CUBRID 컨테이너는 초기화에 몇 초 걸립니다.
 
    ```bash
-   # 컨테이너 상태 확인
+   # 저장소의 docker-compose.yml: 상태를 확인한 뒤 헬스 체크 대기
    docker compose ps
-
-   # 헬스 체크 대기
    docker compose up -d --wait
 
    # 대기 시간이 초과되면 서비스 상태와 로그 확인
    docker compose ps
    docker compose logs cubrid | tail -20
+
+   # 퀵스타트 실습 컨테이너: 상태와 로그 확인
+   docker ps --filter name=pycubrid-quickstart
+   docker logs --tail 20 pycubrid-quickstart
    ```
+
+   퀵스타트 컨테이너에는 헬스 체크가 없습니다. 기다리려면
+   [퀵스타트 방법 B](quickstart.md#방법-b-버리고-다시-만들-수-있는-로컬-데이터베이스가-필요합니다)의 준비 확인 루프를 다시 실행하세요.
 
 4. **방화벽이나 네트워크** — 포트 33000이 차단되어 있을 수 있습니다.
 
@@ -346,7 +368,14 @@ OperationalError: ... (during connection handshake)
 1. **CAS 프로세스 실행 확인:**
 
    ```bash
+   # CUBRID 서버 호스트에서
    cubrid broker status -b  # 브로커와 CAS 프로세스 상세 표시
+
+   # 저장소의 docker-compose.yml
+   docker compose exec -u cubrid cubrid cubrid broker status -b
+
+   # 퀵스타트 실습 컨테이너
+   docker exec -u cubrid pycubrid-quickstart cubrid broker status -b
    ```
 
 2. **모든 CAS 포트 도달 가능성 확인** — 포트 포워딩을 사용하는 Docker에서는 33000 포트만 노출될 수 있습니다. 브로커가 다른 포트로 리다이렉트하면 그 포트가 포워딩되지 않은 경우 연결이 실패합니다.
@@ -1150,23 +1179,40 @@ cur.execute("SELECT COUNT(*) FROM users")
 
 ### 컨테이너는 시작되는데 연결 안 됨
 
+`docker compose` 명령은 이 저장소의 `docker-compose.yml`(기여자용, 저장소 루트에서
+실행)에 쓰고, `pycubrid-quickstart` 명령은 [퀵스타트 방법 B](quickstart.md#방법-b-버리고-다시-만들-수-있는-로컬-데이터베이스가-필요합니다)에서 시작한
+컨테이너에 씁니다.
+
 **확인 1: 컨테이너가 실제로 실행 중인지:**
 
 ```bash
+# 저장소의 docker-compose.yml
 docker compose ps
 # "running" 상태가 보여야 함
+
+# 퀵스타트 실습 컨테이너
+docker ps --filter name=pycubrid-quickstart
+# 컨테이너가 "Up" 상태로 보여야 함
 ```
 
 **확인 2: 초기화 대기** — CUBRID는 시작에 몇 초 걸립니다:
 
 ```bash
+# 저장소의 docker-compose.yml
 docker compose up -d --wait
 
 # 대기 시간이 초과되면 서비스 상태와 로그 확인
 docker compose ps
 docker compose logs cubrid
 
-# 연결 테스트
+# 퀵스타트 실습 컨테이너: 로그 확인
+docker logs pycubrid-quickstart
+```
+
+퀵스타트 컨테이너를 기다리려면 [퀵스타트 방법 B](quickstart.md#방법-b-버리고-다시-만들-수-있는-로컬-데이터베이스가-필요합니다)의 준비 확인 루프를 다시
+실행하세요. 그다음 연결을 테스트합니다.
+
+```bash
 python3 -c "
 import pycubrid
 conn = pycubrid.connect(host='localhost', port=33000, database='testdb', user='dba')
@@ -1179,8 +1225,13 @@ conn.close()
 **확인 3: 포트 매핑이 올바른지:**
 
 ```bash
+# 저장소의 docker-compose.yml
 docker compose ps
 # 33000->33000/tcp가 표시되는지 확인
+
+# 퀵스타트 실습 컨테이너
+docker ps --filter name=pycubrid-quickstart
+# 127.0.0.1:33000->33000/tcp가 표시되는지 확인
 ```
 
 ---
@@ -1220,6 +1271,9 @@ make docker-fix-db-host
 **데이터를 삭제하는 해결:** `make docker-clean`은 `docker compose down -v`를 실행하며,
 **볼륨과 그 안의 모든 테이블을 삭제합니다**. 다음 `make docker-up`이 새 데이터베이스를
 만듭니다. 데이터가 필요 없는 볼륨에만 사용하세요.
+
+퀵스타트 컨테이너는 이 문제와 관계없습니다. 이름 있는 볼륨을 쓰지 않으므로 새로
+`docker run`을 하면 새 컨테이너용 `testdb`가 새로 만들어집니다.
 
 ---
 
@@ -1296,6 +1350,9 @@ services:
       retries: 10
       start_period: 30s
 ```
+
+퀵스타트 컨테이너는 헬스 체크 없이 시작하므로
+[퀵스타트 방법 B](quickstart.md#방법-b-버리고-다시-만들-수-있는-로컬-데이터베이스가-필요합니다)의 준비 확인 루프로 기다리세요.
 
 **테스트에서 헬스 체크 대기:**
 
