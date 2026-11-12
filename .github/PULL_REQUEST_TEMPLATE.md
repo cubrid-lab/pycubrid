@@ -20,6 +20,11 @@ See CONTRIBUTING.md#pull-request-and-commit-titles.
 
 <!-- What this PR deliberately does not change; defer out-of-scope findings to a separate issue -->
 
+<!-- Adding an intentionally temporary script, repair tool, probe, dataset or
+workflow? Record why it exists, its local issue and owner, the removal trigger,
+where its evidence lives and the next review point. See
+CONTRIBUTING.md#temporary-tooling. -->
+
 ## Public API and product-scope decision (if applicable)
 
 <!-- If adding a public API, materially changing its behavior, adding a runtime
