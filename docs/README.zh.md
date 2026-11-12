@@ -50,6 +50,13 @@ CUBRID 是一款高性能开源关系型数据库，在韩国公共部门和企�
 - **直接实现 CUBRID CAS 协议** — 无需额外中间件
 - **支持 LOB（CLOB/BLOB）** — 可处理大文本和二进制数据
 
+## 从这里开始
+
+pycubrid 让 Python 程序能够与 CUBRID 数据库通信。
+CUBRID 本身是一个独立的数据库服务器，必须事先运行；安装 pycubrid 不会安装 CUBRID，也不会创建数据库。
+初次使用 CUBRID？请按照[第一次连接 CUBRID](quickstart.md)（英文）操作：它说明了已有数据库时需要准备什么、如何用 Docker 启动一个可随时丢弃的本地数据库，并带你完成第一次查询和第一次保存数据行。
+如果第一次连接失败，请参阅[第一次连接失败时](quickstart.md#if-the-first-connection-fails)。
+
 ## 环境要求
 
 - Python 3.11 或更高版本
@@ -243,6 +250,7 @@ with engine.connect() as conn:
 
 | 指南 | 描述 |
 |---|---|
+| [第一次连接 CUBRID](quickstart.md) | 从这里开始：准备数据库、第一次查询、第一次保存数据行、首次连接问题 |
 | [连接](CONNECTION.md) | 连接字符串、URL 格式、配置 |
 | [类型映射](TYPES.md) | 完整类型映射、CUBRID 特有类型、集合类型 |
 | [API 参考](API_REFERENCE.md) | 完整 API 文档 — 模块、类、函数 |
