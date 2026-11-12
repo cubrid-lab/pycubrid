@@ -62,6 +62,7 @@ pycubrid의 흔한 문제에 대한 종합 해결책 — 연결 오류, 쿼리 �
   - [높은 메모리 사용](#높은-메모리-사용)
   - [연결 오버헤드](#연결-오버헤드)
 - [디버깅 기법](#디버깅-기법)
+- [그래도 해결되지 않나요?](#그래도-해결되지-않나요)
 
 ---
 
@@ -125,36 +126,58 @@ ConnectionRefusedError: [Errno 111] Connection refused
 !!! warning
     Docker 기반 설정에서 CUBRID 기동은 비동기입니다. 컨테이너가 성공적으로 시작했다고 브로커가 이미 접속을 받는 것은 아닙니다.
 
+이 페이지의 Docker 명령은 두 가지입니다. `docker compose ...`는 이 저장소의
+`docker-compose.yml`(기여자용)에 쓰며 저장소 루트에서 실행합니다.
+`docker ... pycubrid-quickstart`는 [퀵스타트 방법 B](quickstart.md#방법-b-버리고-다시-만들-수-있는-로컬-데이터베이스가-필요합니다)에서 시작한
+단일 컨테이너에 씁니다.
+
 1. **CUBRID 브로커가 실행 중이 아님**
 
    ```bash
-   # 브로커 실행 확인
+   # CUBRID 서버 호스트에서(Docker가 아닌 로컬 설치)
    cubrid broker status
-
-   # 브로커 시작
    cubrid broker start
+
+   # 저장소의 docker-compose.yml
+   docker compose exec -u cubrid cubrid cubrid broker status
+
+   # 퀵스타트 실습 컨테이너
+   docker exec -u cubrid pycubrid-quickstart cubrid broker status
    ```
+
+   컨테이너 안의 `cubrid` 명령은 `cubrid` 사용자(`-u cubrid`)로 실행하세요. root로
+   실행하면 브로커가 실행 중이어도 `cubrid broker status`가 실행 중이 아니라고
+   보고합니다. 컨테이너는 브로커를 스스로 시작합니다. 브로커가 정말 실행 중이 아니면
+   컨테이너 로그를 확인하세요(원인 3).
 
 2. **잘못된 포트** — 브로커가 다른 포트에 설정되어 있을 수 있습니다.
 
    ```bash
-   # 설정에서 브로커 포트 확인
-   cat $CUBRID/conf/cubrid_broker.conf | grep BROKER_PORT
+   # CUBRID 서버 호스트에서: 설정의 브로커 포트 확인
+   grep BROKER_PORT "$CUBRID/conf/cubrid_broker.conf"
    ```
+
+   Docker에서는 `-p` 또는 `ports:`로 공개한 포트가 호스트 포트입니다.
+   `docker compose ps` 또는 `docker ps --filter name=pycubrid-quickstart`로 확인합니다.
 
 3. **Docker 컨테이너 미준비** — CUBRID 컨테이너는 초기화에 몇 초 걸립니다.
 
    ```bash
-   # 컨테이너 상태 확인
+   # 저장소의 docker-compose.yml: 상태를 확인한 뒤 헬스 체크 대기
    docker compose ps
-
-   # 헬스 체크 대기
    docker compose up -d --wait
 
    # 대기 시간이 초과되면 서비스 상태와 로그 확인
    docker compose ps
    docker compose logs cubrid | tail -20
+
+   # 퀵스타트 실습 컨테이너: 상태와 로그 확인
+   docker ps --filter name=pycubrid-quickstart
+   docker logs --tail 20 pycubrid-quickstart
    ```
+
+   퀵스타트 컨테이너에는 헬스 체크가 없습니다. 기다리려면
+   [퀵스타트 방법 B](quickstart.md#방법-b-버리고-다시-만들-수-있는-로컬-데이터베이스가-필요합니다)의 준비 확인 루프를 다시 실행하세요.
 
 4. **방화벽이나 네트워크** — 포트 33000이 차단되어 있을 수 있습니다.
 
@@ -346,7 +369,14 @@ OperationalError: ... (during connection handshake)
 1. **CAS 프로세스 실행 확인:**
 
    ```bash
+   # CUBRID 서버 호스트에서
    cubrid broker status -b  # 브로커와 CAS 프로세스 상세 표시
+
+   # 저장소의 docker-compose.yml
+   docker compose exec -u cubrid cubrid cubrid broker status -b
+
+   # 퀵스타트 실습 컨테이너
+   docker exec -u cubrid pycubrid-quickstart cubrid broker status -b
    ```
 
 2. **모든 CAS 포트 도달 가능성 확인** — 포트 포워딩을 사용하는 Docker에서는 33000 포트만 노출될 수 있습니다. 브로커가 다른 포트로 리다이렉트하면 그 포트가 포워딩되지 않은 경우 연결이 실패합니다.
@@ -1150,23 +1180,40 @@ cur.execute("SELECT COUNT(*) FROM users")
 
 ### 컨테이너는 시작되는데 연결 안 됨
 
+`docker compose` 명령은 이 저장소의 `docker-compose.yml`(기여자용, 저장소 루트에서
+실행)에 쓰고, `pycubrid-quickstart` 명령은 [퀵스타트 방법 B](quickstart.md#방법-b-버리고-다시-만들-수-있는-로컬-데이터베이스가-필요합니다)에서 시작한
+컨테이너에 씁니다.
+
 **확인 1: 컨테이너가 실제로 실행 중인지:**
 
 ```bash
+# 저장소의 docker-compose.yml
 docker compose ps
 # "running" 상태가 보여야 함
+
+# 퀵스타트 실습 컨테이너
+docker ps --filter name=pycubrid-quickstart
+# 컨테이너가 "Up" 상태로 보여야 함
 ```
 
 **확인 2: 초기화 대기** — CUBRID는 시작에 몇 초 걸립니다:
 
 ```bash
+# 저장소의 docker-compose.yml
 docker compose up -d --wait
 
 # 대기 시간이 초과되면 서비스 상태와 로그 확인
 docker compose ps
 docker compose logs cubrid
 
-# 연결 테스트
+# 퀵스타트 실습 컨테이너: 로그 확인
+docker logs pycubrid-quickstart
+```
+
+퀵스타트 컨테이너를 기다리려면 [퀵스타트 방법 B](quickstart.md#방법-b-버리고-다시-만들-수-있는-로컬-데이터베이스가-필요합니다)의 준비 확인 루프를 다시
+실행하세요. 그다음 연결을 테스트합니다.
+
+```bash
 python3 -c "
 import pycubrid
 conn = pycubrid.connect(host='localhost', port=33000, database='testdb', user='dba')
@@ -1179,8 +1226,13 @@ conn.close()
 **확인 3: 포트 매핑이 올바른지:**
 
 ```bash
+# 저장소의 docker-compose.yml
 docker compose ps
 # 33000->33000/tcp가 표시되는지 확인
+
+# 퀵스타트 실습 컨테이너
+docker ps --filter name=pycubrid-quickstart
+# 127.0.0.1:33000->33000/tcp가 표시되는지 확인
 ```
 
 ---
@@ -1221,36 +1273,57 @@ make docker-fix-db-host
 **볼륨과 그 안의 모든 테이블을 삭제합니다**. 다음 `make docker-up`이 새 데이터베이스를
 만듭니다. 데이터가 필요 없는 볼륨에만 사용하세요.
 
+퀵스타트 컨테이너는 이 문제와 관계없습니다. 이름 있는 볼륨을 쓰지 않으므로 새로
+`docker run`을 하면 새 컨테이너용 `testdb`가 새로 만들어집니다.
+
 ---
 
 ### 데이터베이스를 찾을 수 없음
 
-**증상:**
+**증상:** 브로커는 응답하지만 데이터베이스를 여는 단계에서 실패합니다.
 
 ```
-OperationalError: ... database 'mydb' not found
+DatabaseError: Failed to connect to database server, 'mydb', on the following host(s): localhost (errno=-191, sqlstate='HY000')
 ```
 
-**Docker 이미지는 `CUBRID_DB`에 지정된 데이터베이스만 생성합니다:**
+데이터베이스는 있지만 그 서버가 시작되지 않은 경우에도 같은
+`Failed to connect to database server, '<name>'` 줄이 나옵니다. 이때 CUBRID 11.4는
+`-191` 대신 `errno=-677`을 보고합니다. pycubrid는 두 코드 모두 더 구체적인 클래스로
+매핑하지 않으므로 둘 다 `DatabaseError`로 전달됩니다. 예전 컨테이너 ID와 `errno=-353`이
+나오는 줄은 다른 문제입니다.
+[컨테이너를 다시 만든 뒤 데이터베이스 서버 호스트를 찾을 수 없음](#컨테이너를-다시-만든-뒤-데이터베이스-서버-호스트를-찾을-수-없음)을
+참고하세요.
 
-```yaml
-# docker-compose.yml
-services:
-  cubrid:
-    image: cubrid/cubrid:11.2
-    environment:
-      CUBRID_DB: testdb  # 이 데이터베이스만 생성됨
-```
+**원인:** Docker 이미지는 `CUBRID_DB`에 지정된 데이터베이스만 만듭니다. 저장소의
+`docker-compose.yml`과 퀵스타트의 `docker run` 명령에서는 `testdb`입니다.
 
 **해결:** 둘 중 하나:
 
-1. `CUBRID_DB`를 연결의 데이터베이스 이름과 일치하도록 설정
-2. 컨테이너 안에서 수동으로 데이터베이스 생성:
+1. 컨테이너가 만든 데이터베이스(`testdb`)로 연결하거나, 컨테이너를 처음 시작하기 전에
+   `CUBRID_DB`를 연결할 데이터베이스 이름으로 설정합니다.
+2. 기존 데이터베이스를 소유한 `cubrid` 사용자로 컨테이너 안에서 데이터베이스를 만들고
+   시작합니다. 먼저 컨테이너 안의 셸을 엽니다.
 
    ```bash
-   docker compose exec cubrid cubrid createdb mydb
-   docker compose exec cubrid cubrid server start mydb
+   # 저장소의 docker-compose.yml(기여자용), 저장소 루트에서 실행
+   docker compose exec -u cubrid cubrid bash
+
+   # 퀵스타트 실습 컨테이너
+   docker exec -it -u cubrid pycubrid-quickstart bash
    ```
+
+   그 셸에서 다음을 실행합니다.
+
+   ```bash
+   mkdir -p "$CUBRID_DATABASES/mydb" && cd "$CUBRID_DATABASES/mydb"
+   cubrid createdb mydb en_US.utf8
+   cubrid server start mydb
+   ```
+
+   `createdb`는 데이터베이스 이름 뒤에 로캘과 문자셋을 반드시 받고, 데이터베이스 파일을
+   현재 디렉터리에 만듭니다. 그래서 첫 줄에서 이미지의 데이터베이스 디렉터리로 이동합니다.
+   기본 볼륨 크기로는 디스크가 약 1.5GB 필요하고 몇 분 걸릴 수 있습니다. 데이터베이스가
+   이미 있다면 `cubrid server start mydb`만 실행하세요.
 
 ---
 
@@ -1278,6 +1351,9 @@ services:
       retries: 10
       start_period: 30s
 ```
+
+퀵스타트 컨테이너는 헬스 체크 없이 시작하므로
+[퀵스타트 방법 B](quickstart.md#방법-b-버리고-다시-만들-수-있는-로컬-데이터베이스가-필요합니다)의 준비 확인 루프로 기다리세요.
 
 **테스트에서 헬스 체크 대기:**
 
@@ -1541,6 +1617,25 @@ engine = create_engine("cubrid+pycubrid://dba@localhost:33000/testdb", echo=True
 ```
 
 이것은 모든 SQL 문, 파라미터, 실행 시간을 보여줍니다.
+
+## 그래도 해결되지 않나요?
+
+- **pycubrid 사용법에 관한 질문:** [GitHub Discussions](https://github.com/cubrid-lab/pycubrid/discussions)에 올려 주세요.
+- **재현할 수 있는 pycubrid 결함:**
+  [버그 리포트](https://github.com/cubrid-lab/pycubrid/issues/new?template=bug_report.yml)를 열어 주세요.
+- **보안 문제:** 공개적으로 올리지 말고
+  [SECURITY.md](https://github.com/cubrid-lab/pycubrid/blob/main/SECURITY.md)에 안내된 대로 비공개로 제보해 주세요.
+
+질문하거나 제보할 때 다음 정보를 가능한 만큼 함께 알려 주세요.
+
+- pycubrid 버전(`python -c "import pycubrid; print(pycubrid.__version__)"`)
+- Python 버전과 운영체제
+- CUBRID 서버 버전(서버에서 `cubrid_rel` 실행)
+- 연결 방식: 로컬 Docker 컨테이너, 원격 서버 또는 그 밖의 구성
+- 마지막 줄만이 아닌 전체 트레이스백
+- 문제를 재현하는 최소한의 스크립트
+
+올리기 전에 비밀번호, 호스트 이름, 사용자 이름 등 접속 정보와 실제 데이터는 다른 값으로 바꿔 주세요.
 
 ---
 

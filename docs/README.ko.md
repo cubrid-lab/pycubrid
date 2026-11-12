@@ -398,6 +398,20 @@ CUBRID 10.2, 11.0, 11.2, 11.4를 CI에서 테스트합니다.
 
 예. 네이티브 asyncio 지원을 위해 `pycubrid.aio.connect()`를 사용하세요. async API의 표면은 sync API와 비슷합니다. `await conn.ping(reconnect=...)`로 sync `Connection.ping()`과 동일한 네이티브 `CHECK_CAS` 헬스 체크를 수행할 수 있고, `create_lob()`만 여전히 sync 전용이며, 자동 커밋 변경은 속성 setter 대신 `await conn.set_autocommit(...)`를 사용합니다.
 
+## 도움 받기
+
+- **먼저 문서 확인:** [처음으로 CUBRID에 연결하기](https://cubrid-lab.github.io/pycubrid/ko/quickstart/)와
+  [첫 연결이 실패할 때](https://cubrid-lab.github.io/pycubrid/ko/quickstart/#첫-연결이-실패할-때),
+  [문제 해결](https://cubrid-lab.github.io/pycubrid/ko/TROUBLESHOOTING/), [자주 묻는 질문](https://cubrid-lab.github.io/pycubrid/ko/faq/)
+- **pycubrid 사용법에 관한 질문:** [GitHub Discussions](https://github.com/cubrid-lab/pycubrid/discussions)
+- **재현할 수 있는 결함:** [버그 리포트 템플릿](https://github.com/cubrid-lab/pycubrid/issues/new?template=bug_report.yml).
+  pycubrid·Python·CUBRID 서버 버전, 운영체제, 연결 방식(Docker 또는 원격 서버), 전체 트레이스백,
+  최소 재현 코드를 함께 알려 주시고, 비밀번호·호스트 이름·데이터는 가려 주세요.
+- **보안 문제:** 공개 이슈로 올리지 말고 비공개로 제보해 주세요.
+  [SECURITY.md](https://github.com/cubrid-lab/pycubrid/blob/main/SECURITY.md)를 참고하세요.
+
+전체 체크리스트는 [SUPPORT.md](https://github.com/cubrid-lab/pycubrid/blob/main/SUPPORT.md)(영문)에 있습니다.
+
 ## 개발
 
 ### 기여하기

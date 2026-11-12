@@ -46,8 +46,11 @@ conn.close()
   [값을 안전하게 전달하기(파라미터 바인딩 계약)](PARAMETER_BINDING.md), [타입 시스템](TYPES.md),
   [지원 매트릭스](SUPPORT_MATRIX.md)
 - 더 깊이: [CAS 아키텍처와 프로토콜 개념](CAS_OVERVIEW.md), pycubrid가 CUBRID 브로커, CAS와 통신하는 방식
-- 도움 받기: [문제 해결](TROUBLESHOOTING.md), [자주 묻는 질문](faq.md), 보안 문제는
-  [SECURITY.md](https://github.com/cubrid-lab/pycubrid/blob/main/SECURITY.md)의 비공개 제보 경로
+- 도움 받기: 먼저 [문제 해결](TROUBLESHOOTING.md)과 [자주 묻는 질문](faq.md)을 확인하세요.
+  질문은 [GitHub Discussions](https://github.com/cubrid-lab/pycubrid/discussions)에, 재현할 수 있는 결함은
+  [버그 리포트 템플릿](https://github.com/cubrid-lab/pycubrid/issues/new?template=bug_report.yml)으로 올려 주세요. 함께 알려 줄
+  정보는 [그래도 해결되지 않나요?](TROUBLESHOOTING.md#그래도-해결되지-않나요)에 정리되어 있습니다.
+  보안 문제는 [SECURITY.md](https://github.com/cubrid-lab/pycubrid/blob/main/SECURITY.md)의 비공개 제보 경로를 이용하세요.
 - 기여하기: [개발 가이드](DEVELOPMENT.md), [아키텍처](ARCHITECTURE.md), [CAS 프로토콜](PROTOCOL.md)
 
 ## 프로젝트 링크
