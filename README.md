@@ -399,6 +399,21 @@ CUBRID 10.2, 11.0, 11.2, and 11.4 are tested in CI.
 
 Yes. Use `pycubrid.aio.connect()` for native asyncio support. The async surface is similar to the sync API: `await conn.ping(reconnect=...)` performs the same native `CHECK_CAS` health check as sync `Connection.ping()`, `create_lob()` remains sync-only, and auto-commit changes use `await conn.set_autocommit(...)` instead of a property setter.
 
+## Getting help
+
+- **Start with the docs:** [Your First CUBRID Connection](https://cubrid-lab.github.io/pycubrid/quickstart/) and its
+  [first-connection problems](https://cubrid-lab.github.io/pycubrid/quickstart/#if-the-first-connection-fails) section,
+  [Troubleshooting](https://cubrid-lab.github.io/pycubrid/TROUBLESHOOTING/) and the [FAQ](https://cubrid-lab.github.io/pycubrid/faq/).
+- **Questions about using pycubrid:** [GitHub Discussions](https://github.com/cubrid-lab/pycubrid/discussions).
+- **Reproducible defects:** the [bug report template](https://github.com/cubrid-lab/pycubrid/issues/new?template=bug_report.yml).
+  Include the pycubrid, Python and CUBRID server versions, your OS, how you connect (Docker or
+  remote), the full traceback and a minimal reproduction, with passwords, hostnames and data
+  redacted.
+- **Security problems:** report privately, never in a public issue; see
+  [SECURITY.md](https://github.com/cubrid-lab/pycubrid/blob/main/SECURITY.md).
+
+See [SUPPORT.md](https://github.com/cubrid-lab/pycubrid/blob/main/SUPPORT.md) for the full checklist.
+
 ## Development
 
 ### Contributing
