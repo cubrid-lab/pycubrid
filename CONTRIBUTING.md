@@ -415,6 +415,42 @@ other divergence is a driver bug (fix it or file it) or an undocumented
 server change (confirm it outside pycubrid, e.g. with `csql`, then document
 it).
 
+## Temporary tooling
+
+Some work needs a script, repair tool, probe, dataset or workflow that is meant
+to be short-lived. Such a tool is acceptable when it is labeled as temporary, so
+it does not quietly become permanent maintenance.
+
+- **Record it in the PR that adds it** (PR description or the tool's docstring):
+  why it exists, the local issue and owner, the event that completes it or
+  triggers its removal, where the evidence it produces will live, and the next
+  review point. If the end date is unknown, name the event that reopens the
+  decision; an unknown date does not mean the tool stays forever.
+- **Run one-time work locally or manually.** A one-off repair or profiling run
+  does not need a CI job. A permanent CI job or test harness for a short-lived
+  tool must explain what it protects that existing checks do not, and what it
+  will cost to maintain.
+- **Review it at the trigger** in the existing local cleanup issue: remove the
+  tool, or record a concrete remaining caller and a new, bounded review trigger.
+- **Map callers before removing it:** source imports, tests and fixtures,
+  Makefile targets, CI path filters, release and packaging steps, docs,
+  dependency declarations and compatibility promises. Zero search hits inside
+  this repository do not prove that nobody runs the tool from outside it.
+  Remove only confirmed-irrelevant pieces in a small PR that gives a
+  path-by-path remove or keep reason and runs the usual tests, build and docs
+  checks. Do not add a cleanup-only CI job.
+
+Stable release tooling, compatibility paths, reproducible tests and legitimate
+diagnostic tools are not temporary and stay supported under this rule.
+
+Example: `scripts/_profile_scratch.py` was added in #962 as the per-run scratch
+table helper for `scripts/profile_execute.py` and `scripts/profile_fetch.py`.
+The repository cleanup in #1168 was its review trigger. The caller map found
+both profilers importing it, `docs/PERFORMANCE.md` (English and Korean) and the
+performance issue form documenting those profilers, and
+`tests/test_profile_scratch.py` testing it, so it was kept as a maintained
+helper. Its next review point is the benchmark consolidation in #1209.
+
 ## Minimum PR validation
 
 Follow the [CI execution policy](docs/CI_POLICY.md). PR smoke is representative,
