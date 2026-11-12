@@ -39,6 +39,8 @@ This maintenance update improves source builds, setup and migration guidance, an
 
 - **A first step in the translated READMEs** — The German, Hindi, Russian and Chinese READMEs now have a short "Start here" section before Requirements, explaining that CUBRID is a separate server that must already be running, and link the English [Your First CUBRID Connection](docs/quickstart.md) lesson and its first-connection troubleshooting section. Their documentation tables also list the lesson ([#1089](https://github.com/cubrid-lab/pycubrid/issues/1089)) by @yeongseon.
 
+- **Database not found** — The Troubleshooting entry (English and Korean) now shows the `DatabaseError: Failed to connect to database server, '<name>', ...` line that a missing database actually raises, and notes that a database that exists but is not started gives the same line. Its commands open a shell as the `cubrid` user in either the repository's Compose container or the quickstart container, then run `cubrid createdb mydb en_US.utf8` with the required locale and `cubrid server start mydb` ([#1082](https://github.com/cubrid-lab/pycubrid/issues/1082)) by @yeongseon.
+
 ### CI
 
 - **Weekly mutation testing runs again** — The four mutation-testing shards of the weekly Bug Hunt had failed before testing any mutant since mid-October with `failed to collect stats`. The mutation sandbox now also copies `agent-evals/`, `docker-compose.yml`, `mkdocs.yml` and `.gitignore`, which offline tests read, and leaves out three more tests that inspect the driver's own functions, which mutmut's function wrappers change. Every other lane still runs those tests ([#1107](https://github.com/cubrid-lab/pycubrid/issues/1107)) by @yeongseon.
