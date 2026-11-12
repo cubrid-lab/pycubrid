@@ -1,3 +1,11 @@
+"""Synchronous PEP 249 connection implementation for pycubrid.
+
+Defines :class:`Connection`, the object ``pycubrid.connect()`` returns. It
+holds the socket to the CAS broker, sends each request and reads its reply
+under a session lock, and tracks the transaction state and query handles of
+the current CAS session. The asyncio counterpart is ``pycubrid.aio.connection``.
+"""
+
 from __future__ import annotations
 
 import logging
