@@ -8520,36 +8520,59 @@ ConnectionRefusedError: [Errno 111] Connection refused
 !!! warning
     CUBRID startup is asynchronous in Docker-based setups. A successful container start does not always mean the broker is already accepting connections.
 
+Docker commands on this page come in two forms. `docker compose ...` is for this
+repository's `docker-compose.yml` (contributors), run from the repository root.
+`docker ... pycubrid-quickstart` is for the single container started in
+[Quickstart Option B](quickstart.md#option-b-i-need-a-disposable-local-database).
+
 1. **CUBRID broker is not running**
 
    ```bash
-   # Check if broker is running
+   # On the CUBRID server host (a local, non-Docker installation)
    cubrid broker status
-
-   # Start the broker
    cubrid broker start
+
+   # Repository docker-compose.yml
+   docker compose exec -u cubrid cubrid cubrid broker status
+
+   # Quickstart lab container
+   docker exec -u cubrid pycubrid-quickstart cubrid broker status
    ```
+
+   Run `cubrid` commands in a container as the `cubrid` user (`-u cubrid`): as root,
+   `cubrid broker status` reports that the broker is not running even when it is. The
+   container starts its broker by itself; if it is really not running, look at the
+   container logs (cause 3).
 
 2. **Wrong port** — The broker may be configured on a different port.
 
    ```bash
-   # Check broker port in configuration
-   cat $CUBRID/conf/cubrid_broker.conf | grep BROKER_PORT
+   # On the CUBRID server host: check the broker port in its configuration
+   grep BROKER_PORT "$CUBRID/conf/cubrid_broker.conf"
    ```
+
+   With Docker, the host port is the one published with `-p` or in `ports:`;
+   `docker compose ps` or `docker ps --filter name=pycubrid-quickstart` shows it.
 
 3. **Docker container not ready** — The CUBRID container takes a few seconds to initialize.
 
    ```bash
-   # Check container status
+   # Repository docker-compose.yml: check status, then wait for the health check
    docker compose ps
-
-   # Wait for health check
    docker compose up -d --wait
 
    # If the wait times out, inspect the service state and logs
    docker compose ps
    docker compose logs cubrid | tail -20
+
+   # Quickstart lab container: check status and logs
+   docker ps --filter name=pycubrid-quickstart
+   docker logs --tail 20 pycubrid-quickstart
    ```
+
+   The quickstart container has no health check; to wait for it, run the readiness
+   loop in [Quickstart Option B](quickstart.md#option-b-i-need-a-disposable-local-database)
+   again.
 
 4. **Firewall or network** — Port 33000 may be blocked.
 
@@ -8742,7 +8765,14 @@ OperationalError: ... (during connection handshake)
 1. **Check CAS processes are running:**
 
    ```bash
+   # On the CUBRID server host
    cubrid broker status -b  # Shows broker and CAS process details
+
+   # Repository docker-compose.yml
+   docker compose exec -u cubrid cubrid cubrid broker status -b
+
+   # Quickstart lab container
+   docker exec -u cubrid pycubrid-quickstart cubrid broker status -b
    ```
 
 2. **Ensure all CAS ports are reachable** — If using Docker with port forwarding, only port 33000 may be exposed. When the broker redirects to a different port, the connection fails if that port is not forwarded.
@@ -9551,23 +9581,40 @@ cur.execute("SELECT COUNT(*) FROM users")
 
 ### Container Starts but Cannot Connect
 
+The `docker compose` commands are for this repository's `docker-compose.yml`
+(contributors, from the repository root); the `pycubrid-quickstart` commands are for the
+container started in [Quickstart Option B](quickstart.md#option-b-i-need-a-disposable-local-database).
+
 **Check 1: Container is actually running:**
 
 ```bash
+# Repository docker-compose.yml
 docker compose ps
 # Should show "running" status
+
+# Quickstart lab container
+docker ps --filter name=pycubrid-quickstart
+# Should list the container with an "Up" status
 ```
 
 **Check 2: Wait for initialization** — CUBRID takes a few seconds to start:
 
 ```bash
+# Repository docker-compose.yml
 docker compose up -d --wait
 
 # If the wait times out, inspect the service state and logs
 docker compose ps
 docker compose logs cubrid
 
-# Test connection
+# Quickstart lab container: inspect the logs
+docker logs pycubrid-quickstart
+```
+
+To wait for the quickstart container, run the readiness loop in
+[Quickstart Option B](quickstart.md#option-b-i-need-a-disposable-local-database) again. Then test the connection:
+
+```bash
 python3 -c "
 import pycubrid
 conn = pycubrid.connect(host='localhost', port=33000, database='testdb', user='dba')
@@ -9580,8 +9627,13 @@ conn.close()
 **Check 3: Port mapping is correct:**
 
 ```bash
+# Repository docker-compose.yml
 docker compose ps
 # Verify 33000->33000/tcp is shown
+
+# Quickstart lab container
+docker ps --filter name=pycubrid-quickstart
+# Verify 127.0.0.1:33000->33000/tcp is shown
 ```
 
 ---
@@ -9623,6 +9675,9 @@ a later run keeps that copy.
 **Fix, deleting the data:** `make docker-clean` runs `docker compose down -v`, which
 **removes the volume and every table in it**; the next `make docker-up` creates a fresh
 database. Use it only for a volume whose data you do not need.
+
+The quickstart container is not affected: it keeps no named volume, so a new
+`docker run` creates a fresh `testdb` for the new container.
 
 ---
 
@@ -9680,6 +9735,9 @@ services:
       retries: 10
       start_period: 30s
 ```
+
+The quickstart container is started without a health check; wait for it with the
+readiness loop in [Quickstart Option B](quickstart.md#option-b-i-need-a-disposable-local-database).
 
 **Wait for health check in tests:**
 
