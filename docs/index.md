@@ -47,8 +47,11 @@ conn.close()
   [Type Mapping](TYPES.md) and [Support Matrix](SUPPORT_MATRIX.md).
 - Go deeper: [CAS Architecture and Protocol Concepts](CAS_OVERVIEW.md), how
   pycubrid talks to the CUBRID Broker and CAS.
-- Get help: [Troubleshooting](TROUBLESHOOTING.md), [FAQ](faq.md), and for a
-  security problem the private reporting route in
+- Get help: [Troubleshooting](TROUBLESHOOTING.md) and [FAQ](faq.md) first. Ask
+  questions in [GitHub Discussions](https://github.com/cubrid-lab/pycubrid/discussions) and report a reproducible
+  defect with the [bug report template](https://github.com/cubrid-lab/pycubrid/issues/new?template=bug_report.yml);
+  [Still stuck?](TROUBLESHOOTING.md#still-stuck) lists what to include. For a
+  security problem, use the private reporting route in
   [SECURITY.md](https://github.com/cubrid-lab/pycubrid/blob/main/SECURITY.md).
 - Contribute: [Development](DEVELOPMENT.md), [Architecture](ARCHITECTURE.md) and
   [Protocol](PROTOCOL.md).

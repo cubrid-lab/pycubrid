@@ -60,6 +60,7 @@ Comprehensive solutions for common pycubrid issues — connection errors, query 
   - [High Memory Usage](#high-memory-usage)
   - [Connection Overhead](#connection-overhead)
 - [Debugging Techniques](#debugging-techniques)
+- [Still stuck?](#still-stuck)
 
 ---
 
@@ -1623,6 +1624,26 @@ engine = create_engine("cubrid+pycubrid://dba@localhost:33000/testdb", echo=True
 ```
 
 This shows all SQL statements, parameters, and execution times.
+
+## Still stuck?
+
+- **A question about using pycubrid:** ask in [GitHub Discussions](https://github.com/cubrid-lab/pycubrid/discussions).
+- **A reproducible defect in pycubrid:** open a
+  [bug report](https://github.com/cubrid-lab/pycubrid/issues/new?template=bug_report.yml).
+- **A security problem:** do not post it publicly; report it privately as described in
+  [SECURITY.md](https://github.com/cubrid-lab/pycubrid/blob/main/SECURITY.md).
+
+When you ask or report, include what you can of the following:
+
+- pycubrid version (`python -c "import pycubrid; print(pycubrid.__version__)"`)
+- Python version and operating system
+- CUBRID server version (`cubrid_rel` on the server)
+- How you connect: a local Docker container, a remote server, or another setup
+- The full traceback, not only the last line
+- A minimal script that reproduces the problem
+
+Replace passwords, hostnames, user names and other credentials, and any real data, before
+you post.
 
 ---
 
