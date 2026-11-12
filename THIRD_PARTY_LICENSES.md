@@ -1,8 +1,9 @@
 # Third-Party Software Licenses
 
 This file records the third-party open-source software that **pycubrid** uses at
-runtime and in development, and what pycubrid itself distributes. It is an
-engineering inventory, not legal advice.
+runtime, in development and to build its documentation site, what pycubrid itself
+distributes, and which third-party assets the published documentation site
+contains or loads. It is an engineering inventory, not legal advice.
 
 ## Runtime dependencies
 
@@ -45,6 +46,78 @@ below is generated on Linux, where the conditional dependency is not installed.
   Its input/output hashes and reproduction steps are recorded in
   [.github/ci-wheels/README.md](.github/ci-wheels/README.md). It is excluded from
   the published wheel and sdist.
+- **Documentation site**: the MkDocs site published to GitHub Pages
+  (https://cubrid-lab.github.io/pycubrid/) is a separate distribution. Neither
+  the wheel nor the sdist contains it or its build tools. What the built site
+  contains, and what it only links to, is recorded in the next section.
+
+## Documentation site
+
+The `docs` workflow (`.github/workflows/docs.yml`) installs the locked `docs`
+dependency group, runs `mkdocs build --strict` and uploads the resulting `site/`
+directory to GitHub Pages. The site therefore involves three different kinds of
+third-party material. The observations below come from a local
+`mkdocs build --strict` with the locked `docs` group (Material for MkDocs 9.8.0)
+at commit `7b2d0cfb7ec64a0b3833ebc37dc4dc7738f6eacb`, with the licenses read
+from the installed package's license files and from the notices in the built
+files. A theme upgrade can change these files, so when a pull request (including
+a Dependabot update) changes the `mkdocs-material` version, rebuild the site and
+recheck the bundled third-party files and their notices below, then update the
+recorded theme version. This is a manual review step; no test enforces it, so
+routine dependency updates are not blocked.
+
+### Build tools (not published)
+
+The Python packages of the `docs` dependency group run on the build machine
+only. They are listed in the `docs` dependency group table at the end of this
+file. Apart from the theme assets described next, none of their code is copied
+into `site/`.
+
+### Third-party assets bundled into the built site (redistributed by GitHub Pages)
+
+The Material for MkDocs theme copies these files into `site/`, so the published
+site redistributes them unmodified:
+
+| Asset in `site/` | Component | License | Evidence |
+|---|---|---|---|
+| `assets/stylesheets/main.*.min.css`, `assets/stylesheets/palette.*.min.css`, `assets/javascripts/bundle.*.min.js`, `assets/images/favicon.png` (copied but not referenced, because `mkdocs.yml` sets its own favicon), and the HTML layout of every page, rendered from the theme's templates | Material for MkDocs 9.8.0 (Martin Donath) | MIT | Package metadata `License-Expression: MIT` and the wheel's `LICENSE` file |
+| Compiled into `assets/javascripts/bundle.*.min.js` | clipboard.js 2.0.11 | MIT | "Licensed MIT" header in the source embedded in the bundle's source map |
+| Compiled into `assets/javascripts/bundle.*.min.js` | escape-html | MIT | "MIT Licensed" header in the embedded source |
+| Compiled into `assets/javascripts/bundle.*.min.js` | tslib (Microsoft) | 0BSD | The 0BSD permission text in the embedded source header |
+| Compiled into `assets/javascripts/bundle.*.min.js` | RxJS, focus-visible | Not verified | The source map lists them, but the embedded sources carry no license notice |
+| `assets/javascripts/workers/search.*.min.js` (search worker) | lunr.js (Oliver Nightingale) | MIT | `@license MIT` header in the embedded source |
+| `assets/javascripts/lunr/min/lunr.{da,de,du,es,fi,fr,hu,it,nl,no,pt,ro,ru,sv,tr}.min.js` | lunr-languages (Mihai Valentin), including the Snowball JavaScript library (Oleg Mazko) | MPL, version not stated | Each file's header links to `http://www.mozilla.org/MPL/` without a version number |
+| The other 17 files in `assets/javascripts/lunr/min/` (such as `lunr.ko.min.js`, `lunr.ja.min.js`, `lunr.multi.min.js`, `lunr.stemmer.support.min.js`) | lunr-languages | Not verified | The files carry no license or copyright notice |
+| `assets/javascripts/lunr/tinyseg.js` | TinySegmenter (Taku Kudo) | BSD ("new BSD licence") | File header |
+| `assets/javascripts/lunr/wordcut.js` | wordcut, bundled with Node.js core modules, narwhal and Underscore | Not verified as a whole | The file contains MIT notices for the Node.js modules (Joyent), narwhal's `assert` and Underscore, but no notice for wordcut itself or its other bundled modules |
+| Inline SVG icons in every page | Material Design Icons (`material/weather-night`, `material/weather-sunny` in `mkdocs.yml`) | Apache-2.0 | `material/templates/.icons/material/LICENSE` (Pictogrammers Free License: icons under Apache 2.0) |
+| Inline SVG icon in every page footer | Font Awesome Free (`fontawesome/brands/github` in `mkdocs.yml`) | CC BY 4.0 (icons) | `material/templates/.icons/fontawesome/LICENSE.txt` and the attribution comment that the built pages keep inside the SVG |
+
+The site's search index is built for English only (`lang: ['en']` in
+`search/search_index.json`), but the theme copies all language files into
+`site/` regardless. The MPL-licensed lunr-languages files keep their upstream
+notices, which name the source repository
+(https://github.com/MihaiValentin/lunr-languages). Whether publishing them in
+minified form needs any further source-availability notice has not been
+reviewed. The other files in `site/` are generated from this repository's
+`docs/` directory and `mkdocs.yml`; the configured logo and favicon are not
+bundled (see below).
+
+### Assets loaded remotely by visitors' browsers (not redistributed)
+
+These are not in `site/`. The built pages, or the theme's JavaScript, make the
+visitor's browser fetch them from a third-party server, which therefore sees the
+visitor's IP address:
+
+| Asset | Loaded from | When | License |
+|---|---|---|---|
+| Roboto and Roboto Mono web fonts | `fonts.googleapis.com` stylesheet and `fonts.gstatic.com` font files | Every page: `mkdocs.yml` does not set `theme.font`, so the theme's default Google Fonts link is emitted; the built `site/` contains no font files | Not verified in this inventory; served by Google, not by this project |
+| Mermaid (`mermaid@11`, exact version chosen by unpkg at view time) | `https://unpkg.com/mermaid@11/dist/mermaid.min.js` | Only on pages that contain a Mermaid diagram (26 built pages at the commit above) | Not verified in this inventory |
+| resize-observer-polyfill (latest version chosen by unpkg) | `https://unpkg.com/resize-observer-polyfill` | Only in browsers without a native `ResizeObserver` | Not verified in this inventory |
+
+The logo and favicon are loaded from `raw.githubusercontent.com` at a pinned
+`cubrid-lab/brand` commit. They are CUBRID Lab material, not third-party
+software, and are not assessed here.
 
 ## License categories
 
@@ -60,8 +133,11 @@ The inventories below contain three categories:
   not, must make their source available under MPL-2.0 and keep their notices.
   Because MPL-2.0 is file-level, it never extends to pycubrid's own files (MPL
   §3.3, "Larger Work"). Separately, pycubrid does not distribute these
-  packages, since they appear only in the development and test toolchain, so
-  their distribution obligations do not arise for this project.
+  packages, since they appear only in the development, test and
+  documentation-build toolchains, so their distribution obligations do not
+  arise for this project. The MPL-licensed lunr-languages files that the
+  documentation site does redistribute are covered in
+  [Documentation site](#documentation-site).
 - **Needs review**: any package whose metadata mentions a GPL-family license, or
   a license the generator cannot classify. Multiple license classifiers do not say
   whether they combine as "or" or "and", so these are never treated as
@@ -125,6 +201,24 @@ uv pip install -p /tmp/tpl-dev/bin/python -e . --group dev
 uv venv -p 3.12 /tmp/tpl-mutation
 uv pip install -p /tmp/tpl-mutation/bin/python -e . --group mutation
 /tmp/tpl-mutation/bin/python scripts/generate_third_party_licenses.py --exclude pycubrid
+```
+
+The `docs` dependency group table was generated separately, from the versions
+locked in `uv.lock` rather than from a fresh resolution, because the `docs`
+workflow installs exactly that locked set:
+
+- Dependency declarations and lock: commit `7b2d0cfb7ec64a0b3833ebc37dc4dc7738f6eacb`
+- Environment: CPython 3.12.13 on Linux x86_64 (glibc 2.35), uv 0.11.7,
+  generated 2026-11-12
+- Commands (the same export and install that `.github/workflows/docs.yml` runs;
+  the export omits the project itself, so the 31 rows are the whole locked
+  `docs` set):
+
+```bash
+uv export --locked --no-build --only-group docs --no-emit-project --format requirements-txt --output-file /tmp/tpl-docs-requirements.txt
+uv venv -p 3.12 /tmp/tpl-docs
+uv pip install -p /tmp/tpl-docs/bin/python --require-hashes --only-binary :all: -r /tmp/tpl-docs-requirements.txt
+/tmp/tpl-docs/bin/python scripts/generate_third_party_licenses.py --exclude pycubrid
 ```
 
 `scripts/generate_third_party_licenses.py` uses only the standard library. It
@@ -233,3 +327,39 @@ regenerating the tables, not by the test.
 | setproctitle | 1.3.8 | BSD-3-Clause | Permissive | https://github.com/dvarrazzo/py-setproctitle |
 | textual | 8.2.8 | MIT License | Permissive | https://github.com/Textualize/textual |
 | typing_extensions | 4.16.0 | PSF-2.0 | Permissive | https://github.com/python/typing_extensions |
+
+## Documentation-site build dependencies: `docs` dependency group (31 packages, not distributed)
+
+| Name | Version | License | Category | URL |
+|---|---|---|---|---|
+| babel | 2.18.0 | BSD License | Permissive | https://github.com/python-babel/babel |
+| backrefs | 8.1 | MIT | Permissive | https://github.com/facelessuser/backrefs |
+| charset-normalizer | 3.5.2 | MIT | Permissive | - |
+| click | 8.5.0 | BSD-3-Clause | Permissive | https://github.com/pallets/click/ |
+| colorama | 0.4.6 | BSD License | Permissive | https://github.com/tartley/colorama |
+| ghp-import | 2.1.0 | Apache Software License | Permissive | https://github.com/c-w/ghp-import |
+| idna | 3.20 | BSD-3-Clause | Permissive | https://github.com/kjd/idna |
+| Jinja2 | 3.1.6 | BSD License | Permissive | https://github.com/pallets/jinja/ |
+| Markdown | 3.11.1 | BSD-3-Clause | Permissive | https://Python-Markdown.github.io/ |
+| markdown-it-py | 4.2.0 | MIT License | Permissive | https://github.com/executablebooks/markdown-it-py |
+| MarkupSafe | 3.0.4 | BSD-3-Clause | Permissive | https://github.com/pallets/markupsafe/ |
+| mdurl | 0.1.2 | MIT License | Permissive | https://github.com/executablebooks/mdurl |
+| mergedeep | 1.3.4 | MIT License | Permissive | https://github.com/clarketm/mergedeep |
+| mkdocs | 1.6.1 | BSD-2-Clause | Permissive | https://github.com/mkdocs/mkdocs |
+| mkdocs-get-deps | 0.2.2 | MIT | Permissive | https://github.com/mkdocs/get-deps |
+| mkdocs-material | 9.8.0 | MIT | Permissive | https://github.com/squidfunk/mkdocs-material |
+| mkdocs-material-extensions | 1.3.1 | MIT | Permissive | https://github.com/facelessuser/mkdocs-material-extensions |
+| packaging | 26.3 | Apache-2.0 OR BSD-2-Clause | Permissive | https://github.com/pypa/packaging |
+| paginate | 0.5.7 | MIT License | Permissive | https://github.com/Signum/paginate |
+| platformdirs | 4.13.0 | MIT | Permissive | https://github.com/tox-dev/platformdirs |
+| Pygments | 2.21.0 | BSD-2-Clause | Permissive | https://pygments.org |
+| pymdown-extensions | 12.3 | MIT | Permissive | https://github.com/facelessuser/pymdown-extensions |
+| python-dateutil | 2.9.0.post0 | Apache Software License / BSD License | Permissive | https://github.com/dateutil/dateutil |
+| PyYAML | 6.0.3 | MIT License | Permissive | https://github.com/yaml/pyyaml |
+| pyyaml_env_tag | 1.1 | MIT | Permissive | https://github.com/waylan/pyyaml-env-tag |
+| requests | 2.34.2 | Apache Software License | Permissive | https://github.com/psf/requests |
+| six | 1.17.0 | MIT License | Permissive | https://github.com/benjaminp/six |
+| urllib3 | 2.8.0 | MIT | Permissive | - |
+| watchdog | 6.0.0 | Apache Software License | Permissive | https://github.com/gorakhargosh/watchdog/ |
+| certifi | 2026.10.23 | Mozilla Public License 2.0 (MPL 2.0) | Weak copyleft (MPL) | https://github.com/certifi/python-certifi |
+| pathspec | 1.1.1 | Mozilla Public License 2.0 (MPL 2.0) | Weak copyleft (MPL) | https://github.com/cpburnz/python-pathspec |
