@@ -60,8 +60,11 @@ third-party material. The observations below come from a local
 `mkdocs build --strict` with the locked `docs` group (Material for MkDocs 9.8.0)
 at commit `7b2d0cfb7ec64a0b3833ebc37dc4dc7738f6eacb`, with the licenses read
 from the installed package's license files and from the notices in the built
-files. A theme upgrade can change these files, so this section must be
-re-checked whenever `mkdocs-material` changes.
+files. A theme upgrade can change these files, so when a pull request (including
+a Dependabot update) changes the `mkdocs-material` version, rebuild the site and
+recheck the bundled third-party files and their notices below, then update the
+recorded theme version. This is a manual review step; no test enforces it, so
+routine dependency updates are not blocked.
 
 ### Build tools (not published)
 

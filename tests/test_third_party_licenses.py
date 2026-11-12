@@ -166,16 +166,6 @@ def test_documentation_site_scope_separates_bundled_and_remote_assets() -> None:
         assert asset not in bundled, asset
 
 
-def test_documentation_site_records_the_pinned_theme() -> None:
-    # The bundled-asset rows describe one theme release; a theme pin bump must
-    # re-check them, so the recorded version has to match pyproject.toml.
-    pins = {canonicalize_name(r.name): r for r in requirements("docs")}
-    theme = pins["mkdocs-material"]
-    assert [s.operator for s in theme.specifier] == ["=="], theme
-    version = next(iter(theme.specifier)).version
-    assert f"Material for MkDocs {version}" in _site_section()
-
-
 def test_remote_font_statement_matches_mkdocs_config() -> None:
     # Material links Google Fonts unless theme.font is set to false; the
     # inventory must say which of the two the site does.
