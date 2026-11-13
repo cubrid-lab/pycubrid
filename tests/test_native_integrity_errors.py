@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from pycubrid._cursor_common import _raise_batch_error
+from pycubrid._cursor_common import _batch_exception
 from pycubrid.aio.cursor import AsyncCursor
 from pycubrid.constants import CUBRIDStatementType
 from pycubrid.cursor import Cursor
@@ -65,7 +65,7 @@ def test_batch_wire_dispatch_preserves_native_metadata(code: int, protocol_versi
     packet = BatchExecutePacket(["INSERT INTO t VALUES (NULL)"], protocol_version=protocol_version)
     packet.parse(_batch_response(code, "opaque native failure", protocol_version))
     with pytest.raises(IntegrityError) as raised:
-        _raise_batch_error(packet.errors[0])
+        raise _batch_exception(packet.errors[0])
     assert raised.value.code == code
     assert raised.value.errno == code
     assert raised.value.sqlstate == "23000"
@@ -129,7 +129,7 @@ def test_unknown_native_code_does_not_use_constraint_message(batch: bool) -> Non
     message = "unique constraint violation"
     with pytest.raises(DatabaseError) as raised:
         if batch:
-            _raise_batch_error({"code": code, "message": message})
+            raise _batch_exception({"code": code, "message": message})
         else:
             PrepareAndExecutePacket("SELECT 1").parse(
                 _build_error_response(DEFAULT_CAS_INFO, code, message)

@@ -12,6 +12,8 @@ This maintenance update improves source builds, setup and migration guidance, an
 
 - **Removed the `make changelog` target** — The target ran `git-cliff --output CHANGELOG.md`, which would overwrite the curated `CHANGELOG.md` that release automation and `scripts/extract_release_notes.py` read, and `git-cliff` is not a declared dependency. The target and the unused `cliff.toml` are removed; no workflow, script or document called them ([#1109](https://github.com/cubrid-lab/pycubrid/issues/1109)) by @yeongseon.
 
+- **Removed the unused `PacketWriter.add_short` method and three test-only cursor wrappers** — `PacketWriter.add_short` was never called by the driver (the protocol writes shorts through `_write_short` directly), and the private `_format_parameter`, `_escape_string` and `_raise_batch_error` cursor helpers only forwarded to `format_parameter`, `escape_string` and `_batch_exception`; only tests called them. They are removed together with the `add_short` row of the `PacketWriter` method table in the Protocol guide (English and Korean). Public exports and driver behavior are unchanged ([#1168](https://github.com/cubrid-lab/pycubrid/issues/1168)) by @yeongseon.
+
 ### Fixed
 
 - **Source builds** — Declared setuptools 77 or newer because earlier versions reject the package's SPDX license metadata. The separate `wheel` build requirement is no longer needed; installing an already published wheel is unaffected ([#1108](https://github.com/cubrid-lab/pycubrid/issues/1108), [PR #1148](https://github.com/cubrid-lab/pycubrid/pull/1148)) by @yeongseon.

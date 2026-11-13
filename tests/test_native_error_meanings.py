@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from pycubrid._cursor_common import _raise_batch_error
+from pycubrid._cursor_common import _batch_exception
 from pycubrid.error_codes import get_error_description, get_sqlstate
 from pycubrid.exceptions import DatabaseError, OperationalError, ProgrammingError
 from pycubrid.protocol import BatchExecutePacket, PrepareAndExecutePacket
@@ -42,7 +42,7 @@ def test_native_error_wire_dispatch(
         if batch:
             packet = BatchExecutePacket(["SELEC 1"])
             packet.parse(_batch_response(code, message, 8))
-            _raise_batch_error(packet.errors[0])
+            raise _batch_exception(packet.errors[0])
         else:
             PrepareAndExecutePacket("SELEC 1").parse(
                 _build_error_response(DEFAULT_CAS_INFO, code, message)
@@ -57,6 +57,6 @@ def test_native_error_wire_dispatch(
 @pytest.mark.parametrize("code", [-4, -21003, -99999])
 def test_batch_uses_known_sqlstate_or_existing_unknown_default(code: int) -> None:
     with pytest.raises(DatabaseError) as raised:
-        _raise_batch_error({"code": code, "message": "opaque native failure"})
+        raise _batch_exception({"code": code, "message": "opaque native failure"})
     assert raised.value.sqlstate == (get_sqlstate(code) or "HY000")
     assert raised.value.code == raised.value.errno == code

@@ -57,7 +57,6 @@ class TestPacketWriterAddMethods:
         ("method_name", "value", "expected"),
         [
             ("add_byte", 0x7F, struct.pack(">iB", DataSize.BYTE, 0x7F)),
-            ("add_short", -123, struct.pack(">ih", DataSize.SHORT, -123)),
             ("add_int", -2147483648, struct.pack(">ii", DataSize.INT, -2147483648)),
             (
                 "add_long",

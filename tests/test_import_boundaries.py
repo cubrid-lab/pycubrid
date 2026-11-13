@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from pycubrid._cursor_common import _raise_batch_error
+from pycubrid._cursor_common import _batch_exception
 from pycubrid.exceptions import DatabaseError, ProgrammingError
 
 
@@ -85,7 +85,7 @@ def test_shared_batch_error_preserves_known_and_unknown_metadata(
     code: int, expected: type[DatabaseError], sqlstate: str
 ) -> None:
     with pytest.raises(expected) as caught:
-        _raise_batch_error({"code": code, "message": "batch failure"})
+        raise _batch_exception({"code": code, "message": "batch failure"})
     assert type(caught.value) is expected
     assert caught.value.msg == "batch failure"
     assert caught.value.code == caught.value.errno == code

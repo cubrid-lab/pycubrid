@@ -3,11 +3,12 @@ from __future__ import annotations
 import inspect
 import json
 import warnings
-from typing import cast
+from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from pycubrid._cursor_common import format_parameter
 from pycubrid.aio import connect
 from pycubrid.aio.connection import AsyncConnection
 from pycubrid.aio.cursor import AsyncCursor
@@ -16,6 +17,11 @@ from pycubrid.cursor import Cursor
 from pycubrid.exceptions import InterfaceError, ProgrammingError
 from pycubrid.protocol import ColumnMetaData, FetchPacket, PrepareAndExecutePacket
 from tests.test_cursor import _set_prepare_packet
+
+
+def _format_parameter(cursor: Cursor | AsyncCursor, value: Any) -> str:
+    """Render *value* the way the cursor binds it, in its negotiated escape mode."""
+    return format_parameter(value, no_backslash_escapes=cursor._resolve_escape_mode())
 
 
 def make_connection() -> MagicMock:
@@ -50,7 +56,7 @@ def test_format_and_bind_adapters_use_the_connection_escape_mode(
     expected = "'O''Reilly\\path\r\n'" if literal_mode else "'O''Reilly\\\\path\\\r\\\n'"
     value = "O'Reilly\\path\r\n"
 
-    assert cursor._format_parameter(value) == expected
+    assert _format_parameter(cursor, value) == expected
     assert cursor._bind_parameters("SELECT ?", (value,)) == "SELECT " + expected
     connection._send_and_receive.assert_not_called()
 
@@ -64,7 +70,7 @@ def test_format_and_bind_adapters_require_a_negotiated_escape_mode(
     cursor = cursor_class(connection)
 
     with pytest.raises(InterfaceError, match="escape mode not negotiated"):
-        cursor._format_parameter("value")
+        _format_parameter(cursor, "value")
     with pytest.raises(InterfaceError, match="escape mode not negotiated"):
         cursor._bind_parameters("SELECT ?", ("value",))
     connection._send_and_receive.assert_not_called()
@@ -133,26 +139,26 @@ async def test_execute_rejects_null_byte_before_sending() -> None:
 def test_escape_string_backslash_and_quote() -> None:
     cursor = AsyncCursor(make_connection())
 
-    assert cursor._format_parameter("O'Reilly\\path") == "'O''Reilly\\\\path'"
+    assert _format_parameter(cursor, "O'Reilly\\path") == "'O''Reilly\\\\path'"
 
 
 def test_escape_string_control_characters() -> None:
     cursor = AsyncCursor(make_connection())
 
-    assert cursor._format_parameter("line1\rline2\nend") == "'line1\\\rline2\\\nend'"
+    assert _format_parameter(cursor, "line1\rline2\nend") == "'line1\\\rline2\\\nend'"
 
 
 def test_escape_string_ctrl_z_rejected() -> None:
     # 0x1A has no safe CUBRID literal escape and is rejected in both modes.
     cursor = AsyncCursor(make_connection())
     with pytest.raises(ProgrammingError, match="Ctrl-Z"):
-        cursor._format_parameter("data\x1amore")
+        _format_parameter(cursor, "data\x1amore")
 
     connection = make_connection()
     connection._no_backslash_escapes = True
     cursor = AsyncCursor(connection)
     with pytest.raises(ProgrammingError, match="Ctrl-Z"):
-        cursor._format_parameter("data\x1amore")
+        _format_parameter(cursor, "data\x1amore")
 
 
 def test_escape_string_no_backslash_escapes_mode() -> None:
@@ -160,7 +166,7 @@ def test_escape_string_no_backslash_escapes_mode() -> None:
     connection._no_backslash_escapes = True
     cursor = AsyncCursor(connection)
 
-    assert cursor._format_parameter("O'Reilly\\path\r\n") == "'O''Reilly\\path\r\n'"
+    assert _format_parameter(cursor, "O'Reilly\\path\r\n") == "'O''Reilly\\path\r\n'"
 
 
 @pytest.mark.asyncio
