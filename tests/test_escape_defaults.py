@@ -12,7 +12,6 @@ from __future__ import annotations
 import inspect
 
 from pycubrid._cursor_common import (
-    CursorParamsMixin,
     bind_parameters,
     escape_string,
     format_parameter,
@@ -31,7 +30,6 @@ class TestEscapeDefaults:
             "format_parameter": format_parameter,
             "bind_parameters": bind_parameters,
             "split_on_placeholders": split_on_placeholders,
-            "_escape_string": CursorParamsMixin._escape_string,
         }
         defaults = {name: _default(func) for name, func in helpers.items()}
         assert all(value is True for value in defaults.values()), defaults
