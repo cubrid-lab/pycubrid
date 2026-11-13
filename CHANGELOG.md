@@ -1937,7 +1937,7 @@ Behavior changes you may notice (details in the entries below):
 - `decimal.Decimal` parameters are sent in plain fixed-point notation, so values
   such as `Decimal("1E-7")` stay `NUMERIC` instead of coming back as `float`. Contributed by @yeongseon.
 - Negative, NaN and infinite `connect_timeout`/`read_timeout` values are
-  rejected before a socket is opened. (#367) by @yeongseon, co-authored. Contributed by @blackmore-technology-group.
+  rejected before a socket is opened. (#367) by @yeongseon, co-authored by @blackmore-technology-group.
 - `Lob.read()`/`Lob.write()` raise `InterfaceError` for an `offset` or `length`
   that is not a plain `int`, including `bool`. (#449) by @HarshRajSinghania.
 - `DBAPIType` no longer compares equal to `bool` values: `STRING == True` is
@@ -2413,7 +2413,7 @@ Behavior changes you may notice (details in the entries below):
   existing zero/negative integer no-ops and the separate compatibility wrapper
   are preserved. This type tightening is classified MINOR, since booleans
   and nonpositive floats previously completed without error. Contributed by @yeongseon.
-- Preserve existing Docker volumes during automatic integration/TLS cleanup, including readiness and test failures (#501) by @yeongseon, co-authored. Contributed by @HarshRajSinghania.
+- Preserve existing Docker volumes during automatic integration/TLS cleanup, including readiness and test failures (#501) by @yeongseon, co-authored by @HarshRajSinghania.
 - **Connection timeouts are validated before socket creation (#367)** — sync and async connections reject negative, NaN, and infinite `connect_timeout`/`read_timeout` values during common initialization, preventing invalid timeout values from leaking a newly opened socket; `None`, zero, and finite positive values retain their existing semantics. Contributed by @yeongseon, co-authored by @blackmore-technology-group.
 - **TLS preflight fatal alerts and timeout context (#592)** — the Python 3.10
   async certificate probe sends queued fatal alert bytes best effort within
@@ -2943,7 +2943,7 @@ Behavior changes you may notice (details in the entries below):
 * **aio:** bound async TLS connect when the handshake stalls or is reset ([#534](https://github.com/cubrid-lab/pycubrid/issues/534)) ([bd878fe](https://github.com/cubrid-lab/pycubrid/commit/bd878fe1af7b4e0eb5e76e47c9da3407d5394944)) by @yeongseon.
 * **async:** isolate setup cancellation from waiting operations ([#578](https://github.com/cubrid-lab/pycubrid/issues/578)) ([7f5fe22](https://github.com/cubrid-lab/pycubrid/commit/7f5fe229000ebec13bc14427f0dfe277acfb5b09)) by @yeongseon.
 * **binding:** keep invalid timezone failures within DB-API errors ([4fcd9c8](https://github.com/cubrid-lab/pycubrid/commit/4fcd9c82be27e56fcdf1ab8d992c56d1d8b0c994)) by @yeongseon.
-* **changelog:** reject duplicate release subsections ([#648](https://github.com/cubrid-lab/pycubrid/issues/648)) ([3c57bb9](https://github.com/cubrid-lab/pycubrid/commit/3c57bb9ffab347f5c57e27d080d4a9b205c64083)) by @yeongseon, co-authored. Contributed by @chenzeyan54-commits.
+* **changelog:** reject duplicate release subsections ([#648](https://github.com/cubrid-lab/pycubrid/issues/648)) ([3c57bb9](https://github.com/cubrid-lab/pycubrid/commit/3c57bb9ffab347f5c57e27d080d4a9b205c64083)) by @yeongseon, co-authored by @chenzeyan54-commits.
 * **ci:** report a skipped cookbook verification as failed in the release summary ([#548](https://github.com/cubrid-lab/pycubrid/issues/548)) ([45f3374](https://github.com/cubrid-lab/pycubrid/commit/45f3374b4cfa9d191316c935b3801e827aa94b1b)) by @yeongseon.
 * classify foreign-key restrict failures (-924, -1284) as IntegrityError ([95a34e6](https://github.com/cubrid-lab/pycubrid/commit/95a34e6fcb6dcca27ed10a11e24aadb18cb34c2d)) by @yeongseon.
 * clear previous results after failed execute ([#531](https://github.com/cubrid-lab/pycubrid/issues/531)) ([32195b1](https://github.com/cubrid-lab/pycubrid/commit/32195b1f856b8d499a6e45ebfb89ee4a7ebc57ea)) by @ryanduguid (first contribution 🎉).
@@ -2959,7 +2959,7 @@ Behavior changes you may notice (details in the entries below):
 * **driver:** render Decimal parameters in plain notation so CUBRID keeps them NUMERIC ([#526](https://github.com/cubrid-lab/pycubrid/issues/526)) ([a7a3563](https://github.com/cubrid-lab/pycubrid/commit/a7a3563e4ee2fecc06c9208ecbe42392f575749f)) by @yeongseon.
 * **driver:** render int, float and Decimal subclasses by value instead of str() ([#527](https://github.com/cubrid-lab/pycubrid/issues/527)) ([0577cd8](https://github.com/cubrid-lab/pycubrid/commit/0577cd82e1de3858b3694b0105f3f13c622082f9)), closes [#518](https://github.com/cubrid-lab/pycubrid/issues/518) by @yeongseon.
 * **driver:** render str, bytes, date and time parameters without calling overridable methods ([#529](https://github.com/cubrid-lab/pycubrid/issues/529)) ([dde9a07](https://github.com/cubrid-lab/pycubrid/commit/dde9a071f44ae275a5db486dea8ecf1521889761)) by @yeongseon.
-* **integration:** preserve volumes during automatic Docker cleanup ([#647](https://github.com/cubrid-lab/pycubrid/issues/647)) ([f3b2e69](https://github.com/cubrid-lab/pycubrid/commit/f3b2e6983e62ae3d5d72149188d3357de96e5445)) by @yeongseon, co-authored. Contributed by @HarshRajSinghania.
+* **integration:** preserve volumes during automatic Docker cleanup ([#647](https://github.com/cubrid-lab/pycubrid/issues/647)) ([f3b2e69](https://github.com/cubrid-lab/pycubrid/commit/f3b2e6983e62ae3d5d72149188d3357de96e5445)) by @yeongseon, co-authored by @HarshRajSinghania.
 * keep the session when a complete broker reply carries invalid UTF-8 ([734fb29](https://github.com/cubrid-lab/pycubrid/commit/734fb294276927fa50c6887e99871a82a2c8eebc)) by @yeongseon.
 * **lob:** keep the handle size current and add internal LOB-handle binding ([#615](https://github.com/cubrid-lab/pycubrid/issues/615)) ([35d4e2c](https://github.com/cubrid-lab/pycubrid/commit/35d4e2cbedbea85bbdac0d76d047572e5cffb6ff)) by @yeongseon.
 * **protocol:** avoid blaming following tokens for reserved identifiers ([5fde41f](https://github.com/cubrid-lab/pycubrid/commit/5fde41f37dd030f7c6098f3a7a8d70a9ecbc5f4a)) by @yeongseon.
@@ -2977,7 +2977,7 @@ Behavior changes you may notice (details in the entries below):
 * reject malformed qualified callproc names ([#515](https://github.com/cubrid-lab/pycubrid/issues/515)) ([601a879](https://github.com/cubrid-lab/pycubrid/commit/601a879f52b951ccdc366d95fde47b3d2d84b75a)), closes [#372](https://github.com/cubrid-lab/pycubrid/issues/372) [#372](https://github.com/cubrid-lab/pycubrid/issues/372) by @yotam1001 (first contribution 🎉).
 * **test:** fail instead of skip when a configured CUBRID endpoint is unreachable ([#541](https://github.com/cubrid-lab/pycubrid/issues/541)) ([68851c9](https://github.com/cubrid-lab/pycubrid/commit/68851c9aa9b125496250f7fff2ae6c4a3821f2b5)) by @yeongseon.
 * tighten TZ fold selection and reject out-of-range offsets ([98d8150](https://github.com/cubrid-lab/pycubrid/commit/98d8150403a525dc27f7d6003d8f5944984cdadc)) by @yeongseon.
-* **timeouts:** validate configuration before transport acquisition ([#646](https://github.com/cubrid-lab/pycubrid/issues/646)) ([7577e4d](https://github.com/cubrid-lab/pycubrid/commit/7577e4d5c33911ee7c7ca7707fbd37e2ad9e04d4)) by @yeongseon, co-authored. Contributed by @blackmore-technology-group.
+* **timeouts:** validate configuration before transport acquisition ([#646](https://github.com/cubrid-lab/pycubrid/issues/646)) ([7577e4d](https://github.com/cubrid-lab/pycubrid/commit/7577e4d5c33911ee7c7ca7707fbd37e2ad9e04d4)) by @yeongseon, co-authored by @blackmore-technology-group.
 * **tls:** bound sync TLS handshakes without read_timeout and close sockets on the Python 3.10 pre-connect path ([#586](https://github.com/cubrid-lab/pycubrid/issues/586)) ([3af12ae](https://github.com/cubrid-lab/pycubrid/commit/3af12ae7d97ea6e1c5e30e616babc0f54fc7ddd0)) by @yeongseon.
 * **tls:** preserve probe failures while notifying TLS peers ([fa7b22a](https://github.com/cubrid-lab/pycubrid/commit/fa7b22ad4707510830d8cccb1518c3a875d1c330)) by @yeongseon.
 * **tls:** preserve the total verification probe deadline ([#594](https://github.com/cubrid-lab/pycubrid/issues/594)) ([7dddab3](https://github.com/cubrid-lab/pycubrid/commit/7dddab31c22f8bb8b837c30d6e942d483abe5f10)), closes [#593](https://github.com/cubrid-lab/pycubrid/issues/593) by @yeongseon.
@@ -3026,7 +3026,7 @@ Behavior changes you may notice (details in the entries below):
   95% floor; routine PR smoke is not a coverage or full-matrix claim. Historical
   release/transport milestones and support/security/release policies are unchanged. Contributed by @yeongseon.
 
-- Align SECURITY.md with latest-minor support and current Python 3.10 TLS preflight guidance while retaining disclosure instructions (#422) by @yeongseon, co-authored. Contributed by @chenzeyan54-commits.
+- Align SECURITY.md with latest-minor support and current Python 3.10 TLS preflight guidance while retaining disclosure instructions (#422) by @yeongseon, co-authored by @chenzeyan54-commits.
 - **`llms.txt` no longer advertises prepared statements, and the two entry points are single-sourced (#414)** — the root `llms.txt` claimed prepared statements and a `Cursor.prepare()` method, which ordinary cursors do not have, listed an incomplete exception hierarchy, hardcoded test and coverage counts and linked to the retired `cubrid-cookbook/python` paths, while `docs/llms.txt` was a separately maintained, differing index. `docs/llms.txt` is now the only maintained index, checked against the code: driver-side literal binding and its documented limits, the opt-in sync-only `pycubrid.compat.native` prepared subset, sync and async (`pycubrid.aio`) feature parity, the full PEP 249 exception list and `cubrid-cookbook-python` links. `scripts/generate_llms_full.py` copies it byte-for-byte to the root `llms.txt`, and the CI `lint` job now fails when either `docs/llms-full.txt` or `llms.txt` is stale. `docs/SUPPORT_MATRIX.md` and `docs/TROUBLESHOOTING.md` (+ Korean) no longer describe `cursor.execute(sql, params)` as server-side `PREPARE_AND_EXECUTE` binding (the section is renamed "Parameterized Query Issues"), and the support matrix notes that `nextset()` raises `NotSupportedError`; the Korean, German, Hindi, Russian and Chinese READMEs now describe driver-side binding like the English README. `CONTRIBUTING.md` documents the workflow. Contributed by @yeongseon.
 
 **Additional generated commit references:**
@@ -3053,7 +3053,7 @@ Behavior changes you may notice (details in the entries below):
 * **release:** fix create-release recovery command; make SBOM re-upload idempotent ([9784b0a](https://github.com/cubrid-lab/pycubrid/commit/9784b0a9677172a5fb1346d6f3011729c1640800)) by @yeongseon.
 * replace fixed Docker startup sleeps ([8154952](https://github.com/cubrid-lab/pycubrid/commit/8154952a475a772aca7dae96505d52b02eee551f)) by @nightcityblade (first contribution 🎉).
 * scope the time zone persistence to a retained CAS session ([8814081](https://github.com/cubrid-lab/pycubrid/commit/881408120342f51868805fc61563ab9d9a4a27f1)) by @yeongseon.
-* **security:** align maintenance and TLS guidance ([#649](https://github.com/cubrid-lab/pycubrid/issues/649)) ([ac63fd3](https://github.com/cubrid-lab/pycubrid/commit/ac63fd38fc946b6ad3cfab91333784cafc76a45f)) by @yeongseon, co-authored. Contributed by @chenzeyan54-commits.
+* **security:** align maintenance and TLS guidance ([#649](https://github.com/cubrid-lab/pycubrid/issues/649)) ([ac63fd3](https://github.com/cubrid-lab/pycubrid/commit/ac63fd38fc946b6ad3cfab91333784cafc76a45f)) by @yeongseon, co-authored by @chenzeyan54-commits.
 * single-source llms.txt and remove unsupported prepared-statement claims ([6039dbe](https://github.com/cubrid-lab/pycubrid/commit/6039dbec69f88091578083011d8a93924317b8b6)) by @yeongseon.
 * single-source llms.txt and remove unsupported prepared-statement claims ([8957eaf](https://github.com/cubrid-lab/pycubrid/commit/8957eaf6e6c92e127f0768af72df219200cb544d)), closes [#414](https://github.com/cubrid-lab/pycubrid/issues/414) by @yeongseon.
 * **types:** state that a bound datetime.time drops microseconds ([#670](https://github.com/cubrid-lab/pycubrid/issues/670)) ([8332517](https://github.com/cubrid-lab/pycubrid/commit/833251756ff92c1300d59fde59e2b9015776054d)) by @yeongseon.
