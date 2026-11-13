@@ -3539,11 +3539,11 @@ This patch release hardens outgoing serialization and incoming numeric parsing, 
 
 ### Fixed
 
-- **Write-path serialization overflow now raises `DataError`, not raw `struct.error` (#223)** — `_send_and_receive` (sync) and `_do_send_and_receive` (async) called `packet.write(self._cas_info)` inside a block that only caught `OSError`. An oversized outbound value (e.g. a huge LOB offset/length, or a large `executemany` batch) trips `struct.pack`'s int32 range check and raised a bare `struct.error`, escaping the PEP 249 contract entirely — the write-side counterpart of the parse-side hardening already done in #201/#205. Both `packet.write()` call sites now catch `struct.error` and raise `DataError("parameter value too large to serialize into CAS request")`; since nothing was sent to the socket yet, the connection is left open and usable rather than torn down.
-- **`AsyncConnection(autocommit=True)` no longer silently dropped (#224)** — constructing `AsyncConnection` directly (bypassing the `pycubrid.aio.connect()` factory) with `autocommit=True` swallowed the flag into `**kwargs` with no error and no effect, unlike sync `Connection`, which has always accepted `autocommit` in its own constructor. `AsyncConnection.__init__` now accepts a keyword-only `autocommit: bool = False` parameter, applied via `await self.set_autocommit(True)` the first time `connect()` completes. The `pycubrid.aio.connect()` factory no longer needs its own separate `set_autocommit()` call — `autocommit` just flows straight through to the constructor now.
-- **`Decimal('NaN')`/`Decimal('Infinity')` now rejected like their `float` equivalents (#225)** — `format_parameter()`'s `Decimal` branch returned `str(value)` unconditionally, before ever reaching the NaN/Inf guard that already protects the `int`/`float` branch below it. A `Decimal('NaN')` or `Decimal('Infinity')` parameter was silently formatted as the bare token `NaN`/`Infinity` and sent straight to the server instead of raising the documented `ProgrammingError("nan and inf are not supported by CUBRID")`. The `Decimal` branch now checks `value.is_nan() or value.is_infinite()` first.
-- **NUMERIC field parsing no longer leaks `decimal.InvalidOperation` (#231)** — `PacketReader._parse_numeric` constructed a `Decimal` straight from the wire string with no guard. An empty or corrupt NUMERIC field raised `decimal.InvalidOperation` (an `ArithmeticError`, not a `ValueError`), slipping past the malformed-response handlers in both sync and async `_send_and_receive`. This left the socket open and desynced for reuse. `_parse_numeric` now catches `InvalidOperation` and re-raises as `ValueError`, so parse errors flow through the existing handler: socket closed, `_connected = False`, `OperationalError` raised with cause chained.
-- **CI lint now uses pinned ruff version (#236)** — the lint job used `pip install ruff` (unpinned), which installed the latest ruff. When ruff 0.16.x introduced new rules, every PR started failing lint. Now installs from `.[dev]` extras to match the pinned `ruff==0.15.22` in `pyproject.toml`.
+- **Write-path serialization overflow now raises `DataError`, not raw `struct.error` (#223)** — `_send_and_receive` (sync) and `_do_send_and_receive` (async) called `packet.write(self._cas_info)` inside a block that only caught `OSError`. An oversized outbound value (e.g. a huge LOB offset/length, or a large `executemany` batch) trips `struct.pack`'s int32 range check and raised a bare `struct.error`, escaping the PEP 249 contract entirely — the write-side counterpart of the parse-side hardening already done in #201/#205. Both `packet.write()` call sites now catch `struct.error` and raise `DataError("parameter value too large to serialize into CAS request")`; since nothing was sent to the socket yet, the connection is left open and usable rather than torn down by @yeongseon, co-authored by @paikend.
+- **`AsyncConnection(autocommit=True)` no longer silently dropped (#224)** — constructing `AsyncConnection` directly (bypassing the `pycubrid.aio.connect()` factory) with `autocommit=True` swallowed the flag into `**kwargs` with no error and no effect, unlike sync `Connection`, which has always accepted `autocommit` in its own constructor. `AsyncConnection.__init__` now accepts a keyword-only `autocommit: bool = False` parameter, applied via `await self.set_autocommit(True)` the first time `connect()` completes. The `pycubrid.aio.connect()` factory no longer needs its own separate `set_autocommit()` call — `autocommit` just flows straight through to the constructor now by @yeongseon, co-authored by @paikend.
+- **`Decimal('NaN')`/`Decimal('Infinity')` now rejected like their `float` equivalents (#225)** — `format_parameter()`'s `Decimal` branch returned `str(value)` unconditionally, before ever reaching the NaN/Inf guard that already protects the `int`/`float` branch below it. A `Decimal('NaN')` or `Decimal('Infinity')` parameter was silently formatted as the bare token `NaN`/`Infinity` and sent straight to the server instead of raising the documented `ProgrammingError("nan and inf are not supported by CUBRID")`. The `Decimal` branch now checks `value.is_nan() or value.is_infinite()` first by @yeongseon, co-authored by @paikend.
+- **NUMERIC field parsing no longer leaks `decimal.InvalidOperation` (#231)** — `PacketReader._parse_numeric` constructed a `Decimal` straight from the wire string with no guard. An empty or corrupt NUMERIC field raised `decimal.InvalidOperation` (an `ArithmeticError`, not a `ValueError`), slipping past the malformed-response handlers in both sync and async `_send_and_receive`. This left the socket open and desynced for reuse. `_parse_numeric` now catches `InvalidOperation` and re-raises as `ValueError`, so parse errors flow through the existing handler: socket closed, `_connected = False`, `OperationalError` raised with cause chained by @yeongseon.
+- **CI lint now uses pinned ruff version (#236)** — the lint job used `pip install ruff` (unpinned), which installed the latest ruff. When ruff 0.16.x introduced new rules, every PR started failing lint. Now installs from `.[dev]` extras to match the pinned `ruff==0.15.22` in `pyproject.toml` by @yeongseon.
 
 ## [1.6.1] - 2026-07-18
 
@@ -3551,8 +3551,8 @@ This patch release surfaces per-statement errors in batch execution and rejects 
 
 ### Fixed
 
-- **`executemany()` batch error handling (#186)** — `executemany_batch()` in both sync `Cursor` and `AsyncCursor` consumed `packet.results` but never checked `packet.errors`, silently swallowing per-statement batch failures. Partial failures (e.g. one INSERT in a batch of 10 hits a unique constraint violation) were invisible to the caller — data integrity risk. Now raises the first batch error using the same CAS error code dispatch as `protocol._raise_error()` (PR #208), mapping to the correct PEP 249 exception class (IntegrityError, ProgrammingError, OperationalError, etc.).
-- **DATA_LENGTH broker response validation (#188)** — `_send_and_receive()` in both sync `Connection` and `AsyncConnection` unpacked the 4-byte `DATA_LENGTH` header and immediately allocated `bytearray(data_length)` without bounds checking. A malformed or hostile broker response with a negative value would raise a raw `ValueError` from `bytearray()`, and an oversized value could trigger unbounded memory allocation (OOM). Added `_validate_data_length()` that rejects negative values and values exceeding `DataSize.MAX_PACKET_SIZE` (256 MiB) with a clean `OperationalError`, applied at both the handshake and main send/receive paths.
+- **`executemany()` batch error handling (#186)** — `executemany_batch()` in both sync `Cursor` and `AsyncCursor` consumed `packet.results` but never checked `packet.errors`, silently swallowing per-statement batch failures. Partial failures (e.g. one INSERT in a batch of 10 hits a unique constraint violation) were invisible to the caller — data integrity risk. Now raises the first batch error using the same CAS error code dispatch as `protocol._raise_error()` (PR #208), mapping to the correct PEP 249 exception class (IntegrityError, ProgrammingError, OperationalError, etc.) by @yeongseon.
+- **DATA_LENGTH broker response validation (#188)** — `_send_and_receive()` in both sync `Connection` and `AsyncConnection` unpacked the 4-byte `DATA_LENGTH` header and immediately allocated `bytearray(data_length)` without bounds checking. A malformed or hostile broker response with a negative value would raise a raw `ValueError` from `bytearray()`, and an oversized value could trigger unbounded memory allocation (OOM). Added `_validate_data_length()` that rejects negative values and values exceeding `DataSize.MAX_PACKET_SIZE` (256 MiB) with a clean `OperationalError`, applied at both the handshake and main send/receive paths by @yeongseon.
 
 ## [1.6.0] - 2026-07-18
 
@@ -3560,8 +3560,8 @@ This release bounds the memory retained by sync and async cursors while reading 
 
 ### Fixed
 
-- **Cursor memory bounding for large result sets (#203, PR #207)** — both sync `Cursor` and `AsyncCursor` previously accumulated the entire result set in `_rows` via `_rows.extend(packet.rows)` on every server fetch. Iterating a 10K-row result set via `fetchone()` would buffer all 10K rows in memory even though only one row was needed at a time. Fixed by decoupling the server-side fetch position (`_fetched_count`, tracking total rows received) from the local buffer cursor (`_row_index`, indexing into `_rows`). `_fetch_more_rows()` now REPLACES the buffer with the new batch instead of extending it, keeping memory bounded by the configurable `fetch_size` (default 100). `fetchall()` additionally clears the buffer after consuming all rows. This fixes a latent dual-purpose bug where `_row_index` was used both as buffer index AND server fetch position, which would have caused infinite re-fetching if any naive trim scheme had been applied.
-- **CAS error code dispatch (#204)** — `_raise_error()` in `protocol.py` previously classified exceptions by text substring matching (looking for keywords like "unique", "syntax", "duplicate" in the error message). This was fragile across CUBRID versions. Replaced with deterministic CAS error code dispatch: `CAS_ERROR_TO_EXCEPTION` mapping in `error_codes.py` maps 16 specific codes to the correct PEP 249 exception class (IntegrityError, ProgrammingError, OperationalError, InternalError, DataError). Text heuristics are now only used as a fallback for code -1 (ER_DBMS passthrough), where CAS wraps server-engine errors with a generic code. Also fixed a duplicate `return error_message` statement in `_add_error_hints()`.
+- **Cursor memory bounding for large result sets (#203, PR #207)** — both sync `Cursor` and `AsyncCursor` previously accumulated the entire result set in `_rows` via `_rows.extend(packet.rows)` on every server fetch. Iterating a 10K-row result set via `fetchone()` would buffer all 10K rows in memory even though only one row was needed at a time. Fixed by decoupling the server-side fetch position (`_fetched_count`, tracking total rows received) from the local buffer cursor (`_row_index`, indexing into `_rows`). `_fetch_more_rows()` now REPLACES the buffer with the new batch instead of extending it, keeping memory bounded by the configurable `fetch_size` (default 100). `fetchall()` additionally clears the buffer after consuming all rows. This fixes a latent dual-purpose bug where `_row_index` was used both as buffer index AND server fetch position, which would have caused infinite re-fetching if any naive trim scheme had been applied by @yeongseon.
+- **CAS error code dispatch (#204)** — `_raise_error()` in `protocol.py` previously classified exceptions by text substring matching (looking for keywords like "unique", "syntax", "duplicate" in the error message). This was fragile across CUBRID versions. Replaced with deterministic CAS error code dispatch: `CAS_ERROR_TO_EXCEPTION` mapping in `error_codes.py` maps 16 specific codes to the correct PEP 249 exception class (IntegrityError, ProgrammingError, OperationalError, InternalError, DataError). Text heuristics are now only used as a fallback for code -1 (ER_DBMS passthrough), where CAS wraps server-engine errors with a generic code. Also fixed a duplicate `return error_message` statement in `_add_error_hints()` by @yeongseon.
 
 ## [1.5.1] - 2026-07-18
 
@@ -3569,8 +3569,8 @@ This maintenance release handles malformed CAS responses safely in synchronous c
 
 ### Fixed
 
-- **Sync `_send_and_receive` parse-error exception parity (#201)** — the sync connection path at `connection.py:_send_and_receive` previously caught only `OSError`, meaning malformed CAS broker responses that raised `struct.error`, `ValueError`, `IndexError`, or `UnicodeDecodeError` would bypass socket cleanup and leave the connection in a dirty state for reuse. The async path at `aio/connection.py:615-621` already handled these. Ported the full exception catch list to the sync path so parse errors now close the socket, mark `_connected = False`, and raise `OperationalError("malformed response from broker")` with the original cause chained.
-- **LOB write server ACK verification (#202)** — `Lob.write()` returned `len(data)` unconditionally without checking whether the server actually wrote all the bytes. Under disk-full / quota-exceeded conditions, the server could write fewer bytes and the caller would never know — silent data truncation. `LOBWritePacket.parse()` now extracts `bytes_written` from the CAS response (the response code doubles as the byte count on success, matching `LOBReadPacket`'s existing pattern). `Lob.write()` compares `bytes_written` against `len(data)` and raises `OperationalError` on mismatch.
+- **Sync `_send_and_receive` parse-error exception parity (#201)** — the sync connection path at `connection.py:_send_and_receive` previously caught only `OSError`, meaning malformed CAS broker responses that raised `struct.error`, `ValueError`, `IndexError`, or `UnicodeDecodeError` would bypass socket cleanup and leave the connection in a dirty state for reuse. The async path at `aio/connection.py:615-621` already handled these. Ported the full exception catch list to the sync path so parse errors now close the socket, mark `_connected = False`, and raise `OperationalError("malformed response from broker")` with the original cause chained by @yeongseon.
+- **LOB write server ACK verification (#202)** — `Lob.write()` returned `len(data)` unconditionally without checking whether the server actually wrote all the bytes. Under disk-full / quota-exceeded conditions, the server could write fewer bytes and the caller would never know — silent data truncation. `LOBWritePacket.parse()` now extracts `bytes_written` from the CAS response (the response code doubles as the byte count on success, matching `LOBReadPacket`'s existing pattern). `Lob.write()` compares `bytes_written` against `len(data)` and raises `OperationalError` on mismatch by @yeongseon.
 
 ## [1.5.0] - 2026-05-23
 
@@ -3592,7 +3592,7 @@ This release documents and CI-checks the 1.x public API compatibility contract, 
   **once per call** — the preflight ``_check_reconnect`` runs first and the
   ``CHECK_CAS`` request is sent with ``allow_reconnect=False`` so a restore
   failure cannot trigger a second attempt via ``_send_and_receive`` (PR #3
-  Item 1).
+  Item 1) by @yeongseon.
 - **Mid-fetch reconnect raises ``OperationalError``** — When the broker
   releases the CAS worker while a cursor still has rows pending on the
   server, the server-side query handle is no longer valid. Cursors now mark
@@ -3601,7 +3601,7 @@ This release documents and CI-checks the 1.x public API compatibility contract, 
   broker reconnect mid-fetch``) once the buffered rows are exhausted, instead
   of silently returning a truncated result set. Rows already buffered in the
   cursor remain accessible. ``execute()`` and ``close()`` reset the
-  invalidation flag (PR #3 Item 2).
+  invalidation flag (PR #3 Item 2) by @yeongseon.
 
 ### Changed
 
@@ -3625,41 +3625,41 @@ This release documents and CI-checks the 1.x public API compatibility contract, 
   recurrence.
   README status line updated from "Beta" to "Stable (1.x)" across English
   and all five translated READMEs to align with the 1.0.0 declaration and the
-  `Production/Stable` PyPI classifier already shipped since 1.0.0.
+  `Production/Stable` PyPI classifier already shipped since 1.0.0 by @yeongseon.
 
 ### Fixed
 
-- **Async TLS verification failures now surface promptly on Python 3.10** — `AsyncConnection._do_connect_handshake` now runs a narrow Python-3.10-only **preflight TLS verification probe** in the default executor immediately before `loop.start_tls()`. The probe opens a separate TCP socket to the same effective endpoint (replaying the `CUBRS` handshake on the no-redirect path, going straight to TLS on the redirect path), then performs a synchronous `ssl.SSLContext.wrap_socket()` with the **same** `SSLContext` and `server_hostname=self._host` as the real upgrade. Any `ssl.SSLError` propagates as `OperationalError`, matching the 3.11+ failure surface. Works around the known CPython 3.10 `asyncio` bug (gh-142352 family, fixed in 3.13/3.14) where `loop.start_tls()` hangs indefinitely on TLS-handshake-internal verification failures because `ssl_handshake_timeout` only bounds peer-unresponsive hangs. No-op on Python 3.11+; the 3.10 path incurs one extra TCP round-trip per connect (closes #156).
-- **TLS handshake now matches CUBRID's STARTTLS-style upgrade** — both sync and async `connect()` previously wrapped the socket in TLS before any bytes were exchanged, which never worked against a real `SSL=ON` CUBRID broker. The driver now (1) opens a plaintext TCP socket, (2) sends the 10-byte ClientInfoExchange handshake using the SSL magic string `"CUBRS"` (vs `"CUBRK"` for plain), (3) reads the 4-byte broker status (negative codes now raise `OperationalError` instead of silently falling through), (4) reconnects to the redirected CAS worker on `new_connection_port > 0` without re-handshaking (matches upstream JDBC `BrokerHandler.connectBroker`), and (5) upgrades the connection to TLS before sending `OPEN_DATABASE`. The async path uses `loop.start_tls()` for Python 3.10 compatibility. Validated end-to-end against CUBRID 11.4 with `SSL=ON` and a self-signed broker certificate (#154)
+- **Async TLS verification failures now surface promptly on Python 3.10** — `AsyncConnection._do_connect_handshake` now runs a narrow Python-3.10-only **preflight TLS verification probe** in the default executor immediately before `loop.start_tls()`. The probe opens a separate TCP socket to the same effective endpoint (replaying the `CUBRS` handshake on the no-redirect path, going straight to TLS on the redirect path), then performs a synchronous `ssl.SSLContext.wrap_socket()` with the **same** `SSLContext` and `server_hostname=self._host` as the real upgrade. Any `ssl.SSLError` propagates as `OperationalError`, matching the 3.11+ failure surface. Works around the known CPython 3.10 `asyncio` bug (gh-142352 family, fixed in 3.13/3.14) where `loop.start_tls()` hangs indefinitely on TLS-handshake-internal verification failures because `ssl_handshake_timeout` only bounds peer-unresponsive hangs. No-op on Python 3.11+; the 3.10 path incurs one extra TCP round-trip per connect (closes #156) by @yeongseon.
+- **TLS handshake now matches CUBRID's STARTTLS-style upgrade** — both sync and async `connect()` previously wrapped the socket in TLS before any bytes were exchanged, which never worked against a real `SSL=ON` CUBRID broker. The driver now (1) opens a plaintext TCP socket, (2) sends the 10-byte ClientInfoExchange handshake using the SSL magic string `"CUBRS"` (vs `"CUBRK"` for plain), (3) reads the 4-byte broker status (negative codes now raise `OperationalError` instead of silently falling through), (4) reconnects to the redirected CAS worker on `new_connection_port > 0` without re-handshaking (matches upstream JDBC `BrokerHandler.connectBroker`), and (5) upgrades the connection to TLS before sending `OPEN_DATABASE`. The async path uses `loop.start_tls()` for Python 3.10 compatibility. Validated end-to-end against CUBRID 11.4 with `SSL=ON` and a self-signed broker certificate (#154) by @yeongseon.
 
 - **PEP 3134 ``__cause__`` preserved on async transport timeouts** —
   ``AsyncConnection._connect_locked`` (handshake timeout) and
   ``AsyncConnection._send_and_receive_locked`` (read timeout) now use
   ``raise OperationalError(...) from exc`` instead of ``from None``, so the
   underlying ``asyncio.TimeoutError`` is preserved on the chained exception
-  for diagnostic tooling (PR #3 Item 3).
+  for diagnostic tooling (PR #3 Item 3) by @yeongseon.
 
 ### Performance
 
-- **Native `Connection.ping()` causally validated at application layer** — Tier 2 ORM benchmark in [cubrid-benchmark `2026-04-22_native-ping-hotpath`](https://github.com/cubrid-lab/cubrid-benchmark/tree/main/experiments/orm-overhead/runs/2026-04-22_native-ping-hotpath) (paired same-version A/B vs forced `SELECT 1`, 7 trials, bootstrap 95% CI) confirms native CHECK_CAS ping is **+279.9% throughput** on raw ping_only [+278.0, +283.9] and **+587.8% on SQLAlchemy `checkout_only`** [+581.8, +603.8] with `pool_pre_ping=True`. Performance Loop ping propagation gap closed.
+- **Native `Connection.ping()` causally validated at application layer** — Tier 2 ORM benchmark in [cubrid-benchmark `2026-04-22_native-ping-hotpath`](https://github.com/cubrid-lab/cubrid-benchmark/tree/main/experiments/orm-overhead/runs/2026-04-22_native-ping-hotpath) (paired same-version A/B vs forced `SELECT 1`, 7 trials, bootstrap 95% CI) confirms native CHECK_CAS ping is **+279.9% throughput** on raw ping_only [+278.0, +283.9] and **+587.8% on SQLAlchemy `checkout_only`** [+581.8, +603.8] with `pool_pre_ping=True`. Performance Loop ping propagation gap closed by @yeongseon.
 
 ### Documentation
 
-- **Parameter binding contract documented** — added `docs/PARAMETER_BINDING.md` formalizing the driver-side literal-binding semantics for 1.x: per-type SQL-literal mapping (with `_cursor_common.py` line citations and pinned tests), the `escape_string` default and `no_backslash_escapes` modes (NUL rejection, single-quote doubling, backslash and CR/LF/`\x1a` handling), the placeholder tokenizer's behavior across quoted strings/identifiers/line and block comments, and the explicit non-guarantees (no server-side prepared statements, identifiers are not escaped, no `IN`-clause expansion, exception-message text is not contract). Linked from `README.md` and `docs/index.md`.
-- **TLS/handshake documentation aligned with implementation** — corrected `AGENTS.md` protocol version (8/10.2) and OpenDatabase payload framing, fixed OpenDatabase response field order across `CONNECTION.md`/`ARCHITECTURE.md`, rewrote the CAS reconnection diagram to reflect actual `connect()` re-entry through the broker, corrected the `MAGIC_STRING_SSL` constant name in `PROTOCOL.md`, surfaced TLS 1.2 minimum on sync rows in `SUPPORT_MATRIX.md`, added a new "Async TLS Handshake Hangs on Python 3.10" troubleshooting section, and added the Python 3.10 async TLS caveat to `README.md` and all five translations (#160, #163)
-- **TLS docs polish** — added TLS examples to `EXAMPLES.md`, an SSL/TLS TOC entry to `CONNECTION.md`, a Transport Security section to `SECURITY.md`, local TLS integration-test instructions to `CONTRIBUTING.md`, expanded `Connection.connect`/`AsyncConnection`/`_do_connect_handshake` docstrings with the STARTTLS flow, added a TLS field to the bug-report issue template, expanded `pyproject.toml` keywords, and added a `make integration-tls` target. Resolves remaining items from the TLS Phase 4 audit (#161, #162)
-- **Async TLS handshake hang on Python 3.10 documented as a known limitation** — a known CPython asyncio TLS handshake bug on Python 3.10 causes `loop.start_tls()` to hang on cert-verify failures on 3.10 only (fixed in 3.13/3.14); pycubrid documents the workaround and skips the negative-path test on 3.10 (#156)
+- **Parameter binding contract documented** — added `docs/PARAMETER_BINDING.md` formalizing the driver-side literal-binding semantics for 1.x: per-type SQL-literal mapping (with `_cursor_common.py` line citations and pinned tests), the `escape_string` default and `no_backslash_escapes` modes (NUL rejection, single-quote doubling, backslash and CR/LF/`\x1a` handling), the placeholder tokenizer's behavior across quoted strings/identifiers/line and block comments, and the explicit non-guarantees (no server-side prepared statements, identifiers are not escaped, no `IN`-clause expansion, exception-message text is not contract). Linked from `README.md` and `docs/index.md` by @yeongseon.
+- **TLS/handshake documentation aligned with implementation** — corrected `AGENTS.md` protocol version (8/10.2) and OpenDatabase payload framing, fixed OpenDatabase response field order across `CONNECTION.md`/`ARCHITECTURE.md`, rewrote the CAS reconnection diagram to reflect actual `connect()` re-entry through the broker, corrected the `MAGIC_STRING_SSL` constant name in `PROTOCOL.md`, surfaced TLS 1.2 minimum on sync rows in `SUPPORT_MATRIX.md`, added a new "Async TLS Handshake Hangs on Python 3.10" troubleshooting section, and added the Python 3.10 async TLS caveat to `README.md` and all five translations (#160, #163) by @yeongseon.
+- **TLS docs polish** — added TLS examples to `EXAMPLES.md`, an SSL/TLS TOC entry to `CONNECTION.md`, a Transport Security section to `SECURITY.md`, local TLS integration-test instructions to `CONTRIBUTING.md`, expanded `Connection.connect`/`AsyncConnection`/`_do_connect_handshake` docstrings with the STARTTLS flow, added a TLS field to the bug-report issue template, expanded `pyproject.toml` keywords, and added a `make integration-tls` target. Resolves remaining items from the TLS Phase 4 audit (#161, #162) by @yeongseon.
+- **Async TLS handshake hang on Python 3.10 documented as a known limitation** — a known CPython asyncio TLS handshake bug on Python 3.10 causes `loop.start_tls()` to hang on cert-verify failures on 3.10 only (fixed in 3.13/3.14); pycubrid documents the workaround and skips the negative-path test on 3.10 (#156) by @yeongseon.
 
 - **Reconnect contract documented in ``docs/CONNECTION.md``** — added a
   "Session-state restoration on transparent reconnect" section listing which
   settings are restored and which are not, plus a correction to the
   ``autocommit`` default note: pycubrid sends ``auto_commit`` per-statement
   on every ``PrepareAndExecute``, so the broker's own ``CUBRID_AUTO_COMMIT``
-  setting is effectively overridden by the driver-side value.
+  setting is effectively overridden by the driver-side value by @yeongseon.
 - **Cursor mid-reconnect behaviour documented in ``docs/API_REFERENCE.md``** —
   ``fetchone``/``fetchmany``/``fetchall`` now document the
   :class:`OperationalError` raised when a transparent reconnect invalidates
-  a partially-consumed result set.
+  a partially-consumed result set by @yeongseon.
 - **Python 3.10 async-TLS caveat citation normalized** — the upstream issue
   reference (``gh-142352``) was removed from ``README.md``, all five README
   translations (``docs/README.{ko,zh,hi,de,ru}.md``), ``SECURITY.md``,
@@ -3670,23 +3670,23 @@ This release documents and CI-checks the 1.x public API compatibility contract, 
   ``start_tls()`` regression on 3.13/3.14/3.15 (PROXY-protocol buffered-data
   loss), not the 3.10 cert-verify hang pycubrid observes. The caveat is now
   described as a "known CPython async-TLS handshake bug on Python 3.10"
-  tracked as pycubrid #156.
+  tracked as pycubrid #156 by @yeongseon.
 
 ### CI
 
-- **Cross-platform CI**: offline tests now run on **Ubuntu + Windows + macOS** (Python 3.10–3.14 matrix, 15 OS×Python combinations). pycubrid is pure Python so the code was already cross-platform — this proves it.
-- **Per-PR `integration-tls` lane added** — `ci.yml` now includes an `integration-tls` job (Python 3.14 × CUBRID 11.4) that runs on every PR touching `pycubrid/aio/**`, `pycubrid/connection.py`, `pycubrid/_connection_common.py`, or `.github/workflows/**`. Mirrors the broker-provisioning logic from `integration-full.yml` so TLS regressions are caught BEFORE merge instead of waiting for the nightly full matrix. Path-gating is implemented via `dorny/paths-filter@v3.0.2` (SHA-pinned), and the `ci-gate` job treats `integration-tls.result == 'skipped'` as acceptable when no TLS-relevant files changed (closes #159).
-- **TLS readiness probe now verifies the broker certificate** — both probe scripts in `integration-full.yml::integration-tls` previously called `ctx.check_hostname = False; ctx.verify_mode = ssl.CERT_NONE`, which silently accepted any TLS endpoint on `localhost:33000` and weakened the regression signal. The probes now use the verified default context built from `CUBRID_TLS_TEST_CA_FILE` directly; a misconfigured or untrusted broker cert fails the probe loudly (closes #157).
-- **TLS skip allow-list tightened to full pytest node id** — the `grep -v 'test_aio_ssl_handshake_failure'` filter in `integration-full.yml` is replaced with the full nodeid `tests/test_aio_ssl_integration.py::test_aio_ssl_handshake_failure`. A future rename of the test no longer silently re-introduces the "unexpected skip" bug (closes #159).
-- **Automated `SSL=ON` CUBRID broker provisioning** — `integration-full.yml` now includes an `integration-tls` job (Python {3.10, 3.14} × CUBRID 11.4) that starts a manually-managed CUBRID container, flips `BROKER1 SSL=OFF` → `SSL=ON`, extracts the broker's self-signed certificate, probes the TLS handshake, and runs `tests/test_aio_ssl_integration.py` with `CUBRID_TLS_TEST_*` env vars wired up. The job fails loudly if any TLS test is skipped, ensuring the live TLS path is exercised on every nightly/tag-push run instead of silently skipping (closes #147, #155)
+- **Cross-platform CI**: offline tests now run on **Ubuntu + Windows + macOS** (Python 3.10–3.14 matrix, 15 OS×Python combinations). pycubrid is pure Python so the code was already cross-platform — this proves it by @yeongseon.
+- **Per-PR `integration-tls` lane added** — `ci.yml` now includes an `integration-tls` job (Python 3.14 × CUBRID 11.4) that runs on every PR touching `pycubrid/aio/**`, `pycubrid/connection.py`, `pycubrid/_connection_common.py`, or `.github/workflows/**`. Mirrors the broker-provisioning logic from `integration-full.yml` so TLS regressions are caught BEFORE merge instead of waiting for the nightly full matrix. Path-gating is implemented via `dorny/paths-filter@v3.0.2` (SHA-pinned), and the `ci-gate` job treats `integration-tls.result == 'skipped'` as acceptable when no TLS-relevant files changed (closes #159) by @yeongseon.
+- **TLS readiness probe now verifies the broker certificate** — both probe scripts in `integration-full.yml::integration-tls` previously called `ctx.check_hostname = False; ctx.verify_mode = ssl.CERT_NONE`, which silently accepted any TLS endpoint on `localhost:33000` and weakened the regression signal. The probes now use the verified default context built from `CUBRID_TLS_TEST_CA_FILE` directly; a misconfigured or untrusted broker cert fails the probe loudly (closes #157) by @yeongseon.
+- **TLS skip allow-list tightened to full pytest node id** — the `grep -v 'test_aio_ssl_handshake_failure'` filter in `integration-full.yml` is replaced with the full nodeid `tests/test_aio_ssl_integration.py::test_aio_ssl_handshake_failure`. A future rename of the test no longer silently re-introduces the "unexpected skip" bug (closes #159) by @yeongseon.
+- **Automated `SSL=ON` CUBRID broker provisioning** — `integration-full.yml` now includes an `integration-tls` job (Python {3.10, 3.14} × CUBRID 11.4) that starts a manually-managed CUBRID container, flips `BROKER1 SSL=OFF` → `SSL=ON`, extracts the broker's self-signed certificate, probes the TLS handshake, and runs `tests/test_aio_ssl_integration.py` with `CUBRID_TLS_TEST_*` env vars wired up. The job fails loudly if any TLS test is skipped, ensuring the live TLS path is exercised on every nightly/tag-push run instead of silently skipping (closes #147, #155) by @yeongseon.
 
 ### Tests
 
-- **Async TLS upgrade and handshake paths covered offline** — added `tests/test_aio_ssl_offline.py` with 7 mocked tests guarding the regressions enumerated in #158: `_upgrade_to_tls()` argument forwarding (incl. `ssl_context`, `server_hostname=self._host`, `ssl_handshake_timeout` with the documented 10-second default), `loop.start_tls()` failure cleanup (`old_transport.abort()` exactly once, exception re-raised unchanged, defensive `None`-return handling), incomplete-read and EOF on the initial 4-byte `CUBRS`/`CUBRK` broker status response, and async parity for `test_connect_redirect_sends_no_second_handshake` (redirect during TLS connect reconnects on the new port **without** a second handshake). These run without a broker so a regression silently disabling hostname verification or re-introducing a double-handshake no longer slips through offline CI (closes #158).
-- **Sync/async lifecycle parity coverage expanded** — integration parity tests now share adapter-driven scenarios and cover connection lifecycle APIs including `ping()`, CAS-inactive reconnect, auto-commit transitions, insert identity helpers, batch rowcount semantics, close ordering, and the explicit `AsyncConnection` `create_lob` `AttributeError` contract (closes #140)
+- **Async TLS upgrade and handshake paths covered offline** — added `tests/test_aio_ssl_offline.py` with 7 mocked tests guarding the regressions enumerated in #158: `_upgrade_to_tls()` argument forwarding (incl. `ssl_context`, `server_hostname=self._host`, `ssl_handshake_timeout` with the documented 10-second default), `loop.start_tls()` failure cleanup (`old_transport.abort()` exactly once, exception re-raised unchanged, defensive `None`-return handling), incomplete-read and EOF on the initial 4-byte `CUBRS`/`CUBRK` broker status response, and async parity for `test_connect_redirect_sends_no_second_handshake` (redirect during TLS connect reconnects on the new port **without** a second handshake). These run without a broker so a regression silently disabling hostname verification or re-introducing a double-handshake no longer slips through offline CI (closes #158) by @yeongseon.
+- **Sync/async lifecycle parity coverage expanded** — integration parity tests now share adapter-driven scenarios and cover connection lifecycle APIs including `ping()`, CAS-inactive reconnect, auto-commit transitions, insert identity helpers, batch rowcount semantics, close ordering, and the explicit `AsyncConnection` `create_lob` `AttributeError` contract (closes #140) by @yeongseon.
 - **Async TLS integration coverage** — added `tests/test_aio_ssl_integration.py` with
   live async TLS success/failure/reconnect/shutdown coverage gated behind an
-  explicitly configured TLS-enabled broker (#155)
+  explicitly configured TLS-enabled broker (#155) by @yeongseon.
 
 - **12 new tests in ``tests/test_network_edge_cases.py``** — four new test
   classes covering: ``__cause__`` chaining on sync/async transport timeouts,
@@ -3694,7 +3694,7 @@ This release documents and CI-checks the 1.x public API compatibility contract, 
   restore-failure tear-down, mid-fetch ``OperationalError`` (sync + async),
   ``execute``/``close`` resetting the invalidation flag, and
   ``CancelledError`` propagation in ``AsyncConnection._close_streams``. Total
-  offline tests: 858.
+  offline tests: 858 by @yeongseon.
 
 ## [1.4.0] - 2026-05-13
 
@@ -3702,23 +3702,23 @@ This release adds **async TLS configuration and transport plumbing**, improves c
 
 ### Added
 
-- **Async TLS options (not yet a working broker handshake)** — `AsyncConnection` accepts `ssl=True`, `ssl=False`, or an `ssl.SSLContext` with `asyncio.open_connection()` streams (#129, #136), but the v1.4.0 implementation starts TLS before the required broker handshake. SSL=ON connections require the corrected v1.5.0 protocol sequence.
-- **`mypy --strict` CI gate** — typecheck job added to CI workflow to enforce strict typing (#130)
-- **Sync/async parity integration tests** — expanded test coverage for bytes, datetime, fetch_size, JSON, and edge-case scenarios (#134)
+- **Async TLS options (not yet a working broker handshake)** — `AsyncConnection` accepts `ssl=True`, `ssl=False`, or an `ssl.SSLContext` with `asyncio.open_connection()` streams (#129, #136), but the v1.4.0 implementation starts TLS before the required broker handshake. SSL=ON connections require the corrected v1.5.0 protocol sequence by @yeongseon.
+- **`mypy --strict` CI gate** — typecheck job added to CI workflow to enforce strict typing (#130) by @yeongseon.
+- **Sync/async parity integration tests** — expanded test coverage for bytes, datetime, fetch_size, JSON, and edge-case scenarios (#134) by @yeongseon.
 
 ### Changed
 
-- **`ConnectionCommonMixin` extracted** — deduplicated ~70% of shared logic between `Connection` and `AsyncConnection` into a common mixin (#133, #135)
-- **`CursorParamsMixin` extracted** — eliminated sync/async cursor parameter-handling duplication (#123, #127)
-- **Driver-side binding semantics documented** — README, ARCHITECTURE, and PRD updated to clarify that `?` placeholders are interpolated locally, not via server-side prepared statements (#131)
+- **`ConnectionCommonMixin` extracted** — deduplicated ~70% of shared logic between `Connection` and `AsyncConnection` into a common mixin (#133, #135) by @yeongseon.
+- **`CursorParamsMixin` extracted** — eliminated sync/async cursor parameter-handling duplication (#123, #127) by @yeongseon.
+- **Driver-side binding semantics documented** — README, ARCHITECTURE, and PRD updated to clarify that `?` placeholders are interpolated locally, not via server-side prepared statements (#131) by @yeongseon.
 
 ### Fixed
 
-- **`fetch_size` validation** — `Connection` and `AsyncConnection` constructors now reject non-positive `fetch_size` values (#132)
-- **Dead `backports.zoneinfo` fallback removed** — eliminated unused Python 3.8 compatibility code
-- **Typed locals in async module** — replaced `str()` coercion with properly typed local variables
-- **`mypy --strict` errors resolved** — full strict-mode compliance across the codebase
-- **`asyncio.run()` for Python 3.14** — replaced deprecated `get_event_loop()` usage
+- **`fetch_size` validation** — `Connection` and `AsyncConnection` constructors now reject non-positive `fetch_size` values (#132) by @yeongseon.
+- **Dead `backports.zoneinfo` fallback removed** — eliminated unused Python 3.8 compatibility code by @yeongseon.
+- **Typed locals in async module** — replaced `str()` coercion with properly typed local variables by @yeongseon.
+- **`mypy --strict` errors resolved** — full strict-mode compliance across the codebase by @yeongseon.
+- **`asyncio.run()` for Python 3.14** — replaced deprecated `get_event_loop()` usage by @yeongseon.
 
 ## [1.3.2] - 2026-04-21
 
@@ -3726,11 +3726,11 @@ This release adds an asynchronous CAS health check and makes the reconnect setti
 
 ### Added
 
-- **Native async `AsyncConnection.ping()`** using `CHECK_CAS` (FC=32) for lightweight CAS-level liveness checks. Native `CHECK_CAS` now performs a round trip regardless of `CAS_INFO` status, while `reconnect=False` suppresses implicit broker-handoff reconnect via `_send_and_receive(..., allow_reconnect=False)` (#95, #70)
+- **Native async `AsyncConnection.ping()`** using `CHECK_CAS` (FC=32) for lightweight CAS-level liveness checks. Native `CHECK_CAS` now performs a round trip regardless of `CAS_INFO` status, while `reconnect=False` suppresses implicit broker-handoff reconnect via `_send_and_receive(..., allow_reconnect=False)` (#95, #70) by @yeongseon.
 
 ### Fixed
 
-- **Sync `Connection.ping(reconnect=False)` now honors broker handoff correctly** — native `CHECK_CAS` runs regardless of `CAS_INFO` status, while `reconnect=False` suppresses implicit broker-handoff reconnect via the new `_send_and_receive(..., allow_reconnect=False)` flag (#95, #70)
+- **Sync `Connection.ping(reconnect=False)` now honors broker handoff correctly** — native `CHECK_CAS` runs regardless of `CAS_INFO` status, while `reconnect=False` suppresses implicit broker-handoff reconnect via the new `_send_and_receive(..., allow_reconnect=False)` flag (#95, #70) by @yeongseon.
 
 ## [1.3.1] - 2026-04-21
 
@@ -3738,11 +3738,11 @@ This is a documentation-focused update that makes timing instrumentation, bulk-e
 
 ### Documentation
 
-- **Oracle audit fixes completed** — documentation gaps from the Oracle review were closed across the main guides, with no runtime or public API changes in `pycubrid/`.
-- **Driver-level timing hooks documented** — `enable_timing=True` keyword and `PYCUBRID_ENABLE_TIMING` environment variable, `Connection.timing_stats` property, and the `TimingStats` accumulator are now covered in `docs/API_REFERENCE.md` and `docs/PERFORMANCE.md` (closes #16). The implementation has shipped since 1.0.0; this completes the "API documented" acceptance criterion.
-- **Async parity wording clarified** — sync vs. async capability differences are now described consistently, including async-specific wording cleanups in the Korean docs.
-- **`executemany()` guidance expanded** — bulk operation documentation now explains `executemany()` behavior and usage more clearly.
-- **README translations synchronized** — Korean, German, Russian, Chinese, and Hindi READMEs were refreshed to match the current English documentation.
+- **Oracle audit fixes completed** — documentation gaps from the Oracle review were closed across the main guides, with no runtime or public API changes in `pycubrid/` by @yeongseon.
+- **Driver-level timing hooks documented** — `enable_timing=True` keyword and `PYCUBRID_ENABLE_TIMING` environment variable, `Connection.timing_stats` property, and the `TimingStats` accumulator are now covered in `docs/API_REFERENCE.md` and `docs/PERFORMANCE.md` (closes #16). The implementation has shipped since 1.0.0; this completes the "API documented" acceptance criterion by @yeongseon.
+- **Async parity wording clarified** — sync vs. async capability differences are now described consistently, including async-specific wording cleanups in the Korean docs by @yeongseon.
+- **`executemany()` guidance expanded** — bulk operation documentation now explains `executemany()` behavior and usage more clearly by @yeongseon.
+- **README translations synchronized** — Korean, German, Russian, Chinese, and Hindi READMEs were refreshed to match the current English documentation by @yeongseon.
 
 ## [1.3.0] - 2026-04-20
 
@@ -3750,25 +3750,25 @@ This release adds TLS configuration options for synchronous connections and expa
 
 ### Upgrade notes
 
-- **Async TLS limitation** — SSL/TLS for async connections raises `NotSupportedError` — `asyncio.loop.sock_*` APIs reject `SSLSocket`. Neither the synchronous nor asynchronous interface in this release provides a verified working TLS connection to an SSL=ON CUBRID broker. Use a later version containing the v1.5.0 broker-handshake correction for encrypted connections; otherwise async connections remain unencrypted. Tracked for future asyncio integration.
+- **Async TLS limitation** — SSL/TLS for async connections raises `NotSupportedError` — `asyncio.loop.sock_*` APIs reject `SSLSocket`. Neither the synchronous nor asynchronous interface in this release provides a verified working TLS connection to an SSL=ON CUBRID broker. Use a later version containing the v1.5.0 broker-handshake correction for encrypted connections; otherwise async connections remain unencrypted. Tracked for future asyncio integration by @yeongseon.
 
 ### Added
 
-- **Sync TLS configuration API introduced (not yet functional end-to-end)** — Added `ssl=True`, `ssl=False`/`None` and custom `ssl.SSLContext` options to `pycubrid.connect()` (#85). On an SSL=ON CUBRID broker, this implementation begins TLS before the initial broker handshake, so encrypted connections are not yet operational. See the v1.5.0 handshake fix.
-- **Reconnect / network edge case test suite** — 17 tests covering connection reset, timeout, broken pipe, partial reads, reconnect-after-failure (#87)
-- **Concurrency stress tests** — threaded (16 workers × 25 inserts, 32 readers) and asyncio.gather (16 workers, 32 readers) with own-Connection isolation
-- **Standalone version check script** — `scripts/check_version.py` AST-based pyproject/`__init__.py` consistency check, replaces fragile inline grep in CI (#88)
-- **PyPI classifiers** — `Operating System :: OS Independent`, `Typing :: Typed`, `Programming Language :: Python :: 3 :: Only` (#89)
-- **Character encoding documentation** — UTF-8-only contract documented in `docs/CONNECTION.md` (#86)
+- **Sync TLS configuration API introduced (not yet functional end-to-end)** — Added `ssl=True`, `ssl=False`/`None` and custom `ssl.SSLContext` options to `pycubrid.connect()` (#85). On an SSL=ON CUBRID broker, this implementation begins TLS before the initial broker handshake, so encrypted connections are not yet operational. See the v1.5.0 handshake fix by @yeongseon.
+- **Reconnect / network edge case test suite** — 17 tests covering connection reset, timeout, broken pipe, partial reads, reconnect-after-failure (#87) by @yeongseon.
+- **Concurrency stress tests** — threaded (16 workers × 25 inserts, 32 readers) and asyncio.gather (16 workers, 32 readers) with own-Connection isolation by @yeongseon.
+- **Standalone version check script** — `scripts/check_version.py` AST-based pyproject/`__init__.py` consistency check, replaces fragile inline grep in CI (#88) by @yeongseon.
+- **PyPI classifiers** — `Operating System :: OS Independent`, `Typing :: Typed`, `Programming Language :: Python :: 3 :: Only` (#89) by @yeongseon.
+- **Character encoding documentation** — UTF-8-only contract documented in `docs/CONNECTION.md` (#86) by @yeongseon.
 
 ### Fixed
 
-- **PEP 639 license conflict** — removed redundant `License ::` classifier; SPDX `license = "MIT"` is the single source of truth (follow-up #89)
-- **`test_ping_reconnect_also_fails` dual-stack fragility** — patches `socket.create_connection` instead of `socket.socket`
+- **PEP 639 license conflict** — removed redundant `License ::` classifier; SPDX `license = "MIT"` is the single source of truth (follow-up #89) by @yeongseon.
+- **`test_ping_reconnect_also_fails` dual-stack fragility** — patches `socket.create_connection` instead of `socket.socket` by @yeongseon.
 
 ### Documentation
 
-- **Deferred implementation work (#90): Sync/async deduplication** — refactor deferred per Oracle review (high regression risk vs. maintainability gain)
+- **Deferred implementation work (#90): Sync/async deduplication** — refactor deferred per Oracle review (high regression risk vs. maintainability gain) by @yeongseon.
 
 ## [1.2.0] - 2026-04-19
 
@@ -3856,7 +3856,7 @@ This release improves recovery when the broker releases a CAS session and reduce
 
 ### Added
 
-- **Broker-signaled CAS reconnection** — Before requests, the driver checks `CAS_INFO_STATUS=INACTIVE` and reconnects when the broker has released the CAS. It also invalidates stale query handles across transaction boundaries to avoid using them on a replacement session ([commit eb5765d](https://github.com/cubrid-lab/pycubrid/commit/eb5765d2faefaa83ff837f8bad231ce892ee007d)) by @paikend.
+- **Broker-signaled CAS reconnection** — Before requests, the driver checks `CAS_INFO_STATUS=INACTIVE` and reconnects when the broker has released the CAS. It also invalidates stale query handles across transaction boundaries to avoid using them on a replacement session ([commit eb5765d](https://github.com/cubrid-lab/pycubrid/commit/eb5765d2faefaa83ff837f8bad231ce892ee007d)) by @paikend (first contribution 🎉).
 
 ### Changed
 
