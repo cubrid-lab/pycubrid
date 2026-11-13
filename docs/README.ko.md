@@ -112,13 +112,9 @@ import pycubrid
 
 with pycubrid.connect(host="localhost", port=33000, database="testdb", user="dba") as conn:
     with conn.cursor() as cur:
-        cur.execute("CREATE TABLE IF NOT EXISTS users (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(100))")
-        cur.execute("INSERT INTO users (name) VALUES (?)", ("Alice",))
-        conn.commit()
-
-        cur.execute("SELECT * FROM users")
+        cur.execute("SELECT 1 + 1")
         for row in cur:
-            print(row)
+            print(row)  # (2,)
 ```
 
 #### Async

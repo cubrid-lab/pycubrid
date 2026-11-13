@@ -8,12 +8,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 This maintenance update improves source builds, setup and migration guidance, and core DB-API regression tests. The changes currently recorded below do not alter normal driver runtime behavior.
 
+### Changed
+
+- **Removed the `make changelog` target** — The target ran `git-cliff --output CHANGELOG.md`, which would overwrite the curated `CHANGELOG.md` that release automation and `scripts/extract_release_notes.py` read, and `git-cliff` is not a declared dependency. The target and the unused `cliff.toml` are removed; no workflow, script or document called them ([#1109](https://github.com/cubrid-lab/pycubrid/issues/1109)) by @yeongseon.
+
 ### Fixed
 
 - **Source builds** — Declared setuptools 77 or newer because earlier versions reject the package's SPDX license metadata. The separate `wheel` build requirement is no longer needed; installing an already published wheel is unaffected ([#1108](https://github.com/cubrid-lab/pycubrid/issues/1108), [PR #1148](https://github.com/cubrid-lab/pycubrid/pull/1148)) by @yeongseon.
 
 ### Documentation
 
+- **README context-manager example no longer creates a `users` table** — The Context Manager example in the README (English, Korean, German, Hindi, Russian and Chinese) created and committed a `users (id, name)` table with `CREATE TABLE IF NOT EXISTS`, so a reader who then ran the `docs/EXAMPLES.md` `users` table (with `email` and `age`) hit a silent no-op and a failing insert. The example now runs a read-only `SELECT 1 + 1` and leaves no table behind ([#1086](https://github.com/cubrid-lab/pycubrid/issues/1086)) by @yeongseon.
 - **Usage questions are routed to Discussions from the issue chooser** — The new-issue page now offers "Ask a question" (the GitHub Discussions Q&A category) and "Troubleshooting guide" links, so a usage question is no longer filed as a bug. The documentation site's Help menu (English and Korean) gains a matching "Ask a Question" entry beside "Report a Bug" ([#1090](https://github.com/cubrid-lab/pycubrid/issues/1090)) by @yeongseon.
 
 - **Rule for temporary tooling** — The contributing guide (English and Korean) now says how to add, review and remove an intentionally temporary script, repair tool, probe, dataset or workflow: record its reason, owner, removal trigger, evidence location and next review point, run one-time work manually, and map every caller before removal. The pull request template links to it, and the `scripts/_profile_scratch.py` keep decision is the worked example ([#1169](https://github.com/cubrid-lab/pycubrid/issues/1169)) by @yeongseon.
