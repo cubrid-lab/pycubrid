@@ -1,4 +1,4 @@
-.PHONY: help install doctor tooling-check lint format-check format typecheck security docs-reason-check check check-all verify test mutation integration integration-local integration-tls docker-up docker-down docker-clean docker-fix-db-host clean clean-all release-check agent-eval-check
+.PHONY: help install doctor tooling-check lint format-check format typecheck security docs-reason-check check verify test mutation integration integration-local integration-tls docker-up docker-down docker-clean docker-fix-db-host clean clean-all release-check agent-eval-check
 
 # Every tool runs through the same interpreter, and each can be overridden from the
 # command line or the environment, e.g. `make check PYTHON=.venv/bin/python`.
@@ -63,10 +63,6 @@ docs-reason-check: ## Verify docs exemption examples and real event JSON regress
 	$(PYTHON) -m unittest discover -s tests -p test_docs_reason.py
 
 check: lint format-check typecheck security docs-reason-check ## Complete static quality gate: lint, format-check, typecheck, security, docs-reason-check
-
-# Deprecated alias of `check`, kept for one minor release (#1007).
-check-all: check ## Deprecated alias of check (removed after the next minor release)
-	@echo "WARNING: 'make check-all' is deprecated and will be removed after the next minor release; use 'make check'." >&2
 
 ##@ Tests
 

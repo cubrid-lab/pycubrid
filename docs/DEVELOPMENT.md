@@ -726,7 +726,7 @@ lint/format/typecheck.
 | `make lint` | Run ruff check (never modifies files) |
 | `make format-check` | Run ruff format --check (never modifies files) |
 | `make format` | Auto-fix lint and formatting issues (the only mutating quality target) |
-| `make check` | Static quality gate: lint, format-check, typecheck, security, docs-reason-check (`make check-all` is a deprecated alias) |
+| `make check` | Static quality gate: lint, format-check, typecheck, security, docs-reason-check |
 | `make integration` | Docker (run-owned Compose project) → readiness wait → integration tests → skip audit → cleanup (`CUBRID_TEST_PORT=<port>` to move the broker, `INTEGRATION_PROJECT=<name>` to name the project) |
 | `make integration-local` | Integration tests against an already-running server (`CUBRID_TEST_URL` or `CUBRID_TEST_HOST`/`PORT`) |
 | `make clean` | Remove build artifacts and `test-results/` |

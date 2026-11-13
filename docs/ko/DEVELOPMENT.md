@@ -672,7 +672,7 @@ Ruff/Mypy가 없거나, 고정된 버전 대신 오래되거나 전역에 설치
 | `make lint` | ruff check 실행 (파일 수정 없음) |
 | `make format-check` | ruff format --check 실행 (파일 수정 없음) |
 | `make format` | 린트와 포맷 문제 자동 수정 (파일을 수정하는 유일한 품질 대상) |
-| `make check` | 정적 품질 게이트: lint, format-check, typecheck, security, docs-reason-check (`make check-all`은 폐기 예정 별칭) |
+| `make check` | 정적 품질 게이트: lint, format-check, typecheck, security, docs-reason-check |
 | `make integration` | Docker(실행 전용 Compose 프로젝트) → 준비 대기 → 통합 테스트 → skip 검사 → 정리 (`CUBRID_TEST_PORT=<port>`로 브로커 포트 변경, `INTEGRATION_PROJECT=<name>`으로 프로젝트 이름 지정) |
 | `make integration-local` | 이미 실행 중인 서버에 대한 통합 테스트 (`CUBRID_TEST_URL` 또는 `CUBRID_TEST_HOST`/`PORT`) |
 | `make clean` | 빌드 산출물 제거 |

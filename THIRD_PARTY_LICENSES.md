@@ -232,14 +232,13 @@ they are authoritative in `pyproject.toml`, so a routine pin bump does not
 require regenerating this snapshot. Transitive rows are kept accurate by
 regenerating the tables, not by the test.
 
-## Development / test dependencies: `dev` dependency group (67 packages, not distributed)
+## Development / test dependencies: `dev` dependency group (62 packages, not distributed)
 
 | Name | Version | License | Category | URL |
 |---|---|---|---|---|
 | ast_serialize | 0.12.1 | MIT | Permissive | https://github.com/mypyc/ast_serialize |
 | bandit | 1.9.4 | Apache-2.0 | Permissive | https://github.com/PyCQA/bandit |
 | build | 1.6.1 | MIT | Permissive | https://build.pypa.io |
-| cachetools | 7.2.1 | MIT | Permissive | https://github.com/tkem/cachetools/ |
 | cffi | 2.1.1 | MIT-0 | Permissive | https://github.com/python-cffi/cffi |
 | cfgv | 3.5.0 | MIT | Permissive | https://github.com/asottile/cfgv |
 | charset-normalizer | 3.5.2 | MIT | Permissive | - |
@@ -274,7 +273,6 @@ regenerating the tables, not by the test.
 | py-cpuinfo2 | 10.1.1 | MIT | Permissive | https://github.com/akx/py-cpuinfo2 |
 | pycparser | 3.1 | BSD-3-Clause | Permissive | https://github.com/eliben/pycparser |
 | Pygments | 2.21.0 | BSD-2-Clause | Permissive | https://pygments.org |
-| pyproject-api | 1.11.4 | MIT | Permissive | https://pyproject-api.readthedocs.io |
 | pyproject_hooks | 1.3.3 | MIT | Permissive | https://github.com/pypa/pyproject-hooks |
 | pytest | 9.1.1 | MIT | Permissive | https://docs.pytest.org/en/latest/ |
 | pytest-asyncio | 1.4.0 | Apache-2.0 | Permissive | https://github.com/pytest-dev/pytest-asyncio |
@@ -292,13 +290,10 @@ regenerating the tables, not by the test.
 | sortedcontainers | 2.4.0 | Apache Software License | Permissive | http://www.grantjenks.com/docs/sortedcontainers/ |
 | stevedore | 5.9.1 | Apache-2.0 | Permissive | https://docs.openstack.org/stevedore |
 | setuptools | 84.0.0 | MIT | Permissive | https://setuptools.pypa.io/ |
-| tomli_w | 1.2.0 | MIT License | Permissive | https://github.com/hukkin/tomli-w |
-| tox | 4.64.10 | MIT | Permissive | https://tox.wiki |
 | twine | 7.0.0 | Apache-2.0 | Permissive | https://twine.readthedocs.io/ |
 | typing_extensions | 4.16.0 | PSF-2.0 | Permissive | https://github.com/python/typing_extensions |
 | urllib3 | 2.8.0 | MIT | Permissive | - |
 | virtualenv | 21.14.6 | MIT | Permissive | https://github.com/pypa/virtualenv |
-| wheel | 0.48.0 | MIT | Permissive | https://wheel.readthedocs.io/ |
 | certifi | 2026.7.22 | Mozilla Public License 2.0 (MPL 2.0) | Weak copyleft (MPL) | https://github.com/certifi/python-certifi |
 | hypothesis | 6.168.5 | MPL-2.0 | Weak copyleft (MPL) | https://hypothesis.works |
 | pathspec | 1.1.1 | Mozilla Public License 2.0 (MPL 2.0) | Weak copyleft (MPL) | https://github.com/cpburnz/python-pathspec |
