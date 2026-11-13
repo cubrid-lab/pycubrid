@@ -1,5 +1,11 @@
 blank_issues_enabled: false
 contact_links:
+  - name: Ask a question
+    url: https://github.com/cubrid-lab/pycubrid/discussions/categories/q-a
+    about: Ask a usage question in GitHub Discussions; use a bug report only for a reproducible defect
+  - name: Troubleshooting guide
+    url: https://cubrid-lab.github.io/pycubrid/TROUBLESHOOTING/
+    about: Check connection, installation and known-limitation fixes before filing an issue
   - name: PEP 249 — DB-API 2.0
     url: https://peps.python.org/pep-0249/
     about: Python Database API Specification v2.0

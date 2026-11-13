@@ -61,6 +61,7 @@ nav:
   - Help:
       - Troubleshooting: TROUBLESHOOTING.md
       - FAQ: faq.md
+      - Ask a Question: https://github.com/cubrid-lab/pycubrid/discussions/categories/q-a
       - Report a Bug: https://github.com/cubrid-lab/pycubrid/issues/new/choose
       - Report a Vulnerability: https://github.com/cubrid-lab/pycubrid/blob/main/SECURITY.md
   - Operations:
@@ -102,6 +103,7 @@ nav:
       - 도움말:
           - 문제 해결: ko/TROUBLESHOOTING.md
           - 자주 묻는 질문: ko/faq.md
+          - 질문하기: https://github.com/cubrid-lab/pycubrid/discussions/categories/q-a
           - 버그 제보: https://github.com/cubrid-lab/pycubrid/issues/new/choose
           - 취약점 제보: https://github.com/cubrid-lab/pycubrid/blob/main/SECURITY.md
       - 운영:

@@ -20,6 +20,8 @@ This maintenance update improves source builds, setup and migration guidance, an
 
 - **README context-manager example no longer creates a `users` table** — The Context Manager example in the README (English, Korean, German, Hindi, Russian and Chinese) created and committed a `users (id, name)` table with `CREATE TABLE IF NOT EXISTS`, so a reader who then ran the `docs/EXAMPLES.md` `users` table (with `email` and `age`) hit a silent no-op and a failing insert. The example now runs a read-only `SELECT 1 + 1` and leaves no table behind ([#1086](https://github.com/cubrid-lab/pycubrid/issues/1086)) by @yeongseon.
 
+- **Usage questions are routed to Discussions from the issue chooser** — The new-issue page now offers "Ask a question" (the GitHub Discussions Q&A category) and "Troubleshooting guide" links, so a usage question is no longer filed as a bug. The documentation site's Help menu (English and Korean) gains a matching "Ask a Question" entry beside "Report a Bug" ([#1090](https://github.com/cubrid-lab/pycubrid/issues/1090)) by @yeongseon.
+
 - **Rule for temporary tooling** — The contributing guide (English and Korean) now says how to add, review and remove an intentionally temporary script, repair tool, probe, dataset or workflow: record its reason, owner, removal trigger, evidence location and next review point, run one-time work manually, and map every caller before removal. The pull request template links to it, and the `scripts/_profile_scratch.py` keep decision is the worked example ([#1169](https://github.com/cubrid-lab/pycubrid/issues/1169)) by @yeongseon.
 
 - **Step 1 now gives a Windows activation command, and later lessons point back to it (#1092)** —
