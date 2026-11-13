@@ -1093,7 +1093,7 @@ This release adds an **opt-in prepared batch** for synchronous and asynchronous 
   autocommit on, the previous batch's handle is released on the next `PREPARE`,
   as on `PREPARE_AND_EXECUTE` (#488). The default `executemany()` is unchanged.
   See [API_REFERENCE.md](docs/API_REFERENCE.md) and
-  [PARAMETER_BINDING.md](docs/PARAMETER_BINDING.md).
+  [PARAMETER_BINDING.md](docs/PARAMETER_BINDING.md) by @yeongseon.
 - **Failed `executemany()` batch rows are reported (#841)** — when rows of a DML
   batch fail, the server still runs the other rows, but the driver raised only the
   first error and lost which rows failed. The raised exception keeps its class,
@@ -1110,7 +1110,7 @@ This release adds an **opt-in prepared batch** for synchronous and asynchronous 
   count is negative or larger than the batch, that stops early without an
   interrupted (`ER_INTERRUPTED`) statement, or whose V3+ error row does not start
   with `DBMS_ERROR_INDICATOR` (-2), none of which CAS sends. See
-  [API_REFERENCE.md](docs/API_REFERENCE.md#partial-failure-which-rows-failed).
+  [API_REFERENCE.md](docs/API_REFERENCE.md#partial-failure-which-rows-failed) by @yeongseon.
 - **Wider typed prepared parameters (#840)** — `pycubrid.compat.native`
   `cursor.bind_param()` now sends `bool` (INT 1/0, the literal path's value),
   64-bit `int` (BIGINT), `int` past 64 bits up to 38 digits and `Decimal`
@@ -1127,7 +1127,7 @@ This release adds an **opt-in prepared batch** for synchronous and asynchronous 
   [Prepared host-variable mapping](docs/PARAMETER_BINDING.md#prepared-host-variable-mapping).
   Round trips against the literal path pass on CUBRID 10.2, 11.0, 11.2 and
   11.4. The encoder is shared so the planned opt-in `EXECUTE_ARRAY` batch path
-  (#839) can reuse it.
+  (#839) can reuse it. Contributed by @yeongseon.
 - **`typing.Self` for context-manager and iterator returns (#689)** —
   `Connection.__enter__`, `Cursor.__enter__` / `__iter__`, `Lob.__enter__`,
   `AsyncConnection.__aenter__` and `AsyncCursor.__aenter__` / `__aiter__` are now
@@ -1135,12 +1135,12 @@ This release adds an **opt-in prepared batch** for synchronous and asynchronous 
   type in `with` / `async with` blocks and `for` / `async for` loops. A static
   contract module, `tests/typing_self_contract.py`, is part of `make typecheck` and
   fails mypy if any of these annotations regresses. Annotations only; no runtime
-  change.
+  change. Contributed by @Jah-yee.
 
-* **cursor:** opt-in EXECUTE_ARRAY prepared batch for executemany() ([#848](https://github.com/cubrid-lab/pycubrid/issues/848)) ([7f1747d](https://github.com/cubrid-lab/pycubrid/commit/7f1747d006bf5ac13d009ac191794d6c5cc066ca))
-* **cursor:** report which executemany() batch rows failed ([#852](https://github.com/cubrid-lab/pycubrid/issues/852)) ([b646cb6](https://github.com/cubrid-lab/pycubrid/commit/b646cb64873cf13c1eefc228559bb325dc549802))
-* **protocol:** encode BIGINT, DOUBLE, NUMERIC, temporal and binary prepared parameters ([#846](https://github.com/cubrid-lab/pycubrid/issues/846)) ([29fd19c](https://github.com/cubrid-lab/pycubrid/commit/29fd19cafc3af665c2f25664bca6caceff03b922))
-* **typing:** annotate context manager and iterator returns with typing.Self ([#773](https://github.com/cubrid-lab/pycubrid/issues/773)) ([a441d70](https://github.com/cubrid-lab/pycubrid/commit/a441d7092ab254b47aa4ae052d15238e669861de))
+* **cursor:** opt-in EXECUTE_ARRAY prepared batch for executemany() ([#848](https://github.com/cubrid-lab/pycubrid/issues/848)) ([7f1747d](https://github.com/cubrid-lab/pycubrid/commit/7f1747d006bf5ac13d009ac191794d6c5cc066ca)) by @yeongseon.
+* **cursor:** report which executemany() batch rows failed ([#852](https://github.com/cubrid-lab/pycubrid/issues/852)) ([b646cb6](https://github.com/cubrid-lab/pycubrid/commit/b646cb64873cf13c1eefc228559bb325dc549802)) by @yeongseon.
+* **protocol:** encode BIGINT, DOUBLE, NUMERIC, temporal and binary prepared parameters ([#846](https://github.com/cubrid-lab/pycubrid/issues/846)) ([29fd19c](https://github.com/cubrid-lab/pycubrid/commit/29fd19cafc3af665c2f25664bca6caceff03b922)) by @yeongseon.
+* **typing:** annotate context manager and iterator returns with typing.Self ([#773](https://github.com/cubrid-lab/pycubrid/issues/773)) ([a441d70](https://github.com/cubrid-lab/pycubrid/commit/a441d7092ab254b47aa4ae052d15238e669861de)) by @Jah-yee.
 
 ### Changed
 
@@ -1153,20 +1153,20 @@ This release adds an **opt-in prepared batch** for synchronous and asynchronous 
   five-parameter rows, client-side rendering went from 145 ms to 38.5 ms
   offline and the client CPU inside a live `executemany()` from about 195 ms to
   52-98 ms; the live wall time is dominated by the server. See
-  [PERFORMANCE.md](docs/PERFORMANCE.md#placeholder-tokenisation-cached-per-executemany-call).
+  [PERFORMANCE.md](docs/PERFORMANCE.md#placeholder-tokenisation-cached-per-executemany-call) by @yeongseon.
 - **CUBRIDdb wrapper integers past 32 bits (#840)** — the
   `pycubrid.compat.cubriddb` cursors pass `int` arguments to native
   `bind_param()`, so a value past signed 32-bit now binds BIGINT (or NUMERIC
   past 64 bits) instead of raising `DataError`. The wrapper still rejects
-  `bool`, `float`, `bytes` and temporal scalars.
+  `bool`, `float`, `bytes` and temporal scalars. Contributed by @yeongseon.
 
 ### Performance
 
-* **cursor:** split the executemany() SQL on its placeholders once per call ([#853](https://github.com/cubrid-lab/pycubrid/issues/853)) ([98b8263](https://github.com/cubrid-lab/pycubrid/commit/98b8263ba8d17f022e232524c06590d80601b7da))
+* **cursor:** split the executemany() SQL on its placeholders once per call ([#853](https://github.com/cubrid-lab/pycubrid/issues/853)) ([98b8263](https://github.com/cubrid-lab/pycubrid/commit/98b8263ba8d17f022e232524c06590d80601b7da)) by @yeongseon.
 
 ### Documentation
 
-* **i18n:** update the Python requirement in the Chinese README ([#847](https://github.com/cubrid-lab/pycubrid/issues/847)) ([f0b09d2](https://github.com/cubrid-lab/pycubrid/commit/f0b09d240fadf13ec70787152b7a2a474880d349))
+* **i18n:** update the Python requirement in the Chinese README ([#847](https://github.com/cubrid-lab/pycubrid/issues/847)) ([f0b09d2](https://github.com/cubrid-lab/pycubrid/commit/f0b09d240fadf13ec70787152b7a2a474880d349)) by @Vieta100-omo.
 
 ### CI
 
@@ -1177,7 +1177,7 @@ This release adds an **opt-in prepared batch** for synchronous and asynchronous 
   later line end of the paragraph after a definition line, up to a blank line, which
   can only add blocking; each line end is scanned once per check. Copilot found this
   in cubrid-lab/sqlalchemy-cubrid#822; `pr-title.yml` stays byte-identical across
-  pycubrid, sqlalchemy-cubrid, cubrid-mcp-server and cubrid-cookbook-python.
+  pycubrid, sqlalchemy-cubrid, cubrid-mcp-server and cubrid-cookbook-python. Contributed by @yeongseon.
 
 - **Generated issue references are written as "refs", not "closes", in `CHANGELOG.md` and the
   release PR body** — release-please 17.6.0 renders every issue trailer in a commit's final
@@ -1188,7 +1188,7 @@ This release adds an **opt-in prepared batch** for synchronous and asynchronous 
   cubrid-lab/cubrid-mcp-server#280) now rewrites generated
   references to `, refs [#N](…)` on generated entry lines outside code blocks, and the
   **Prepare release** workflow applies the same rewrite to the release PR body right after
-  release-please updates it; no permission changes (#850).
+  release-please updates it; no permission changes (#850) by @yeongseon.
 
 - **The closing guard is the one shared with sqlalchemy-cubrid, cubrid-mcp-server
   and cubrid-cookbook-python** — `pr-title.yml` is the shared file, and a test pins
@@ -1214,7 +1214,7 @@ This release adds an **opt-in prepared batch** for synchronous and asynchronous 
   accepted are now blocked; the change trades missed closures for false positives.
   Every regression case from this repository is kept; the 13 whose expectation
   changed are in `test_uncertain_markdown_is_checked_on_purpose`, and CONTRIBUTING
-  (English and Korean) and AGENTS.md describe the shared rules.
+  (English and Korean) and AGENTS.md describe the shared rules. Contributed by @yeongseon.
 - **Repository-local issue closure in PRs** — the required `PR title` check now
   rejects direct closing keywords targeting a different GitHub repository in the PR
   body, the PR title and the PR's commit messages (the title and commit messages
@@ -1226,7 +1226,7 @@ This release adds an **opt-in prepared batch** for synchronous and asynchronous 
   entities or escapes are caught, as are `http://`, `www.`, autolink, `<a href>`,
   inline and reference-link issue URLs. The title and commit messages are plain text
   and are checked as written. How the body's Markdown is read is described in the
-  entry above.
+  entry above. Contributed by @yeongseon.
 
 ## [1.11.0] - 2026-10-11
 
@@ -1721,7 +1721,7 @@ This release requires **Python 3.11 or later**. Python 3.10 applications remain 
 
 **Additional commit references (generated at release time):**
 
-* **python:** require Python 3.11 or later ([#708](https://github.com/cubrid-lab/pycubrid/issues/708)) ([5b3d9ec](https://github.com/cubrid-lab/pycubrid/commit/5b3d9ecfe8632c5194d1201e9540e4fdf8b8d98e)), closes [#684](https://github.com/cubrid-lab/pycubrid/issues/684)
+* **python:** require Python 3.11 or later ([#708](https://github.com/cubrid-lab/pycubrid/issues/708)) ([5b3d9ec](https://github.com/cubrid-lab/pycubrid/commit/5b3d9ecfe8632c5194d1201e9540e4fdf8b8d98e)), closes [#684](https://github.com/cubrid-lab/pycubrid/issues/684) by @yeongseon.
 
 ### Changed
 
@@ -1731,7 +1731,7 @@ This release requires **Python 3.11 or later**. Python 3.10 applications remain 
   immediately on Python 3.11 and newer, so nothing changes there: the async TLS
   upgrade, its handshake bound and its error surface are the same. The private
   helpers `_maybe_probe_tls_verification`, `_probe_tls_verification_sync` and
-  `_recv_exact_sync` are gone with their Python 3.10-only tests.
+  `_recv_exact_sync` are gone with their Python 3.10-only tests. Contributed by @yeongseon.
 - **Async deadlines handle the built-in `TimeoutError` and keep
   `asyncio.wait_for()` (#687, #744)** — the async TCP connect, connect handshake
   and request deadlines catch the built-in `TimeoutError` (`asyncio.TimeoutError`
@@ -1751,23 +1751,23 @@ This release requires **Python 3.11 or later**. Python 3.10 applications remain 
   `wait_for()` meaning: the fresh, not-yet-started operation is cancelled before
   it runs, so `connect_timeout=0` fails before the TCP connect is attempted and
   `read_timeout=0` fails before any handshake bytes are sent, both with
-  `OperationalError`.
+  `OperationalError`. Contributed by @yeongseon.
 - **Ruff and mypy target Python 3.11 (#688)** — `target-version = "py311"` and
   `python_version = "3.11"` in `pyproject.toml`, matching the minimum supported
-  version. The rule selection is unchanged and no source needed a fix.
+  version. The rule selection is unchanged and no source needed a fix. Contributed by @yeongseon.
 
 ### Removed
 
 - **Python 3.10 support (#684)** — `requires-python` is `>=3.11` and the 3.10
   classifier is gone. CI no longer tests 3.10: the oldest integration pair is
   Python 3.11 × CUBRID 10.2, the full matrix covers Python 3.11–3.14 and the TLS
-  lanes run on 3.11 and 3.14. No driver behavior changes on Python 3.11 or newer.
+  lanes run on 3.11 and 3.14. No driver behavior changes on Python 3.11 or newer. Contributed by @yeongseon.
 
 ### Fixed
 
 **Additional commit references (generated at release time):**
 
-* **aio:** restore asyncio.wait_for for driver deadlines on Python 3.11.0–3.11.2 ([#754](https://github.com/cubrid-lab/pycubrid/issues/754)) ([1a44790](https://github.com/cubrid-lab/pycubrid/commit/1a44790cd5e3a6c37357fa42783ef86533106fab))
+* **aio:** restore asyncio.wait_for for driver deadlines on Python 3.11.0–3.11.2 ([#754](https://github.com/cubrid-lab/pycubrid/issues/754)) ([1a44790](https://github.com/cubrid-lab/pycubrid/commit/1a44790cd5e3a6c37357fa42783ef86533106fab)) by @yeongseon.
 
 ### Documentation
 
@@ -1776,7 +1776,7 @@ This release requires **Python 3.11 or later**. Python 3.10 applications remain 
   presence only, so a Dependabot bump such as `ruff==0.16.11` no longer fails
   the repository-tooling tests until `THIRD_PARTY_LICENSES.md` is regenerated;
   declared ranges (e.g. `mutmut>=3.8,<4`) are still enforced, and the reviewed
-  docutils row must keep its "Needs review" category.
+  docutils row must keep its "Needs review" category. Contributed by @yeongseon.
 - **Reproducible third-party license inventory (#735)** — `THIRD_PARTY_LICENSES.md`
   is regenerated from fresh `.[dev]` and `.[mutation]` environments at a recorded
   commit, Python and OS by the new standard-library
@@ -1789,19 +1789,19 @@ This release requires **Python 3.11 or later**. Python 3.10 applications remain 
   Windows-only `tzdata` runtime dependency stays explicit.
   `tests/test_third_party_licenses.py` fails when a declared dependency is missing,
   a recorded version falls outside its declared range, or a row's category
-  disagrees with the generator. No runtime change.
+  disagrees with the generator. No runtime change. Contributed by @yeongseon.
 - **The README and quickstart state Python 3.11 or later (#699)** — the
   requirement lines, the supported range (3.11–3.14) and the FAQ answer in
   `README.md` and `docs/README.ko.md`, and the prerequisites in
   `docs/quickstart.md` and `docs/ko/quickstart.md`. The Python 3.10 retirement
-  notice in both READMEs now describes the requirement as in effect from 1.10.0.
+  notice in both READMEs now describes the requirement as in effect from 1.10.0. Contributed by @yeongseon.
 - **Python 3.10 async TLS probe guidance is removed (#686)** — the preflight
   probe is gone (#685), so the README, `SECURITY.md`, the connection, protocol,
   development, example, API, PRD and support-matrix pages and their Korean
   counterparts no longer describe it or the Python 3.10 `start_tls()` hang it
   worked around. The troubleshooting section "Async TLS Handshake Hangs on
   Python 3.10" is deleted, with the links to it in the translated READMEs; the
-  sync driver's Python 3.10 `wrap_socket()` reset note goes with it.
+  sync driver's Python 3.10 `wrap_socket()` reset note goes with it. Contributed by @yeongseon.
 - **In-page links work on the documentation site (#728)** — the site used the
   default heading slugifier, which drops non-ASCII characters, so Korean
   headings got ids such as `_2` and every Korean table of contents entry was
@@ -1809,7 +1809,7 @@ This release requires **Python 3.11 or later**. Python 3.10 applications remain 
   (198 broken anchors). `mkdocs.yml` now uses the Unicode-aware slugifier from
   `pymdown-extensions`, the two anchors that were still wrong are fixed, and
   `validation.links.anchors: warn` makes the strict build fail on a new broken
-  anchor.
+  anchor. Contributed by @yeongseon.
 - **Korean pages reviewed against the English wording (#726)** — the structure
   check cannot see a missing or outdated sentence. A sentence-level review of
   seven Korean guides corrected 72 passages: `API_REFERENCE` (21, including the
@@ -1820,61 +1820,61 @@ This release requires **Python 3.11 or later**. Python 3.10 applications remain 
   `CONNECTION` (2). The translations of `PRD` and `PREPARED_BINDING_DESIGN`
   added in this release were reviewed the same way (1 and 15 corrections,
   mostly literal renderings that read ambiguously). The banner on every Korean
-  page now says CI checks the structure. English is unchanged.
+  page now says CI checks the structure. English is unchanged. Contributed by @yeongseon.
 - **PRD no longer quotes figures that every release makes false (#724)** —
   `docs/PRD.md` said version 1.8.0, "770 offline tests / 811 total", "97.29%
   coverage", "10 modules", "6 guide files" and "release workflow on tag". The
   version, test and coverage figures now link to PyPI, the test tree and
   Codecov, the per-file test counts are dropped, and the release row describes
   the release-PR flow. The documentation home page states SQLAlchemy 2.0–2.1 for
-  sqlalchemy-cubrid, as that project does. English and Korean.
+  sqlalchemy-cubrid, as that project does. English and Korean. Contributed by @yeongseon.
 - **PRD and the typed CAS binding design are available in Korean (#715)** —
   `docs/ko/PRD.md` and `docs/ko/PREPARED_BINDING_DESIGN.md` are added, both PRD
   pages join the site navigation, and the Korean home page and CI policy carry
   the same translation header as the other Korean pages. With these, every
   document under `docs/` has a Korean counterpart and the structure check has no
-  exception left.
+  exception left. Contributed by @yeongseon.
 - **Korean documentation home page and one Korean navigation section (#714)** —
   `docs/ko/index.md` is the Korean landing page, linked from the English home
   page and back. The Korean guides were spread over three navigation groups;
   they are now one "한국어" section with the same grouping as the English
-  navigation, and every Korean page is reachable from it.
+  navigation, and every Korean page is reachable from it. Contributed by @yeongseon.
 - **Korean support matrix and CI policy match the English documents (#713)** —
   `docs/ko/SUPPORT_MATRIX.md` gains the CI matrix table, the "Server Behavior
   Differences Between CUBRID Versions" table and the unknown-option row, and
   loses a Korean-only closing section; `docs/ko/CI_POLICY.md` is a full
   translation instead of a summary. Both CI policy pages are in the site
   navigation. The full-integration count in the support matrix is corrected to
-  16 (four Python versions × four CUBRID versions) in both languages.
+  16 (four Python versions × four CUBRID versions) in both languages. Contributed by @yeongseon.
 - **Korean connection, development and troubleshooting guides are in sync again
   (#712)** — four sections existed only in English: unknown connection options
   (`docs/ko/CONNECTION.md`), "Connection Option Has No Effect"
   (`docs/ko/TROUBLESHOOTING.md`), and the backslash-escape-mode pin and mutation
   testing (`docs/ko/DEVELOPMENT.md`). They are translated; the English text is
-  unchanged.
+  unchanged. Contributed by @yeongseon.
 - **`get_error_description()` is documented, and the Korean API reference is
   complete again (#711)** — `docs/API_REFERENCE.md` covered every public name
   except `pycubrid.get_error_description`; it now has its own section in English
   and Korean. The Korean reference also gains the sections it was missing:
   unknown connection options, `UnknownConnectionOptionWarning`, the native
   prepared example and the wrapper cursor's `next()` alias (also added to the
-  English text). No behavior change.
+  English text). No behavior change. Contributed by @yeongseon.
 
 **Additional commit references (generated at release time):**
 
-* **agents:** align contributor ownership and good-first-issue guardrails ([#752](https://github.com/cubrid-lab/pycubrid/issues/752)) ([fb3da8c](https://github.com/cubrid-lab/pycubrid/commit/fb3da8c94b86cf1ad576989f84c6ba465b9e0894)), closes [#743](https://github.com/cubrid-lab/pycubrid/issues/743)
-* **api:** document get_error_description and close the Korean API reference gaps ([#717](https://github.com/cubrid-lab/pycubrid/issues/717)) ([221339e](https://github.com/cubrid-lab/pycubrid/commit/221339eec34912ec0a0adec665673a25541fccdf)), closes [#711](https://github.com/cubrid-lab/pycubrid/issues/711)
-* **ci:** correct what enable-cache auto does on the release path ([#764](https://github.com/cubrid-lab/pycubrid/issues/764)) ([e0e475b](https://github.com/cubrid-lab/pycubrid/commit/e0e475b62741f22a3d6deeed56c7e8ba1cbf3007)), closes [#759](https://github.com/cubrid-lab/pycubrid/issues/759)
-* **i18n:** add the Korean documentation home page ([#720](https://github.com/cubrid-lab/pycubrid/issues/720)) ([73e4ea7](https://github.com/cubrid-lab/pycubrid/commit/73e4ea756a1efda3d09e43e22b6ff13aa585174a)), closes [#714](https://github.com/cubrid-lab/pycubrid/issues/714)
-* **i18n:** correct Korean sections that fell behind the English wording ([#727](https://github.com/cubrid-lab/pycubrid/issues/727)) ([ed6e7d9](https://github.com/cubrid-lab/pycubrid/commit/ed6e7d934e2931ebd286761e5b9a69e327ce9db9)), closes [#726](https://github.com/cubrid-lab/pycubrid/issues/726)
-* **i18n:** synchronize the Korean CONNECTION, DEVELOPMENT and TROUBLESHOOTING guides ([#718](https://github.com/cubrid-lab/pycubrid/issues/718)) ([16a0665](https://github.com/cubrid-lab/pycubrid/commit/16a06659597ea9a93b899291a480d0a2e1050d8b)), closes [#712](https://github.com/cubrid-lab/pycubrid/issues/712)
-* **i18n:** synchronize the Korean SUPPORT_MATRIX and translate CI_POLICY in full ([#719](https://github.com/cubrid-lab/pycubrid/issues/719)) ([66e2c5e](https://github.com/cubrid-lab/pycubrid/commit/66e2c5e346c3f270bff3cfc0c0b2797648bccc2a)), closes [#713](https://github.com/cubrid-lab/pycubrid/issues/713)
-* **i18n:** translate PRD and PREPARED_BINDING_DESIGN into Korean ([#722](https://github.com/cubrid-lab/pycubrid/issues/722)) ([328720d](https://github.com/cubrid-lab/pycubrid/commit/328720d4044d53db8288f95f74f8f9e5894b6a36)), closes [#715](https://github.com/cubrid-lab/pycubrid/issues/715)
-* **licenses:** make the third-party license inventory reproducible and accurate ([#771](https://github.com/cubrid-lab/pycubrid/issues/771)) ([aacb5b5](https://github.com/cubrid-lab/pycubrid/commit/aacb5b588be7a15f4126a76a20f77334828fd5a4))
-* **prd:** replace stale version, test and coverage figures with links ([#725](https://github.com/cubrid-lab/pycubrid/issues/725)) ([8a3304b](https://github.com/cubrid-lab/pycubrid/commit/8a3304bc7acebeb4368e24d3275940e6ef3839ed)), closes [#724](https://github.com/cubrid-lab/pycubrid/issues/724)
-* **python:** state Python 3.11 or later in the README and quickstart ([#739](https://github.com/cubrid-lab/pycubrid/issues/739)) ([27e35be](https://github.com/cubrid-lab/pycubrid/commit/27e35be9eee6518c1c673e51195fa25954dd5da4)), closes [#699](https://github.com/cubrid-lab/pycubrid/issues/699)
-* **site:** generate heading anchors that match the links in the documents ([#729](https://github.com/cubrid-lab/pycubrid/issues/729)) ([c2a4f1d](https://github.com/cubrid-lab/pycubrid/commit/c2a4f1db875c65a3c497daf6427711d643401dec)), closes [#728](https://github.com/cubrid-lab/pycubrid/issues/728)
-* **tls:** remove Python 3.10 preflight probe guidance ([#737](https://github.com/cubrid-lab/pycubrid/issues/737)) ([4df5db0](https://github.com/cubrid-lab/pycubrid/commit/4df5db0331c2072440d22b0b08ed20323ecaec93)), closes [#686](https://github.com/cubrid-lab/pycubrid/issues/686)
+* **agents:** align contributor ownership and good-first-issue guardrails ([#752](https://github.com/cubrid-lab/pycubrid/issues/752)) ([fb3da8c](https://github.com/cubrid-lab/pycubrid/commit/fb3da8c94b86cf1ad576989f84c6ba465b9e0894)), closes [#743](https://github.com/cubrid-lab/pycubrid/issues/743) by @yeongseon.
+* **api:** document get_error_description and close the Korean API reference gaps ([#717](https://github.com/cubrid-lab/pycubrid/issues/717)) ([221339e](https://github.com/cubrid-lab/pycubrid/commit/221339eec34912ec0a0adec665673a25541fccdf)), closes [#711](https://github.com/cubrid-lab/pycubrid/issues/711) by @yeongseon.
+* **ci:** correct what enable-cache auto does on the release path ([#764](https://github.com/cubrid-lab/pycubrid/issues/764)) ([e0e475b](https://github.com/cubrid-lab/pycubrid/commit/e0e475b62741f22a3d6deeed56c7e8ba1cbf3007)), closes [#759](https://github.com/cubrid-lab/pycubrid/issues/759) by @yeongseon.
+* **i18n:** add the Korean documentation home page ([#720](https://github.com/cubrid-lab/pycubrid/issues/720)) ([73e4ea7](https://github.com/cubrid-lab/pycubrid/commit/73e4ea756a1efda3d09e43e22b6ff13aa585174a)), closes [#714](https://github.com/cubrid-lab/pycubrid/issues/714) by @yeongseon.
+* **i18n:** correct Korean sections that fell behind the English wording ([#727](https://github.com/cubrid-lab/pycubrid/issues/727)) ([ed6e7d9](https://github.com/cubrid-lab/pycubrid/commit/ed6e7d934e2931ebd286761e5b9a69e327ce9db9)), closes [#726](https://github.com/cubrid-lab/pycubrid/issues/726) by @yeongseon.
+* **i18n:** synchronize the Korean CONNECTION, DEVELOPMENT and TROUBLESHOOTING guides ([#718](https://github.com/cubrid-lab/pycubrid/issues/718)) ([16a0665](https://github.com/cubrid-lab/pycubrid/commit/16a06659597ea9a93b899291a480d0a2e1050d8b)), closes [#712](https://github.com/cubrid-lab/pycubrid/issues/712) by @yeongseon.
+* **i18n:** synchronize the Korean SUPPORT_MATRIX and translate CI_POLICY in full ([#719](https://github.com/cubrid-lab/pycubrid/issues/719)) ([66e2c5e](https://github.com/cubrid-lab/pycubrid/commit/66e2c5e346c3f270bff3cfc0c0b2797648bccc2a)), closes [#713](https://github.com/cubrid-lab/pycubrid/issues/713) by @yeongseon.
+* **i18n:** translate PRD and PREPARED_BINDING_DESIGN into Korean ([#722](https://github.com/cubrid-lab/pycubrid/issues/722)) ([328720d](https://github.com/cubrid-lab/pycubrid/commit/328720d4044d53db8288f95f74f8f9e5894b6a36)), closes [#715](https://github.com/cubrid-lab/pycubrid/issues/715) by @yeongseon.
+* **licenses:** make the third-party license inventory reproducible and accurate ([#771](https://github.com/cubrid-lab/pycubrid/issues/771)) ([aacb5b5](https://github.com/cubrid-lab/pycubrid/commit/aacb5b588be7a15f4126a76a20f77334828fd5a4)) by @yeongseon.
+* **prd:** replace stale version, test and coverage figures with links ([#725](https://github.com/cubrid-lab/pycubrid/issues/725)) ([8a3304b](https://github.com/cubrid-lab/pycubrid/commit/8a3304bc7acebeb4368e24d3275940e6ef3839ed)), closes [#724](https://github.com/cubrid-lab/pycubrid/issues/724) by @yeongseon.
+* **python:** state Python 3.11 or later in the README and quickstart ([#739](https://github.com/cubrid-lab/pycubrid/issues/739)) ([27e35be](https://github.com/cubrid-lab/pycubrid/commit/27e35be9eee6518c1c673e51195fa25954dd5da4)), closes [#699](https://github.com/cubrid-lab/pycubrid/issues/699) by @yeongseon.
+* **site:** generate heading anchors that match the links in the documents ([#729](https://github.com/cubrid-lab/pycubrid/issues/729)) ([c2a4f1d](https://github.com/cubrid-lab/pycubrid/commit/c2a4f1db875c65a3c497daf6427711d643401dec)), closes [#728](https://github.com/cubrid-lab/pycubrid/issues/728) by @yeongseon.
+* **tls:** remove Python 3.10 preflight probe guidance ([#737](https://github.com/cubrid-lab/pycubrid/issues/737)) ([4df5db0](https://github.com/cubrid-lab/pycubrid/commit/4df5db0331c2072440d22b0b08ed20323ecaec93)), closes [#686](https://github.com/cubrid-lab/pycubrid/issues/686) by @yeongseon.
 
 ### Tests
 
@@ -1884,7 +1884,7 @@ This release requires **Python 3.11 or later**. Python 3.10 applications remain 
   of headings (levels 2-4), fenced code blocks or table rows; the lint job runs
   it on every event. Until now only README drift was checked, and six guides
   had drifted unnoticed. Documents that are deliberately English-only are
-  listed in the script with a reason. The check compares structure, not wording.
+  listed in the script with a reason. The check compares structure, not wording. Contributed by @yeongseon.
 - **The official-driver differential lane runs on Python 3.11 (#683)** — the
   pinned CUBRIDdb oracle (cubrid-python `e75ec36`, CCI `7d1eb8f`) was built and
   compared on Python 3.10 only. The `official-differential` job in `ci.yml` and
@@ -1892,7 +1892,7 @@ This release requires **Python 3.11 or later**. Python 3.10 applications remain 
   summaries now use Python 3.11, so the lane no longer depends on the
   interpreter that 1.10.0 retires. Claims, source pins and the required servers
   (10.2 and 11.4) are unchanged; earlier evidence recorded on Python 3.10.12
-  stays in `docs/UPSTREAM_COMPATIBILITY.md` as history.
+  stays in `docs/UPSTREAM_COMPATIBILITY.md` as history. Contributed by @yeongseon.
 
 ## [1.9.0] - 2026-10-04
 
@@ -3355,22 +3355,22 @@ unchanged):
   selected non-NULL scalar/DML results; native `bind_param(None)` crashes and
   is a documented safety deviation, not a NULL parity pass. This is an
   additive MINOR subset, not full native/DB-API
-  parity, public async preparation, effective settings, or a release.
+  parity, public async preparation, effective settings, or a release. Contributed by @yeongseon.
 - Internal FC2/FC3 scalar packet groundwork (#475) now serializes validated
   INT32, UTF-8 CHAR and SQL NULL bindings, preserves the authoritative FC2
   bind count, and parses refreshed FC3 column metadata before shard/FETCH.
   Error records fail closed. This has no public prepared cursor or owner
   lifecycle yet; ordinary sync/async FC41 literal execution is unchanged and
-  #439 remains the public implementation gate.
+  #439 remains the public implementation gate. Contributed by @yeongseon.
 - Construction-only official-driver compatibility factories (#465): explicit
   `pycubrid.compat.native` and `pycubrid.compat.cubriddb` namespaces validate
   CUBRID/UTF-8 DSNs, preserve the source's public/empty credential defaults and
   start one owned pure-Python sync connection with autocommit enabled. Wrapper
   aliases and close are available; cursor execution, prepared binding, sharing,
   configurable charset and HA are not. Ordinary 1.x defaults and async behavior
-  are unchanged. MINOR/additive public surface, protected by the API baseline.
-- Owned schema rows (#456): corrected FC9 requests/condensed metadata now ship with sync/async eager `fetch_schema_info(packet)` and idempotent `close_schema_info(packet)`. Existing getter positional arguments and raw packet fields remain; keyword-only `arg2=None` adds the second filter. Immutable original-session ownership prevents forged/retired handle RPCs; explicit transaction boundaries and auto-committing cursor statements/batches and version lookup with connection autocommit enabled close schema handles before the boundary, while connection teardown and I/O failures retire resources. Schema FETCH/CLOSE do not reconnect, replay, implicitly commit or return partial rows as success. Initial live coverage was CLASS/ATTRIBUTE on 10.2/11.4; the #457 live matrix extends it to CLASS/VCLASS/ATTRIBUTE/CONSTRAINT/PRIMARY_KEY/IMPORTED_KEYS/EXPORTED_KEYS, not all schema codes or native parity. MINOR/additive surface; API baseline regenerated.
-- **Unknown connection options are now surfaced instead of silently ignored (#377)** — `Connection.__init__`/`AsyncConnection.__init__` read a fixed set of options out of `**kwargs` and discarded everything else without a word, so a typo such as `read_timout=30` or `connectTimeout=5` was accepted, had no effect, and gave the caller no signal. Any keyword outside the supported set now emits a new `pycubrid.UnknownConnectionOptionWarning` (a `UserWarning` subclass, **not** part of the PEP 249 exception hierarchy) naming the offending option, suggesting the closest supported spelling when there is one, and listing the full supported set. Known options behave exactly as before, and the warning is emitted before any socket work so a mis-spelled option is reported even when the connection then fails. It covers `pycubrid.connect()`, `pycubrid.aio.connect()`, and direct `Connection(...)`/`AsyncConnection(...)` construction, and points at the caller's own line rather than pycubrid's internals.
+  are unchanged. MINOR/additive public surface, protected by the API baseline. Contributed by @yeongseon.
+- Owned schema rows (#456): corrected FC9 requests/condensed metadata now ship with sync/async eager `fetch_schema_info(packet)` and idempotent `close_schema_info(packet)`. Existing getter positional arguments and raw packet fields remain; keyword-only `arg2=None` adds the second filter. Immutable original-session ownership prevents forged/retired handle RPCs; explicit transaction boundaries and auto-committing cursor statements/batches and version lookup with connection autocommit enabled close schema handles before the boundary, while connection teardown and I/O failures retire resources. Schema FETCH/CLOSE do not reconnect, replay, implicitly commit or return partial rows as success. Initial live coverage was CLASS/ATTRIBUTE on 10.2/11.4; the #457 live matrix extends it to CLASS/VCLASS/ATTRIBUTE/CONSTRAINT/PRIMARY_KEY/IMPORTED_KEYS/EXPORTED_KEYS, not all schema codes or native parity. MINOR/additive surface; API baseline regenerated. Contributed by @yeongseon.
+- **Unknown connection options are now surfaced instead of silently ignored (#377)** — `Connection.__init__`/`AsyncConnection.__init__` read a fixed set of options out of `**kwargs` and discarded everything else without a word, so a typo such as `read_timout=30` or `connectTimeout=5` was accepted, had no effect, and gave the caller no signal. Any keyword outside the supported set now emits a new `pycubrid.UnknownConnectionOptionWarning` (a `UserWarning` subclass, **not** part of the PEP 249 exception hierarchy) naming the offending option, suggesting the closest supported spelling when there is one, and listing the full supported set. Known options behave exactly as before, and the warning is emitted before any socket work so a mis-spelled option is reported even when the connection then fails. It covers `pycubrid.connect()`, `pycubrid.aio.connect()`, and direct `Connection(...)`/`AsyncConnection(...)` construction, and points at the caller's own line rather than pycubrid's internals. Contributed by @Parth-Vasave (first contribution 🎉).
 
   A warning rather than a hard `TypeError` is deliberate: wrapper layers (connection pools, ORM dialects such as `sqlalchemy-cubrid`) legitimately forward extra keywords, so rejecting them would be a breaking change under `RELEASE_POLICY.md` §3 and cannot land on the 1.x line. Callers choose their own strictness with the standard `warnings` machinery — `warnings.simplefilter("error", pycubrid.UnknownConnectionOptionWarning)` to reject unknown options, `"ignore"` to silence them. Additive surface change (`api-baseline.json` regenerated).
 
@@ -3408,13 +3408,13 @@ unchanged):
   trip, including each statement in autocommit mode. This supersedes the #468
   entry's statement that only an explicit `ping(reconnect=True)` may recover:
   normal boundaries keep the session, and only a CAS that fails the probe
-  triggers the automatic reconnect.
+  triggers the automatic reconnect. Contributed by @yeongseon.
 - Fence future prepared FC3/FC6 requests to their owning physical CAS
   generation inside the synchronous transport boundary (#478). A stale
   handle is rejected before send even when a replacement server reuses its
   number; uncertain post-send failure retires the session without replay.
   This is internal groundwork for #439, not a public prepared API or a
-  change to the declared `threadsafety=1` contract.
+  change to the declared `threadsafety=1` contract. Contributed by @yeongseon.
 - Re-probe automatically detected `no_backslash_escapes` on each new physical
   session, including explicit ping recovery (#471). Explicit `True`/`False`
   remains pinned; healthy same-session ping does not probe. Probe failure
@@ -3422,7 +3422,7 @@ unchanged):
   raises. Async parameterized SQL bound against an older session generation is
   rejected before send, not silently rebound or replayed. PATCH correction;
   no dynamic `SET` or heterogeneous-failover guarantee. This supersedes the
-  historical #264 note that recovery never re-probes.
+  historical #264 note that recovery never re-probes. Contributed by @yeongseon.
 - Treat `CAS_INFO[0]=0` as OUT_TRAN, not a released CAS session (#468). Normal
   commit, rollback, and autocommit requests keep the physical connection and
   session state; only an explicit `ping(reconnect=True)` may recover from a
@@ -3430,30 +3430,30 @@ unchanged):
   transport/protocol error. `ping(reconnect=False)` still reports failure without
   reconnecting. Other SQL is never replayed after an uncertain transport
   failure. Connection, API, architecture, and support documentation now
-  describe this boundary consistently.
+  describe this boundary consistently. Contributed by @yeongseon.
 - Async schema FETCH now discards the session without sending CLOSE when
   `KeyboardInterrupt` or `SystemExit` interrupts a pending reply; the original
-  interruption is preserved. Ordinary FETCH errors retain their cleanup behavior.
-- Empty `bytes` LOB writes return `0` without a broker request after existing object, offset, connection and wire argument checks. BLOB/CLOB data and handles stay unchanged; nonempty ACK checks and existing bool/other-data paths are preserved. No new strict type policy or async LOB feature is introduced. (#394)
-- Native syntax (`-493`), semantic (`-494`) and communication (`-671`) errors now carry their verified meanings: generic `ProgrammingError` / `42000` for parser errors, `OperationalError` / `08S01` for communication. Batch dispatch reuses known-code SQLSTATE lookup rather than discarding it in favor of a class default; unknown-code defaults are unchanged. Missing-table inference from `-493` alone is unsupported. (#391)
-- Unfinished SELECT results invalidated by commit/rollback no longer silently look exhausted: sync and async fetch methods raise `InterfaceError` when another broker FETCH is required without a valid handle. Already received rows remain readable, fully buffered/exhausted results retain normal EOF, and reconnect-specific `OperationalError` stays distinct. No transparent replay or holdable-result guarantee is added. (#395)
-- Native NOT NULL (`-631`) and invalid foreign-key (`-922`) errors now raise `IntegrityError` with SQLSTATE `23000` by code, independent of message language. Single-statement and batch paths preserve the native value in `code` and `errno`; the shared batch error helper no longer drops errno. Sync/async regressions verify constrained inserts and connection reuse after rollback. (#390)
-- `cursor.description` now reports `null_ok=True` for nullable columns and `False` for NOT NULL/primary-key columns. The CAS byte is an `is_non_null` flag, previously interpreted backwards. Full per-type metadata and sync/async nullability regressions preserve existing size fields and collection codes. (#431, #398, #408)
-- Collection column metadata retains CAS collection-kind flags instead of treating the element type as the column type. SET/MULTISET/SEQUENCE, including empty collections with a NULL element-type header, return their documented containers with `decode_collections=True`, or raw bytes when disabled, in both sync and async queries. Real-header regressions cover initial and subsequent fetches. (#403, #410)
-- Development quality checks synchronize Ruff/Mypy hook revisions with the exact dev pins, reject installed-tool/configuration drift, and lint/format maintained scripts and demos through shared local/CI Make targets. The Mypy hook explicitly checks the package instead of running only stub installation. (#416)
-- Full integration validation selects current pytest markers instead of filename globs. Normal, TLS, and nightly slow lanes cover the declared integration inventory, including concurrency stress; unknown skips and missing workflow paths fail the lane audit. TLS provisioning runs broker commands as the service owner. (#397)
-- Integration CI now uses the shared CUBRID readiness probe with host/port connection fields and fails before running tests when all retries are exhausted. (#411)
-- **`Connection.get_last_insert_id()` / `AsyncConnection.get_last_insert_id()` no longer return an ambiguous empty string after `commit()` (#381)** — cache the broker identity captured after INSERT so it survives commit/rollback and SELECT. Successful values remain strings; unavailable identities return `None`. A new INSERT attempt, nonempty batch, or physical connection change clears the cache; failed, empty, or malformed identity retrieval leaves it unavailable. The broker can report an earlier identity after a non-auto-increment INSERT, so an ID does not prove the current statement generated it or that a row exists after rollback. Migration: replace `value == ""` with `value is None` and check for `None` before `int(value)`; `cursor.lastrowid` remains `int | None`. This is a documented bug correction, not an annotation-only change.
+  interruption is preserved. Ordinary FETCH errors retain their cleanup behavior. Contributed by @yeongseon.
+- Empty `bytes` LOB writes return `0` without a broker request after existing object, offset, connection and wire argument checks. BLOB/CLOB data and handles stay unchanged; nonempty ACK checks and existing bool/other-data paths are preserved. No new strict type policy or async LOB feature is introduced. (#394) by @yeongseon.
+- Native syntax (`-493`), semantic (`-494`) and communication (`-671`) errors now carry their verified meanings: generic `ProgrammingError` / `42000` for parser errors, `OperationalError` / `08S01` for communication. Batch dispatch reuses known-code SQLSTATE lookup rather than discarding it in favor of a class default; unknown-code defaults are unchanged. Missing-table inference from `-493` alone is unsupported. (#391) by @yeongseon.
+- Unfinished SELECT results invalidated by commit/rollback no longer silently look exhausted: sync and async fetch methods raise `InterfaceError` when another broker FETCH is required without a valid handle. Already received rows remain readable, fully buffered/exhausted results retain normal EOF, and reconnect-specific `OperationalError` stays distinct. No transparent replay or holdable-result guarantee is added. (#395) by @yeongseon.
+- Native NOT NULL (`-631`) and invalid foreign-key (`-922`) errors now raise `IntegrityError` with SQLSTATE `23000` by code, independent of message language. Single-statement and batch paths preserve the native value in `code` and `errno`; the shared batch error helper no longer drops errno. Sync/async regressions verify constrained inserts and connection reuse after rollback. (#390) by @yeongseon.
+- `cursor.description` now reports `null_ok=True` for nullable columns and `False` for NOT NULL/primary-key columns. The CAS byte is an `is_non_null` flag, previously interpreted backwards. Full per-type metadata and sync/async nullability regressions preserve existing size fields and collection codes. (#431, #398, #408) by @yeongseon.
+- Collection column metadata retains CAS collection-kind flags instead of treating the element type as the column type. SET/MULTISET/SEQUENCE, including empty collections with a NULL element-type header, return their documented containers with `decode_collections=True`, or raw bytes when disabled, in both sync and async queries. Real-header regressions cover initial and subsequent fetches. (#403, #410) by @yeongseon.
+- Development quality checks synchronize Ruff/Mypy hook revisions with the exact dev pins, reject installed-tool/configuration drift, and lint/format maintained scripts and demos through shared local/CI Make targets. The Mypy hook explicitly checks the package instead of running only stub installation. (#416) by @yeongseon.
+- Full integration validation selects current pytest markers instead of filename globs. Normal, TLS, and nightly slow lanes cover the declared integration inventory, including concurrency stress; unknown skips and missing workflow paths fail the lane audit. TLS provisioning runs broker commands as the service owner. (#397) by @yeongseon.
+- Integration CI now uses the shared CUBRID readiness probe with host/port connection fields and fails before running tests when all retries are exhausted. (#411) by @yeongseon.
+- **`Connection.get_last_insert_id()` / `AsyncConnection.get_last_insert_id()` no longer return an ambiguous empty string after `commit()` (#381)** — cache the broker identity captured after INSERT so it survives commit/rollback and SELECT. Successful values remain strings; unavailable identities return `None`. A new INSERT attempt, nonempty batch, or physical connection change clears the cache; failed, empty, or malformed identity retrieval leaves it unavailable. The broker can report an earlier identity after a non-auto-increment INSERT, so an ID does not prove the current statement generated it or that a row exists after rollback. Migration: replace `value == ""` with `value is None` and check for `None` before `int(value)`; `cursor.lastrowid` remains `int | None`. This is a documented bug correction, not an annotation-only change. Contributed by @srijavuppala (first contribution 🎉).
 - **Empty `executemany()` clears previous results (#376)** — sync and async cursors
   release the previous query handle and reset result state to `description=None`,
   `rowcount=0`, and `lastrowid=None`. No SQL is executed; immediate query-close
   failures propagate without discarding the handle. With deferred close (#488),
   an eligible previous handle is queued without a request and an empty call
-  does not flush the queue; FC20 batches likewise do not carry queued IDs (#585).
-- Failed batch execution no longer exposes stale cursor result state (#375): sync and async executemany_batch clear prior result metadata, row counts, and last-insert IDs before the batch request, including per-statement, transport, and response-parse failure paths. If closing the previous query handle fails, no batch is sent and the handle remains tracked.
-- **`Cursor.arraysize` now rejects non-integer values in sync and async cursors (#370).** Floats, booleans, and other non-integers raise `ProgrammingError` without changing the previous value; positive integers remain valid.
-- **Batch execution closes an existing query handle (#374)** — `executemany_batch()` now releases an active server-side query handle before sending a batch request, matching `execute()` and preventing the prior result-set handle from leaking. Sync and async cursors keep the same behavior.
-- Format very large integer parameters as decimal strings without converting them to floats, avoiding `OverflowError`. Float NaN/infinity rejection and boolean formatting are unchanged. (#368)
+  does not flush the queue; FC20 batches likewise do not carry queued IDs (#585) by @HarshRajSinghania (first contribution 🎉).
+- Failed batch execution no longer exposes stale cursor result state (#375): sync and async executemany_batch clear prior result metadata, row counts, and last-insert IDs before the batch request, including per-statement, transport, and response-parse failure paths. If closing the previous query handle fails, no batch is sent and the handle remains tracked. Contributed by @tayfuryldz.
+- **`Cursor.arraysize` now rejects non-integer values in sync and async cursors (#370).** Floats, booleans, and other non-integers raise `ProgrammingError` without changing the previous value; positive integers remain valid. Contributed by @MugdhoAI (first contribution 🎉).
+- **Batch execution closes an existing query handle (#374)** — `executemany_batch()` now releases an active server-side query handle before sending a batch request, matching `execute()` and preventing the prior result-set handle from leaking. Sync and async cursors keep the same behavior. Contributed by @tayfuryldz (first contribution 🎉).
+- Format very large integer parameters as decimal strings without converting them to floats, avoiding `OverflowError`. Float NaN/infinity rejection and boolean formatting are unchanged. (#368) by @varshith84 (first contribution 🎉).
 
 ### Documentation
 
@@ -3461,15 +3461,15 @@ unchanged):
   sync-only compatibility scalar slice (#439): exact FC2/FC3/FC6 framing,
   session-owned handle/result states, explicit pooling-on evidence limits,
   and failing-first test IDs. This is design evidence, not a shipped prepared
-  API, ordinary 1.x behavior change, or full native-parity claim.
-- Verify owned CLASS/VCLASS/ATTRIBUTE/index/composite PK/FK schema rows on CUBRID 10.2/11.4 in both sync and async modes, with real multi-FETCH/close evidence. Correct schema examples to consume/close results and supply ATTRIBUTE's second filter; document row-order/qualifier/index-family boundaries without claiming native parity. (#457)
-- Select a conservative additive compatibility design (#438): separate wrapper/native namespaces, unchanged ordinary 1.x/SQLAlchemy contracts, classified safe deviations and focused migration/acceptance boundaries. This design preceded the construction-only #465 slice and does not authorize a 2.0/default or release migration.
-- Record the pinned official-driver source declaration inventory and reviewed assertion subcases in a scenario ledger, keeping unknown/duplicate candidates and execution evidence separate; validate candidate links against ledger declarations. This accounting does not certify functional parity. (#437)
-- Private FC9 request/condensed-column groundwork (#455) preceded atomic getter activation and owned row consumption in #456. Its wire fixtures alone were not live-getter or native-parity certification.
-- Add a source-referenced official-driver public API inventory and compatibility guide; catalog consistency checks do not certify functional parity. (#436)
-- Added a README "First contribution" guide (with Korean translation) pointing newcomers to the right sibling repo for their first PR, and documented the `good first issue` → `status: in progress` label lifecycle in AGENTS.md.
-- Acknowledge CUBRID/cubrid-python's reference test scenarios in the README, NOTICE and third-party provenance notes, with source links and explicit licensing-verification limits.
-- Clarify contributor and maintainer review/label/translation responsibilities, validate populated standalone docs exceptions with executable event-JSON checks, and pin the two verified shared workflow callers. CI code/security/release gates and security support policy are unchanged.
+  API, ordinary 1.x behavior change, or full native-parity claim. Contributed by @yeongseon.
+- Verify owned CLASS/VCLASS/ATTRIBUTE/index/composite PK/FK schema rows on CUBRID 10.2/11.4 in both sync and async modes, with real multi-FETCH/close evidence. Correct schema examples to consume/close results and supply ATTRIBUTE's second filter; document row-order/qualifier/index-family boundaries without claiming native parity. (#457) by @yeongseon.
+- Select a conservative additive compatibility design (#438): separate wrapper/native namespaces, unchanged ordinary 1.x/SQLAlchemy contracts, classified safe deviations and focused migration/acceptance boundaries. This design preceded the construction-only #465 slice and does not authorize a 2.0/default or release migration. Contributed by @yeongseon.
+- Record the pinned official-driver source declaration inventory and reviewed assertion subcases in a scenario ledger, keeping unknown/duplicate candidates and execution evidence separate; validate candidate links against ledger declarations. This accounting does not certify functional parity. (#437) by @yeongseon.
+- Private FC9 request/condensed-column groundwork (#455) preceded atomic getter activation and owned row consumption in #456. Its wire fixtures alone were not live-getter or native-parity certification. Contributed by @yeongseon.
+- Add a source-referenced official-driver public API inventory and compatibility guide; catalog consistency checks do not certify functional parity. (#436) by @yeongseon.
+- Added a README "First contribution" guide (with Korean translation) pointing newcomers to the right sibling repo for their first PR, and documented the `good first issue` → `status: in progress` label lifecycle in AGENTS.md. Contributed by @yeongseon.
+- Acknowledge CUBRID/cubrid-python's reference test scenarios in the README, NOTICE and third-party provenance notes, with source links and explicit licensing-verification limits. Contributed by @yeongseon.
+- Clarify contributor and maintainer review/label/translation responsibilities, validate populated standalone docs exceptions with executable event-JSON checks, and pin the two verified shared workflow callers. CI code/security/release gates and security support policy are unchanged. Contributed by @yeongseon.
 
 ## [1.7.1] - 2026-09-18
 
@@ -3477,24 +3477,24 @@ This maintenance release fixes silent truncation when reading large LOB values a
 
 ### Fixed
 
-- **`Lob.read(n)` no longer silently truncates large reads (#362)** — the CUBRID broker caps each `LOB_READ` response at a fixed size (~81908 bytes), so a single request returned a short buffer for any LOB larger than that, with no error (silent partial-read data loss). `Lob.read` now loops, advancing the offset by the bytes the broker actually returned, until the full requested length is collected or the broker signals end-of-LOB. As a side benefit, `read(0)` now short-circuits with no server round-trip (previously it triggered a server-side transaction abort).
-- **create-release.yml: dropped `--target` from `gh release create`** — with an already-pushed tag (the normal tag-push trigger) `--verify-tag` already guarantees the tag exists, and passing `target_commitish` for an existing tag makes the Releases API return `422 Validation Failed`, so the first tag-triggered run of this workflow always failed. Verified live by the v0.4.0 tag attempt in cubrid-mcp-server.
+- **`Lob.read(n)` no longer silently truncates large reads (#362)** — the CUBRID broker caps each `LOB_READ` response at a fixed size (~81908 bytes), so a single request returned a short buffer for any LOB larger than that, with no error (silent partial-read data loss). `Lob.read` now loops, advancing the offset by the bytes the broker actually returned, until the full requested length is collected or the broker signals end-of-LOB. As a side benefit, `read(0)` now short-circuits with no server round-trip (previously it triggered a server-side transaction abort) by @yeongseon.
+- **create-release.yml: dropped `--target` from `gh release create`** — with an already-pushed tag (the normal tag-push trigger) `--verify-tag` already guarantees the tag exists, and passing `target_commitish` for an existing tag makes the Releases API return `422 Validation Failed`, so the first tag-triggered run of this workflow always failed. Verified live by the v0.4.0 tag attempt in cubrid-mcp-server. Contributed by @yeongseon.
 
 ### Documentation
 
-- **Demo GIF embedded in README** — auto-generated terminal demo showing pip install → connect → query → zero dependencies. Rendered from `demos/pycubrid-demo.json` via `demos/render_gif.py`.
-- **한국어 문서 페이지 — 배치 3 완결 (#317)** — TROUBLESHOOTING(1,246줄) 번역으로 13페이지 전체 완성. #317의 배치 작업 종료.
-- **한국어 문서 페이지 — 배치 3 (Project 축, #317)** — DEVELOPMENT(개발 가이드) 번역 추가. TROUBLESHOOTING만 남음.
-- **한국어 문서 페이지 — 배치 3 (Reference/Ops 축 1차, #317)** — SUPPORT_MATRIX·ARCHITECTURE·PERFORMANCE 번역 추가. TROUBLESHOOTING·DEVELOPMENT는 후속.
-- **한국어 문서 페이지 — 배치 2 완결 (#317)** — API 참조(최대 문서, 1,298줄) 번역 추가로 Usage 축 전체(4페이지) 완성.
-- **한국어 문서 페이지 — 배치 2 (Usage 축 2차, #317)** — CAS 프로토콜 참조 번역 추가. Usage 축 마지막(API_REFERENCE)은 후속 배치.
-- **한국어 문서 페이지 — 배치 2 (Usage 축 1차, #317)** — PARAMETER_BINDING·TYPES의 한국어 번역을 `docs/ko/`에 추가. Usage 축 나머지(PROTOCOL·API_REFERENCE)는 후속 배치.
-- **한국어 문서 페이지 — 배치 1/3 (#317)** — Getting Started 축 4페이지(quickstart·CONNECTION·EXAMPLES·faq)의 한국어 번역을 `docs/ko/`에 추가하고 Project → Translations → 한국어 문서로 노출. 나머지 9페이지(Usage/Reference/Operations/Project 축)는 후속 배치. 페이지 번역은 경고 수준 동기화, README.ko 하드 게이트 유지.
-- **Korean/multi-language docs governance** — every `docs/README.<lang>.md` translation now carries a sync marker, and docs-sync gained a `translation-sync` job that fails a PR when `README.md` changes without any translation changing (escape hatch: the `translations-deferred` label).
-- **Docs site information architecture unified across the ecosystem** — nav reorganized to the shared six-tab skeleton (Home / Getting Started / Usage / Reference / Operations / Project), the five README translations (ko/de/hi/ru/zh) are now reachable via Project → Translations (previously URL-only), palette unified to blue with search-suggest, and the homepage gains an Ecosystem section linking the three sibling sites.
-- **CUBRID server license relationship documented; copyright notice unified (#309)** — `docs/ARCHITECTURE.md` gains a section stating the verified upstream licensing (server engine Apache-2.0, APIs/connectors BSD per CUBRID's `COPYING`; the often-cited GPL v2+ no longer applies) and that pycubrid is an independent wire-protocol client with no server code included or linked. `THIRD_PARTY_LICENSES.md` carries the same one-paragraph statement. LICENSE/NOTICE copyright lines now read `Yeongseon Choe, Gyeongjun Paik` (2025-2026), reflecting the two primary authors.
+- **Demo GIF embedded in README** — auto-generated terminal demo showing pip install → connect → query → zero dependencies. Rendered from `demos/pycubrid-demo.json` via `demos/render_gif.py`. Contributed by @yeongseon.
+- **한국어 문서 페이지 — 배치 3 완결 (#317)** — TROUBLESHOOTING(1,246줄) 번역으로 13페이지 전체 완성. #317의 배치 작업 종료. Contributed by @yeongseon.
+- **한국어 문서 페이지 — 배치 3 (Project 축, #317)** — DEVELOPMENT(개발 가이드) 번역 추가. TROUBLESHOOTING만 남음. Contributed by @yeongseon.
+- **한국어 문서 페이지 — 배치 3 (Reference/Ops 축 1차, #317)** — SUPPORT_MATRIX·ARCHITECTURE·PERFORMANCE 번역 추가. TROUBLESHOOTING·DEVELOPMENT는 후속. Contributed by @yeongseon.
+- **한국어 문서 페이지 — 배치 2 완결 (#317)** — API 참조(최대 문서, 1,298줄) 번역 추가로 Usage 축 전체(4페이지) 완성. Contributed by @yeongseon.
+- **한국어 문서 페이지 — 배치 2 (Usage 축 2차, #317)** — CAS 프로토콜 참조 번역 추가. Usage 축 마지막(API_REFERENCE)은 후속 배치. Contributed by @yeongseon.
+- **한국어 문서 페이지 — 배치 2 (Usage 축 1차, #317)** — PARAMETER_BINDING·TYPES의 한국어 번역을 `docs/ko/`에 추가. Usage 축 나머지(PROTOCOL·API_REFERENCE)는 후속 배치. Contributed by @yeongseon.
+- **한국어 문서 페이지 — 배치 1/3 (#317)** — Getting Started 축 4페이지(quickstart·CONNECTION·EXAMPLES·faq)의 한국어 번역을 `docs/ko/`에 추가하고 Project → Translations → 한국어 문서로 노출. 나머지 9페이지(Usage/Reference/Operations/Project 축)는 후속 배치. 페이지 번역은 경고 수준 동기화, README.ko 하드 게이트 유지. Contributed by @yeongseon.
+- **Korean/multi-language docs governance** — every `docs/README.<lang>.md` translation now carries a sync marker, and docs-sync gained a `translation-sync` job that fails a PR when `README.md` changes without any translation changing (escape hatch: the `translations-deferred` label) by @yeongseon.
+- **Docs site information architecture unified across the ecosystem** — nav reorganized to the shared six-tab skeleton (Home / Getting Started / Usage / Reference / Operations / Project), the five README translations (ko/de/hi/ru/zh) are now reachable via Project → Translations (previously URL-only), palette unified to blue with search-suggest, and the homepage gains an Ecosystem section linking the three sibling sites. Contributed by @yeongseon.
+- **CUBRID server license relationship documented; copyright notice unified (#309)** — `docs/ARCHITECTURE.md` gains a section stating the verified upstream licensing (server engine Apache-2.0, APIs/connectors BSD per CUBRID's `COPYING`; the often-cited GPL v2+ no longer applies) and that pycubrid is an independent wire-protocol client with no server code included or linked. `THIRD_PARTY_LICENSES.md` carries the same one-paragraph statement. LICENSE/NOTICE copyright lines now read `Yeongseon Choe, Gyeongjun Paik` (2025-2026), reflecting the two primary authors. Contributed by @yeongseon.
 
-- **Added `THIRD_PARTY_LICENSES.md`** — pip-licenses-generated inventory of the development toolchain's licenses. pycubrid itself has zero runtime dependencies, so nothing in the table ships in the wheel. Documentation only.
+- **Added `THIRD_PARTY_LICENSES.md`** — pip-licenses-generated inventory of the development toolchain's licenses. pycubrid itself has zero runtime dependencies, so nothing in the table ships in the wheel. Documentation only. Contributed by @yeongseon.
 
 ## [1.7.0] - 2026-09-02
 
@@ -3502,36 +3502,36 @@ This release expands DB-API connection compatibility, LOB lifecycle safeguards, 
 
 ### Added
 
-- **DB-API 2.0 exception classes are now exposed as attributes on `Connection`/`AsyncConnection` (#282)** — PEP 249's optional extension recommends that the standard exception classes (`Warning`, `Error`, `InterfaceError`, `DatabaseError`, `DataError`, `OperationalError`, `IntegrityError`, `InternalError`, `ProgrammingError`, `NotSupportedError`) be accessible as attributes of the `Connection` object, so multi-connection code can catch errors specific to a driver without importing its module. All ten classes are now set as class attributes on the shared `ConnectionCommonMixin`, so both sync `Connection` and `AsyncConnection` (and their instances) expose them with identity preserved — e.g. `conn.IntegrityError is pycubrid.IntegrityError`. Additive, backward-compatible surface change (`api-baseline.json` regenerated).
-- **`Lob` now supports client-side lifecycle management — `close()`, context-manager (`with`), and a closed-state guard (#268)** — the CUBRID CAS wire protocol has **no** LOB release/free/close opcode (function codes are contiguous: `LOB_NEW=35`, `LOB_WRITE=36`, `LOB_READ=37`, `END_SESSION=38`), and the reference JDBC driver's `Blob.free()` is likewise purely client-side. LOB handles are therefore connection/session-scoped and reclaimed only when the owning connection/session closes. `Lob.close()` mirrors this: it is idempotent, performs **no** network I/O, and simply invalidates the Python object so subsequent `read()`/`write()` raise `InterfaceError("LOB is closed")`. `Lob` is now usable as a context manager (`__exit__` closes without suppressing exceptions). The `lob_handle`/`lob_type` properties remain readable after close for introspection. The class docstring documents the connection-scoped semantics.
-- **`Lob` now rejects async connections instead of silently producing un-awaited coroutines (#266)** — `Lob` drives its connection *synchronously* (`_send_and_receive` with no `await`), but `AsyncConnection._send_and_receive` is a coroutine. A `Lob` bound to an `AsyncConnection` (via direct construction — `Lob` is exported) therefore called an async method without awaiting it, silently getting a coroutine object back and emitting "coroutine was never awaited" warnings. `Lob.__init__` and `Lob.create()` now detect an async connection (`inspect.iscoroutinefunction`) and raise `NotSupportedError` *before* any packet is sent; async LOB support is not implemented. `AsyncConnection.create_lob()` (previously absent, raising `AttributeError`) now exists and raises the same `NotSupportedError` for a clear, discoverable failure.
+- **DB-API 2.0 exception classes are now exposed as attributes on `Connection`/`AsyncConnection` (#282)** — PEP 249's optional extension recommends that the standard exception classes (`Warning`, `Error`, `InterfaceError`, `DatabaseError`, `DataError`, `OperationalError`, `IntegrityError`, `InternalError`, `ProgrammingError`, `NotSupportedError`) be accessible as attributes of the `Connection` object, so multi-connection code can catch errors specific to a driver without importing its module. All ten classes are now set as class attributes on the shared `ConnectionCommonMixin`, so both sync `Connection` and `AsyncConnection` (and their instances) expose them with identity preserved — e.g. `conn.IntegrityError is pycubrid.IntegrityError`. Additive, backward-compatible surface change (`api-baseline.json` regenerated) by @yeongseon.
+- **`Lob` now supports client-side lifecycle management — `close()`, context-manager (`with`), and a closed-state guard (#268)** — the CUBRID CAS wire protocol has **no** LOB release/free/close opcode (function codes are contiguous: `LOB_NEW=35`, `LOB_WRITE=36`, `LOB_READ=37`, `END_SESSION=38`), and the reference JDBC driver's `Blob.free()` is likewise purely client-side. LOB handles are therefore connection/session-scoped and reclaimed only when the owning connection/session closes. `Lob.close()` mirrors this: it is idempotent, performs **no** network I/O, and simply invalidates the Python object so subsequent `read()`/`write()` raise `InterfaceError("LOB is closed")`. `Lob` is now usable as a context manager (`__exit__` closes without suppressing exceptions). The `lob_handle`/`lob_type` properties remain readable after close for introspection. The class docstring documents the connection-scoped semantics. Contributed by @yeongseon.
+- **`Lob` now rejects async connections instead of silently producing un-awaited coroutines (#266)** — `Lob` drives its connection *synchronously* (`_send_and_receive` with no `await`), but `AsyncConnection._send_and_receive` is a coroutine. A `Lob` bound to an `AsyncConnection` (via direct construction — `Lob` is exported) therefore called an async method without awaiting it, silently getting a coroutine object back and emitting "coroutine was never awaited" warnings. `Lob.__init__` and `Lob.create()` now detect an async connection (`inspect.iscoroutinefunction`) and raise `NotSupportedError` *before* any packet is sent; async LOB support is not implemented. `AsyncConnection.create_lob()` (previously absent, raising `AttributeError`) now exists and raises the same `NotSupportedError` for a clear, discoverable failure. Contributed by @yeongseon.
 
 ### Changed
 
-- **Public escape helpers now share a single `no_backslash_escapes=True` default (#293)** — `escape_string()`, `format_parameter()`, `bind_parameters()`, and `CursorParamsMixin._escape_string()` defaulted the keyword to `False` while `split_on_placeholders()` already defaulted to `True`. A caller that reached for one helper but omitted the keyword could silently get the opposite (non-server-consistent) escaping behavior from another. All five helpers now default to `True`, matching CUBRID's server default (`no_backslash_escapes=yes`, a backslash is an ordinary literal character). Internal driver paths always pass the connection's negotiated value explicitly, so this is a no-op for driver-mediated binding; it only affects code that calls these helpers directly without the keyword, which now gets the correct literal-backslash behavior. A regression test pins the shared default. See [docs/PARAMETER_BINDING.md](docs/PARAMETER_BINDING.md).
-- **Ruff lint rule selection now declared explicitly (#247)** — `pyproject.toml` configured ruff but never set `[tool.ruff.lint] select`, so `ruff check` inherited ruff's implicit defaults. Ruff expanded that default set in 0.16 (59 → 413 rules against this repo's config), which is why #245 (`0.15.22 → 0.16.1`) failed lint with 237 errors in untouched code. Pinning the ruff *version* in #236 stopped unpinned installs from drifting, but could not survive the bump itself — the rule set is now pinned too, via `select = ["E4", "E7", "E9", "F"]`, which is exactly what ruff selected by default through 0.15.x (same 59 rules under both versions).
-- **Backslash-escape negotiation now fails loud instead of silently defaulting to `False` (#263)** — when the `SELECT CHAR_LENGTH('\\')` probe raises or returns an unexpected length (neither `1` nor `2`), `Connection`/`AsyncConnection` previously set `no_backslash_escapes=False` (the legacy value) and logged a warning. Because the CUBRID default maps to `True`, that silent fallback could pick the *wrong* escaping mode and corrupt string literals (or enable SQL injection). Negotiation failure now raises `OperationalError`; pass `no_backslash_escapes` explicitly to skip detection when the probe cannot run. **Behavior change:** connections that previously succeeded with a mis-detected mode now raise at connect time.
-- **Corrected the `Documentation` project URL and added a `Changelog` URL in packaging metadata (#269)** — `[project.urls].Documentation` pointed at the GitHub source tree (`.../tree/main/docs`) rather than the published docs site; it now points to `https://cubrid-lab.github.io/pycubrid/` (matching the README badge and `mkdocs.yml`). A `Changelog` URL (`.../blob/main/CHANGELOG.md`) was also added, mirroring sqlalchemy-cubrid. Packaging metadata only; no code or runtime behavior change.
-- **Renamed the example table `cookbook_users` to `users` consistently across all documentation surfaces (#270)** — the placeholder name appeared in 81 places across `README.md`, all five translated READMEs (`docs/README.{ko,zh,hi,de,ru}.md`), `docs/CONNECTION.md`, `docs/EXAMPLES.md`, `docs/TYPES.md`, and the generated `docs/llms-full.txt`. Documentation only; no code or runtime behavior change.
-- **Binding a Python collection as a single parameter now raises an actionable error message (#287)** — passing a `list`, `tuple`, `set`, `frozenset`, or `dict` as one bound value previously raised the generic `ProgrammingError("unsupported parameter type")`. It now raises `ProgrammingError` with a message that names the collection case and points at the fix: pycubrid does **not** auto-expand `IN (?, ?, ...)`, so placeholders must be expanded explicitly in the SQL. The exception class is unchanged (still `ProgrammingError`) and the message text remains non-contractual; other unsupported types keep the generic message. See [docs/PARAMETER_BINDING.md](docs/PARAMETER_BINDING.md#type-mapping-guarantees).
+- **Public escape helpers now share a single `no_backslash_escapes=True` default (#293)** — `escape_string()`, `format_parameter()`, `bind_parameters()`, and `CursorParamsMixin._escape_string()` defaulted the keyword to `False` while `split_on_placeholders()` already defaulted to `True`. A caller that reached for one helper but omitted the keyword could silently get the opposite (non-server-consistent) escaping behavior from another. All five helpers now default to `True`, matching CUBRID's server default (`no_backslash_escapes=yes`, a backslash is an ordinary literal character). Internal driver paths always pass the connection's negotiated value explicitly, so this is a no-op for driver-mediated binding; it only affects code that calls these helpers directly without the keyword, which now gets the correct literal-backslash behavior. A regression test pins the shared default. See [docs/PARAMETER_BINDING.md](docs/PARAMETER_BINDING.md) by @yeongseon.
+- **Ruff lint rule selection now declared explicitly (#247)** — `pyproject.toml` configured ruff but never set `[tool.ruff.lint] select`, so `ruff check` inherited ruff's implicit defaults. Ruff expanded that default set in 0.16 (59 → 413 rules against this repo's config), which is why #245 (`0.15.22 → 0.16.1`) failed lint with 237 errors in untouched code. Pinning the ruff *version* in #236 stopped unpinned installs from drifting, but could not survive the bump itself — the rule set is now pinned too, via `select = ["E4", "E7", "E9", "F"]`, which is exactly what ruff selected by default through 0.15.x (same 59 rules under both versions) by @paikend.
+- **Backslash-escape negotiation now fails loud instead of silently defaulting to `False` (#263)** — when the `SELECT CHAR_LENGTH('\\')` probe raises or returns an unexpected length (neither `1` nor `2`), `Connection`/`AsyncConnection` previously set `no_backslash_escapes=False` (the legacy value) and logged a warning. Because the CUBRID default maps to `True`, that silent fallback could pick the *wrong* escaping mode and corrupt string literals (or enable SQL injection). Negotiation failure now raises `OperationalError`; pass `no_backslash_escapes` explicitly to skip detection when the probe cannot run. **Behavior change:** connections that previously succeeded with a mis-detected mode now raise at connect time. Contributed by @yeongseon.
+- **Corrected the `Documentation` project URL and added a `Changelog` URL in packaging metadata (#269)** — `[project.urls].Documentation` pointed at the GitHub source tree (`.../tree/main/docs`) rather than the published docs site; it now points to `https://cubrid-lab.github.io/pycubrid/` (matching the README badge and `mkdocs.yml`). A `Changelog` URL (`.../blob/main/CHANGELOG.md`) was also added, mirroring sqlalchemy-cubrid. Packaging metadata only; no code or runtime behavior change. Contributed by @yeongseon.
+- **Renamed the example table `cookbook_users` to `users` consistently across all documentation surfaces (#270)** — the placeholder name appeared in 81 places across `README.md`, all five translated READMEs (`docs/README.{ko,zh,hi,de,ru}.md`), `docs/CONNECTION.md`, `docs/EXAMPLES.md`, `docs/TYPES.md`, and the generated `docs/llms-full.txt`. Documentation only; no code or runtime behavior change. Contributed by @yeongseon.
+- **Binding a Python collection as a single parameter now raises an actionable error message (#287)** — passing a `list`, `tuple`, `set`, `frozenset`, or `dict` as one bound value previously raised the generic `ProgrammingError("unsupported parameter type")`. It now raises `ProgrammingError` with a message that names the collection case and points at the fix: pycubrid does **not** auto-expand `IN (?, ?, ...)`, so placeholders must be expanded explicitly in the SQL. The exception class is unchanged (still `ProgrammingError`) and the message text remains non-contractual; other unsupported types keep the generic message. See [docs/PARAMETER_BINDING.md](docs/PARAMETER_BINDING.md#type-mapping-guarantees) by @yeongseon.
 
 ### Fixed
 
-- **`TIMESTAMPTZ`/`TIMESTAMPLTZ` reads no longer crash with "malformed response from broker" (#289)** — `PacketReader._parse_timestamptz` decoded the timezone-aware timestamp types using the 7-short / 14-byte `DATETIMETZ` layout (which carries a millisecond field). But `TIMESTAMPTZ`/`TIMESTAMPLTZ` are **second-precision**: their wire layout is 6 shorts (12 bytes, no millisecond field) followed by the timezone string. The parser therefore over-read the first 2 bytes of the timezone string as a `ms` value and computed `ms * 1000`, which overflowed `datetime`'s "microsecond must be in 0..999999" range whenever those bytes were non-trivial (e.g. a leading `"As"` from `Asia/Seoul` = 16755 → 16755000 µs). The resulting `ValueError` surfaced as `OperationalError("malformed response from broker")`, making any `SELECT` of a `TIMESTAMPTZ`/`TIMESTAMPLTZ` column unreadable. `_parse_timestamptz` now reads the correct 12-byte second-precision layout (microsecond fixed to 0), and `DATETIMETZ`/`DATETIMELTZ` get their own `_parse_datetimetz` reader that keeps the 14-byte millisecond layout; a shared `_attach_timezone_suffix` helper parses the trailing timezone string for both. See [docs/TYPES.md](docs/TYPES.md).
-- **`CUBRIDIsolationLevel.DEFAULT` corrected from `0x01` to `0x04` (READ COMMITTED) (#285)** — the enum advertised `DEFAULT = 0x01`, which aliases the lowest legacy pre-MVCC level (`COMMIT_CLASS_UNCOMMIT_INSTANCE`), not CUBRID's actual server default. CUBRID's default transaction isolation is **READ COMMITTED**, i.e. `REP_CLASS_COMMIT_INSTANCE = 0x04` (verified on live CUBRID 11.2: `GET TRANSACTION ISOLATION LEVEL` returns `4` on a fresh connection). `DEFAULT` now aliases `0x04`. The accompanying test that asserted `DEFAULT == 0x01` was fossilizing the wrong value and is corrected. A class-docstring note also records that CUBRID's MVCC engine (10.0+) only accepts levels `0x04`/`0x05`/`0x06`; the lower codes remain for protocol/back-compat reference only. This is a constant used for reference; the driver's connection logic does not consume it, so no runtime path changes.
-- **Backslash-escape mode is now auto-negotiated from the server, fixing silent string corruption (#255)** — CUBRID's `no_backslash_escapes` system parameter defaults to `yes` (a backslash is an ordinary literal character), but pycubrid defaulted its client-side flag to `False` and unconditionally doubled backslashes. Against a stock server this silently corrupted data: `C:\temp\file` (12 chars) was stored as `C:\\temp\\file` (14 chars), and `regex \d+` became `regex \\d+`. `Connection`/`AsyncConnection` now probe the live server once at connect time with `SELECT CHAR_LENGTH('\\')` when `no_backslash_escapes` is not passed explicitly: a result of `2` selects literal mode (`True`, no doubling), `1` selects escape-processing mode (`False`), and any other value or a probe error raises `OperationalError` (see below). Passing `no_backslash_escapes=True|False` explicitly skips the probe. LIKE metacharacters (`%`, `_`) were never escaped and remain untouched. See [docs/PARAMETER_BINDING.md](docs/PARAMETER_BINDING.md#escape-mode-negotiation).
-- **Async connection setup now matches the sync ordering and closes a negotiation race (#264)** — `AsyncConnection.connect()` applied the constructor's autocommit *before* negotiating the backslash-escape mode, and ran that negotiation probe **outside** the connection lock. This diverged from the sync driver (which negotiates *before* autocommit) and left a race window: a query issued on another task could execute before the escape mode was pinned, silently using the wrong escaping. Setup now runs the sync order exactly — connect → negotiate escapes → apply autocommit — behind a one-time setup gate that fences other tasks' public operations until the escape mode is pinned, while the setup task's own probe bypasses the gate (no deadlock) and a setup failure propagates to any waiting task. Transparent reconnect is unaffected and never re-probes.
-- **Backslash-escape negotiation probe no longer leaves an open transaction on new connections (#292)** — `Connection`/`AsyncConnection` setup runs the `SELECT CHAR_LENGTH('\\')` probe in the default manual-commit mode, which opens a driver-owned transaction *before* the constructor's `autocommit` setting is applied. The probe never rolled that transaction back, so a freshly opened connection — including one created with `autocommit=True` — was handed to the caller with a lingering, driver-started transaction. Downstream this could cause CUBRID to reject a follow-up operation that requires a clean transaction boundary (e.g. SQLAlchemy setting `isolation_level` on a new pooled connection). Both the sync and async `_negotiate_backslash_escapes()` now roll back the probe transaction on *every* exit path — success, an unexpected probe result, or a probe error — via a best-effort `rollback()` in a `finally` block, so a failed negotiation cannot leave the driver-started transaction open either (passing `no_backslash_escapes` explicitly still skips the probe entirely and opens no transaction). In the async path the rollback is safe during setup because the setup-owning task bypasses `_wait_for_setup_if_needed()`. No public API change.
-- **Backslash-escape negotiation no longer swallows a probe-transaction rollback failure (#300)** — the `finally` block that rolls back the `SELECT CHAR_LENGTH('\\')` probe transaction caught and discarded any rollback error (`except Exception: pass`). If the server-side rollback failed without closing the socket, the probe transaction could remain open and the connection was still handed back to the caller (or pool) in an unknown transaction state. Both sync and async `_negotiate_backslash_escapes()` now, on a rollback failure, close the connection so it can never be reused and raise `OperationalError` — unless a probe error is already propagating, in which case that original error is preserved (the connection is still closed). The success path is unchanged when rollback succeeds. No public API change.
-- **Placeholder tokenizer is now CUBRID-dialect-aware (#265)** — `split_on_placeholders()` (which `bind_parameters()` uses to locate `?` placeholders) only understood ANSI single-quoted strings (`''` doubling), double-quoted identifiers, `--` line comments, and `/* */` block comments. A `?` inside CUBRID-specific lexical contexts was mis-detected as a real placeholder, throwing `wrong number of parameters` or interpolating into the wrong position. The tokenizer now also honours: backslash escapes inside single-quoted strings when the connection's `no_backslash_escapes` is `False` (so `\'` does not terminate the literal and `\\` is a literal backslash — `''` doubling stays valid in both modes; the standalone default `no_backslash_escapes=True` preserves the previous behaviour and matches CUBRID's server default), `//` C++-style line comments, and backtick (`` `id` ``) and bracket (`[id]`) quoted identifiers (first closing delimiter terminates). `bind_parameters()` now threads the connection's `no_backslash_escapes` through to the tokenizer for consistency with `escape_string()`. **Known limitation:** double quotes are treated as identifier delimiters, correct for CUBRID's default `ansi_quotes=yes`; SQL relying on `ansi_quotes=no` (where `"` delimits strings) is not specially handled, as pycubrid does not track that parameter.
-- **Closed a `bool | None` type hole around the negotiated escape mode (#267)** — the cursor parameter-binding mixin declared `_connection: Any`, which masked from mypy that `Connection._no_backslash_escapes` is `bool | None` (unset until negotiated) while `bind_parameters()`/`format_parameter()` require a concrete `bool`. `CursorParamsMixin` is now `Generic` over the concrete connection type (bound to a minimal `_EscapeModeSource` protocol), `Cursor`/`AsyncCursor` specialise it (`CursorParamsMixin[Connection]` / `[AsyncConnection]`), and a new `_resolve_escape_mode()` narrows the value — raising `InterfaceError` if the mode is read before negotiation instead of silently mis-escaping. `AsyncCursor.__init__` is also tightened from `connection: Any` to `AsyncConnection`. No public behaviour change; mypy now catches misuse.
-- **`Lob.read()` now rejects overlong server responses and invalid arguments (#268)** — `read()` returned `packet.lob_data` without checking it against the requested `length`, so a misbehaving server or corrupted transport could hand back more bytes than asked for. `read()` now raises `OperationalError` when the returned length exceeds the requested length, and both `read()`/`write()` validate that `offset` (and, for `read`, `length`) are non-negative, raising `InterfaceError` before any packet is sent.
-- **`format_parameter` now rejects the Ctrl-Z (`0x1A`) byte in string parameters instead of emitting a raw control byte (#271)** — `escape_string()` previously prefixed `0x1A` with a backslash while leaving the raw control byte in the literal, even though CUBRID's SQL grammar defines **no** safe literal escape for it (there is no MySQL-style `\Z`, and the escape had no effect under CUBRID's default `no_backslash_escapes=yes`). Embedding `0x1A` is now rejected with `ProgrammingError("string parameter contains Ctrl-Z (0x1A) byte")` in **both** escape modes, consistent with the existing null-byte rejection. **Behavior change:** strings containing `0x1A` that previously produced a (malformed) literal now raise at bind time. The issue's two other claims were investigated and **rejected as invalid** against the CUBRID manual: `TIME` has second resolution (its literal grammar allows only `'HH:MI:SS'`), so dropping microseconds is correct; and CUBRID accepts scientific/exponential numeric literals (an `E`-form number is parsed as `DOUBLE`), so `str()`'s exponent output (e.g. `1e+20`) is a valid literal. Both are now pinned by tests.
-- **`_extract_first_keyword()` now strips CUBRID C++-style `//` line comments (#256)** — the leading-comment stripper used by `executemany()` to detect the statement's DML verb only skipped `/* */` block comments and `--` ANSI line comments, so a statement prefixed with a `//` line comment (a valid CUBRID comment style) had its verb mis-detected and could be excluded from batch execution. `_RE_LEADING_COMMENTS` now also skips `//` line comments to EOL/EOF, keeping it consistent with the comment styles already honoured by `split_on_placeholders()` (#265).
+- **`TIMESTAMPTZ`/`TIMESTAMPLTZ` reads no longer crash with "malformed response from broker" (#289)** — `PacketReader._parse_timestamptz` decoded the timezone-aware timestamp types using the 7-short / 14-byte `DATETIMETZ` layout (which carries a millisecond field). But `TIMESTAMPTZ`/`TIMESTAMPLTZ` are **second-precision**: their wire layout is 6 shorts (12 bytes, no millisecond field) followed by the timezone string. The parser therefore over-read the first 2 bytes of the timezone string as a `ms` value and computed `ms * 1000`, which overflowed `datetime`'s "microsecond must be in 0..999999" range whenever those bytes were non-trivial (e.g. a leading `"As"` from `Asia/Seoul` = 16755 → 16755000 µs). The resulting `ValueError` surfaced as `OperationalError("malformed response from broker")`, making any `SELECT` of a `TIMESTAMPTZ`/`TIMESTAMPLTZ` column unreadable. `_parse_timestamptz` now reads the correct 12-byte second-precision layout (microsecond fixed to 0), and `DATETIMETZ`/`DATETIMELTZ` get their own `_parse_datetimetz` reader that keeps the 14-byte millisecond layout; a shared `_attach_timezone_suffix` helper parses the trailing timezone string for both. See [docs/TYPES.md](docs/TYPES.md) by @yeongseon.
+- **`CUBRIDIsolationLevel.DEFAULT` corrected from `0x01` to `0x04` (READ COMMITTED) (#285)** — the enum advertised `DEFAULT = 0x01`, which aliases the lowest legacy pre-MVCC level (`COMMIT_CLASS_UNCOMMIT_INSTANCE`), not CUBRID's actual server default. CUBRID's default transaction isolation is **READ COMMITTED**, i.e. `REP_CLASS_COMMIT_INSTANCE = 0x04` (verified on live CUBRID 11.2: `GET TRANSACTION ISOLATION LEVEL` returns `4` on a fresh connection). `DEFAULT` now aliases `0x04`. The accompanying test that asserted `DEFAULT == 0x01` was fossilizing the wrong value and is corrected. A class-docstring note also records that CUBRID's MVCC engine (10.0+) only accepts levels `0x04`/`0x05`/`0x06`; the lower codes remain for protocol/back-compat reference only. This is a constant used for reference; the driver's connection logic does not consume it, so no runtime path changes. Contributed by @yeongseon.
+- **Backslash-escape mode is now auto-negotiated from the server, fixing silent string corruption (#255)** — CUBRID's `no_backslash_escapes` system parameter defaults to `yes` (a backslash is an ordinary literal character), but pycubrid defaulted its client-side flag to `False` and unconditionally doubled backslashes. Against a stock server this silently corrupted data: `C:\temp\file` (12 chars) was stored as `C:\\temp\\file` (14 chars), and `regex \d+` became `regex \\d+`. `Connection`/`AsyncConnection` now probe the live server once at connect time with `SELECT CHAR_LENGTH('\\')` when `no_backslash_escapes` is not passed explicitly: a result of `2` selects literal mode (`True`, no doubling), `1` selects escape-processing mode (`False`), and any other value or a probe error raises `OperationalError` (see below). Passing `no_backslash_escapes=True|False` explicitly skips the probe. LIKE metacharacters (`%`, `_`) were never escaped and remain untouched. See [docs/PARAMETER_BINDING.md](docs/PARAMETER_BINDING.md#escape-mode-negotiation) by @yeongseon.
+- **Async connection setup now matches the sync ordering and closes a negotiation race (#264)** — `AsyncConnection.connect()` applied the constructor's autocommit *before* negotiating the backslash-escape mode, and ran that negotiation probe **outside** the connection lock. This diverged from the sync driver (which negotiates *before* autocommit) and left a race window: a query issued on another task could execute before the escape mode was pinned, silently using the wrong escaping. Setup now runs the sync order exactly — connect → negotiate escapes → apply autocommit — behind a one-time setup gate that fences other tasks' public operations until the escape mode is pinned, while the setup task's own probe bypasses the gate (no deadlock) and a setup failure propagates to any waiting task. Transparent reconnect is unaffected and never re-probes. Contributed by @yeongseon.
+- **Backslash-escape negotiation probe no longer leaves an open transaction on new connections (#292)** — `Connection`/`AsyncConnection` setup runs the `SELECT CHAR_LENGTH('\\')` probe in the default manual-commit mode, which opens a driver-owned transaction *before* the constructor's `autocommit` setting is applied. The probe never rolled that transaction back, so a freshly opened connection — including one created with `autocommit=True` — was handed to the caller with a lingering, driver-started transaction. Downstream this could cause CUBRID to reject a follow-up operation that requires a clean transaction boundary (e.g. SQLAlchemy setting `isolation_level` on a new pooled connection). Both the sync and async `_negotiate_backslash_escapes()` now roll back the probe transaction on *every* exit path — success, an unexpected probe result, or a probe error — via a best-effort `rollback()` in a `finally` block, so a failed negotiation cannot leave the driver-started transaction open either (passing `no_backslash_escapes` explicitly still skips the probe entirely and opens no transaction). In the async path the rollback is safe during setup because the setup-owning task bypasses `_wait_for_setup_if_needed()`. No public API change. Contributed by @yeongseon.
+- **Backslash-escape negotiation no longer swallows a probe-transaction rollback failure (#300)** — the `finally` block that rolls back the `SELECT CHAR_LENGTH('\\')` probe transaction caught and discarded any rollback error (`except Exception: pass`). If the server-side rollback failed without closing the socket, the probe transaction could remain open and the connection was still handed back to the caller (or pool) in an unknown transaction state. Both sync and async `_negotiate_backslash_escapes()` now, on a rollback failure, close the connection so it can never be reused and raise `OperationalError` — unless a probe error is already propagating, in which case that original error is preserved (the connection is still closed). The success path is unchanged when rollback succeeds. No public API change. Contributed by @yeongseon.
+- **Placeholder tokenizer is now CUBRID-dialect-aware (#265)** — `split_on_placeholders()` (which `bind_parameters()` uses to locate `?` placeholders) only understood ANSI single-quoted strings (`''` doubling), double-quoted identifiers, `--` line comments, and `/* */` block comments. A `?` inside CUBRID-specific lexical contexts was mis-detected as a real placeholder, throwing `wrong number of parameters` or interpolating into the wrong position. The tokenizer now also honours: backslash escapes inside single-quoted strings when the connection's `no_backslash_escapes` is `False` (so `\'` does not terminate the literal and `\\` is a literal backslash — `''` doubling stays valid in both modes; the standalone default `no_backslash_escapes=True` preserves the previous behaviour and matches CUBRID's server default), `//` C++-style line comments, and backtick (`` `id` ``) and bracket (`[id]`) quoted identifiers (first closing delimiter terminates). `bind_parameters()` now threads the connection's `no_backslash_escapes` through to the tokenizer for consistency with `escape_string()`. **Known limitation:** double quotes are treated as identifier delimiters, correct for CUBRID's default `ansi_quotes=yes`; SQL relying on `ansi_quotes=no` (where `"` delimits strings) is not specially handled, as pycubrid does not track that parameter. Contributed by @yeongseon.
+- **Closed a `bool | None` type hole around the negotiated escape mode (#267)** — the cursor parameter-binding mixin declared `_connection: Any`, which masked from mypy that `Connection._no_backslash_escapes` is `bool | None` (unset until negotiated) while `bind_parameters()`/`format_parameter()` require a concrete `bool`. `CursorParamsMixin` is now `Generic` over the concrete connection type (bound to a minimal `_EscapeModeSource` protocol), `Cursor`/`AsyncCursor` specialise it (`CursorParamsMixin[Connection]` / `[AsyncConnection]`), and a new `_resolve_escape_mode()` narrows the value — raising `InterfaceError` if the mode is read before negotiation instead of silently mis-escaping. `AsyncCursor.__init__` is also tightened from `connection: Any` to `AsyncConnection`. No public behaviour change; mypy now catches misuse. Contributed by @yeongseon.
+- **`Lob.read()` now rejects overlong server responses and invalid arguments (#268)** — `read()` returned `packet.lob_data` without checking it against the requested `length`, so a misbehaving server or corrupted transport could hand back more bytes than asked for. `read()` now raises `OperationalError` when the returned length exceeds the requested length, and both `read()`/`write()` validate that `offset` (and, for `read`, `length`) are non-negative, raising `InterfaceError` before any packet is sent. Contributed by @yeongseon.
+- **`format_parameter` now rejects the Ctrl-Z (`0x1A`) byte in string parameters instead of emitting a raw control byte (#271)** — `escape_string()` previously prefixed `0x1A` with a backslash while leaving the raw control byte in the literal, even though CUBRID's SQL grammar defines **no** safe literal escape for it (there is no MySQL-style `\Z`, and the escape had no effect under CUBRID's default `no_backslash_escapes=yes`). Embedding `0x1A` is now rejected with `ProgrammingError("string parameter contains Ctrl-Z (0x1A) byte")` in **both** escape modes, consistent with the existing null-byte rejection. **Behavior change:** strings containing `0x1A` that previously produced a (malformed) literal now raise at bind time. The issue's two other claims were investigated and **rejected as invalid** against the CUBRID manual: `TIME` has second resolution (its literal grammar allows only `'HH:MI:SS'`), so dropping microseconds is correct; and CUBRID accepts scientific/exponential numeric literals (an `E`-form number is parsed as `DOUBLE`), so `str()`'s exponent output (e.g. `1e+20`) is a valid literal. Both are now pinned by tests. Contributed by @yeongseon.
+- **`_extract_first_keyword()` now strips CUBRID C++-style `//` line comments (#256)** — the leading-comment stripper used by `executemany()` to detect the statement's DML verb only skipped `/* */` block comments and `--` ANSI line comments, so a statement prefixed with a `//` line comment (a valid CUBRID comment style) had its verb mis-detected and could be excluded from batch execution. `_RE_LEADING_COMMENTS` now also skips `//` line comments to EOL/EOF, keeping it consistent with the comment styles already honoured by `split_on_placeholders()` (#265) by @yeongseon.
 
 ### Documentation
 
-- **Added an Acknowledgments section and a `NOTICE` file crediting the CUBRID Node.js driver ([node-cubrid](https://github.com/CUBRID/node-cubrid), © 2008–2012 Search Solution Corporation, BSD-3-Clause)** — during pycubrid's initial development, node-cubrid was consulted as a reference implementation to understand CUBRID's CAS wire protocol (packet structure and function codes). This is recorded as an acknowledgment in `README.md`, `docs/README.ko.md`, and the new `NOTICE` file. Documentation only; no code or runtime behavior change.
+- **Added an Acknowledgments section and a `NOTICE` file crediting the CUBRID Node.js driver ([node-cubrid](https://github.com/CUBRID/node-cubrid), © 2008–2012 Search Solution Corporation, BSD-3-Clause)** — during pycubrid's initial development, node-cubrid was consulted as a reference implementation to understand CUBRID's CAS wire protocol (packet structure and function codes). This is recorded as an acknowledgment in `README.md`, `docs/README.ko.md`, and the new `NOTICE` file. Documentation only; no code or runtime behavior change. Contributed by @yeongseon.
 
 ## [1.6.2] - 2026-08-06
 
