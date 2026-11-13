@@ -28,12 +28,7 @@ This maintenance update improves source builds, setup and migration guidance, an
 
 - **Rule for temporary tooling** — The contributing guide (English and Korean) now says how to add, review and remove an intentionally temporary script, repair tool, probe, dataset or workflow: record its reason, owner, removal trigger, evidence location and next review point, run one-time work manually, and map every caller before removal. The pull request template links to it, and the `scripts/_profile_scratch.py` keep decision is the worked example ([#1169](https://github.com/cubrid-lab/pycubrid/issues/1169)) by @yeongseon.
 
-- **Step 1 now gives a Windows activation command, and later lessons point back to it (#1092)** —
-  Step 1 and the later lessons' reminders gave only `source .venv/bin/activate`, which fails in
-  both cmd and PowerShell, although the package declares Windows support and carries a
-  Windows-only dependency. Step 1 (English and Korean) now also shows the PowerShell and cmd
-  forms, marked unverified, and the later lessons and the `ModuleNotFoundError` row link back to
-  Step 1 instead of repeating only the POSIX command.
+- **Step 1 now gives a Windows activation command, and later lessons point back to it** — Step 1 and the later lessons' reminders gave only `source .venv/bin/activate`, which fails in both cmd and PowerShell, although the package declares Windows support and carries a Windows-only dependency. Step 1 (English and Korean) now also shows the PowerShell and cmd forms, marked unverified, and the later lessons and the `ModuleNotFoundError` row link back to Step 1 instead of repeating only the POSIX command ([#1092](https://github.com/cubrid-lab/pycubrid/issues/1092), [PR #1159](https://github.com/cubrid-lab/pycubrid/pull/1159)) by @srijavuppala.
 
 - **Safer Docker setup** — Troubleshooting examples now wait until `testdb` accepts an actual login instead of relying on `cubrid broker status`. The examples also bind port 33000 locally rather than exposing an empty-password `dba` connection on every interface ([#1083](https://github.com/cubrid-lab/pycubrid/issues/1083), [PR #1146](https://github.com/cubrid-lab/pycubrid/pull/1146)) by @yeongseon.
 
@@ -47,7 +42,7 @@ This maintenance update improves source builds, setup and migration guidance, an
 
 - **Moving LOB data safely** — The Compat migration guide no longer claims that wrapping a LOB handle from another connection always raises `InterfaceError`. Direct `Lob(target, ...)` rewrapping can instead store data that another transaction never committed; read the bytes and write a new LOB ([#1130](https://github.com/cubrid-lab/pycubrid/issues/1130), [PR #1141](https://github.com/cubrid-lab/pycubrid/pull/1141)) by @yeongseon.
 
-- **Runnable example scripts** — The Examples page (English and Korean) now names the five scripts in `examples/`, the environment variables they read with their defaults, the run command, and the tables they leave behind, with a `DROP TABLE` cleanup ([#1087](https://github.com/cubrid-lab/pycubrid/issues/1087)) by @CloudCorpRecords.
+- **Runnable example scripts** — The Examples page (English and Korean) now names the five scripts in `examples/`, the environment variables they read with their defaults, the run command, and the tables they leave behind, with a `DROP TABLE` cleanup ([#1087](https://github.com/cubrid-lab/pycubrid/issues/1087), [PR #1208](https://github.com/cubrid-lab/pycubrid/pull/1208)) by @CloudCorpRecords (first contribution 🎉).
 
 - **Connection errors in Troubleshooting** — The "ConnectionRefusedError on Port 33000" and timeout entries (English and Korean) now start with the `OperationalError` that ends the traceback: `failed to connect to CUBRID broker` (sync), `could not connect to <host>:<port>` (async TCP connect) and `read timeout during connect handshake` (async handshake). The original network error stays shown as the chained cause, and the anchors are unchanged ([#1080](https://github.com/cubrid-lab/pycubrid/issues/1080), [PR #1212](https://github.com/cubrid-lab/pycubrid/pull/1212)) by @Mr-Neutr0n.
 
@@ -72,6 +67,8 @@ This maintenance update improves source builds, setup and migration guidance, an
 ### Tests
 
 - **Independent DB-API regressions** — New sync/async tests cover computed and aliased result metadata, commit/rollback visibility, READ COMMITTED versus REPEATABLE READ, collection decoding and large multibyte CLOB contents. Offline cases cover `Lob.read()`/`Lob.write()` failures; common tests no longer depend on Compat fixtures. Compat-specific tests remain until that separately gated removal. Runtime behavior is unchanged ([#1123](https://github.com/cubrid-lab/pycubrid/issues/1123), [PR #1131](https://github.com/cubrid-lab/pycubrid/pull/1131)) by @yeongseon.
+
+- **Integration-lane inventory regressions** — New offline tests check how the integration test inventory sorts tests by marker, rejects lane markers that lack the `integration` marker, ignores unmarked tests, and accepts only the known collection skip. Runtime behavior is unchanged ([#1079](https://github.com/cubrid-lab/pycubrid/issues/1079), [PR #1201](https://github.com/cubrid-lab/pycubrid/pull/1201)) by @Noah-Mengesha (first contribution 🎉).
 
 ## [1.17.0] - 2026-11-05
 
