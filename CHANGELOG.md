@@ -3911,7 +3911,7 @@ This release documents using pycubrid with the separately installed SQLAlchemy d
 
 ## [0.4.0] - 2026-03-12
 
-This release adds ways to work with CUBRID large objects, inspect database schema information and execute batches of SQL statements. It builds on the connection and cursor support introduced in v0.3.0.
+This release adds ways to work with CUBRID large objects, inspect database schema information and execute batches of SQL statements. It builds on the connection and cursor support introduced in v0.3.0. This version exists only as a Git tag and GitHub Release: it was never uploaded to PyPI, where the first available release is 0.5.0.
 
 ### Added
 
@@ -3923,7 +3923,7 @@ This release adds ways to work with CUBRID large objects, inspect database schem
 
 ## [0.3.0] - 2026-03-12
 
-This release adds the first usable DB-API connection and cursor implementation on top of the CUBRID CAS protocol. It supports basic SQL queries and transactions; later versions expand the driver's capabilities.
+This release adds the first usable DB-API connection and cursor implementation on top of the CUBRID CAS protocol. It supports basic SQL queries and transactions; later versions expand the driver's capabilities. This version exists only as a Git tag and GitHub Release: it was never uploaded to PyPI, where the first available release is 0.5.0.
 
 ### Added
 
@@ -3939,7 +3939,7 @@ This release adds the first usable DB-API connection and cursor implementation o
 
 ## [0.2.0] - 2026-03-12
 
-This release introduces the binary protocol building blocks for communicating with a CUBRID broker, including packet formats and decoded result values. It is not yet a working database connector: the v0.2.0 tag still has no `pycubrid.connection` implementation.
+This release introduces the binary protocol building blocks for communicating with a CUBRID broker, including packet formats and decoded result values. It is not yet a working database connector: the v0.2.0 tag still has no `pycubrid.connection` implementation. This version exists only as a Git tag and GitHub Release: it was never uploaded to PyPI, where the first available release is 0.5.0.
 
 ### Added
 
@@ -3951,11 +3951,11 @@ This release introduces the binary protocol building blocks for communicating wi
 
 ## [0.1.0] - 2026-03-12
 
-This first release establishes the pycubrid package and its DB-API 2.0 foundations, including error types and CUBRID protocol constants. The v0.1.0 tag does not yet contain the database connection implementation; usable connections and queries arrived in later releases.
+This first release establishes the pycubrid package and its DB-API 2.0 foundations, including error types and CUBRID protocol constants. The v0.1.0 tag does not yet contain the database connection implementation; usable connections and queries arrived in later releases. This version exists only as a Git tag and GitHub Release: it was never uploaded to PyPI, where the first available release is 0.5.0.
 
 ### Added
 
-- **Python package setup** — Introduced the installable `pycubrid` package (`pip install pycubrid`) and its DB-API module attributes `apilevel`, `threadsafety` and `paramstyle`. Although `connect()` is exported, the v0.1.0 tag has no `pycubrid.connection` module, so it cannot open a working connection ([commit 9e4041a](https://github.com/cubrid-lab/pycubrid/commit/9e4041a22edee7a9ca8396f86c618240016a53b5)) by @yeongseon.
+- **Python package setup** — Introduced the `pycubrid` package, installable from a source checkout, and its DB-API module attributes `apilevel`, `threadsafety` and `paramstyle`. Although `connect()` is exported, the v0.1.0 tag has no `pycubrid.connection` module, so it cannot open a working connection ([commit 9e4041a](https://github.com/cubrid-lab/pycubrid/commit/9e4041a22edee7a9ca8396f86c618240016a53b5)) by @yeongseon.
 
 - **DB-API errors and type helpers** — Added the PEP 249 exception hierarchy, the `STRING`, `BINARY`, `NUMBER`, `DATETIME` and `ROWID` type objects, and standard date, time, timestamp and binary constructors ([commit 9e4041a](https://github.com/cubrid-lab/pycubrid/commit/9e4041a22edee7a9ca8396f86c618240016a53b5)) by @yeongseon.
 
