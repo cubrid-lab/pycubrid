@@ -84,7 +84,7 @@ This maintenance update improves source builds, setup and migration guidance, an
   supported for the rest of 1.x. That promise no longer holds, and this is a
   deliberate reversal, not a clarification: those names were not provisional. They
   remain supported until they are retired through the new process, and no removal
-  version or date is set. The note below describes the warning they now emit.
+  version or date is set. The note below describes the warning they now emit. Contributed by @yeongseon.
 - **`pycubrid.compat` can now be retired in a MINOR release (#1124).** A later 1.x
   MINOR release may remove these namespaces, after an earlier published MINOR release
   with a visible warning and a migration guide, and at least 28 calendar days of
@@ -95,7 +95,7 @@ This maintenance update improves source builds, setup and migration guidance, an
   fix that cannot be made compatibly (it changes no more than the fix requires and
   carries its own Upgrade note), and `pycubrid.compat` now receives bug and security
   fixes only. See the
-  [release policy](RELEASE_POLICY.md#deprecation-based-retirement-in-a-minor-release).
+  [release policy](RELEASE_POLICY.md#deprecation-based-retirement-in-a-minor-release) by @yeongseon.
 - **Creating a `pycubrid.compat` connection now emits `FutureWarning` (#1120).** Your code
   keeps working, and Python shows the warning by default once per calling line. If you run
   with warnings as errors (`python -W error`, or `filterwarnings = error` in pytest), this
@@ -105,11 +105,11 @@ This maintenance update improves source builds, setup and migration guidance, an
   lose writes. Follow the [migration guide](docs/COMPAT_MIGRATION.md), which lists what has no
   ordinary replacement. A later 1.x MINOR release will remove these namespaces, at least 28
   calendar days after this release reaches PyPI. No version or date is set yet, and a range
-  such as `pycubrid>=1.8.0,<2.0` can install that release automatically.
+  such as `pycubrid>=1.8.0,<2.0` can install that release automatically. Contributed by @yeongseon.
 
 ### Added
 
-* **compat:** warn that the compat namespaces are deprecated ([#1128](https://github.com/cubrid-lab/pycubrid/issues/1128)) ([24c4518](https://github.com/cubrid-lab/pycubrid/commit/24c4518fd848876d2da3b8998c4c9e7116584f01))
+* **compat:** warn that the compat namespaces are deprecated ([#1128](https://github.com/cubrid-lab/pycubrid/issues/1128)) ([24c4518](https://github.com/cubrid-lab/pycubrid/commit/24c4518fd848876d2da3b8998c4c9e7116584f01)) by @yeongseon.
 
 ### Deprecated
 
@@ -117,11 +117,11 @@ This maintenance update improves source builds, setup and migration guidance, an
   `pycubrid.compat.cursors`, the opt-in imitation of the official `_cubrid` and `CUBRIDdb` APIs,
   are deprecated. `pycubrid` and `pycubrid.aio` are the replacements. Every factory warns at
   the caller's line before any socket work. Importing these modules, and using `pycubrid` or
-  `pycubrid.aio`, does not warn.
+  `pycubrid.aio`, does not warn. Contributed by @yeongseon.
 
 ### Documentation
 
-* **release:** adopt deprecation-based MINOR retirement for Compat ([#1125](https://github.com/cubrid-lab/pycubrid/issues/1125)) ([2c52d45](https://github.com/cubrid-lab/pycubrid/commit/2c52d459999ac5a2332f2de51921bd01e4775ab1))
+* **release:** adopt deprecation-based MINOR retirement for Compat ([#1125](https://github.com/cubrid-lab/pycubrid/issues/1125)) ([2c52d45](https://github.com/cubrid-lab/pycubrid/commit/2c52d459999ac5a2332f2de51921bd01e4775ab1)) by @yeongseon.
 
 ## [1.16.0] - 2026-11-05
 
@@ -141,28 +141,32 @@ This release adds a limited `schema_info()` compatibility surface to the opt-in 
   retry or reconnect, also on the no-row and error paths that the official extension leaves
   open. A live differential against the official driver on CUBRID 10.2 and 11.4 covers the
   supported types. The ordinary `get_schema_info()`, `fetch_schema_info()` and
-  `close_schema_info()` are unchanged.
+  `close_schema_info()` are unchanged. Contributed by @yeongseon.
 
-* **compat:** add native first-row schema_info() for verified schema types ([#1057](https://github.com/cubrid-lab/pycubrid/issues/1057)) ([4e110ec](https://github.com/cubrid-lab/pycubrid/commit/4e110ec29c1c5679383bba3e8c7bf65f835cb3e1))
+* **compat:** add native first-row schema_info() for verified schema types ([#1057](https://github.com/cubrid-lab/pycubrid/issues/1057)) ([4e110ec](https://github.com/cubrid-lab/pycubrid/commit/4e110ec29c1c5679383bba3e8c7bf65f835cb3e1)) by @yeongseon.
 
 ### Documentation
 
 - **Troubleshooting logging example works on a fresh database (#1085)** — the English and Korean
-  examples query the built-in `db_class` catalog and close their cursor and connection.
+  examples query the built-in `db_class` catalog and close their cursor and connection. Contributed by @goktugekin.
 - **Docs FAQ names supported Python versions (#1094)** — the English and Korean site FAQs now
   state Python 3.11–3.15 support, the standard GIL build requirement, and the Python 3.10
-  fallback to 1.9.x. The Support Matrix remains the authoritative compatibility reference.
-- **README and docs site show the transparent brand icon (#1096)** — the icon URL pinned in the README, its translations and `mkdocs.yml` (logo and favicon) now points at brand revision `e55990a`, where the Driver icon's layer gaps are real transparency instead of white strokes. Documentation only; behavior is unchanged.
+  fallback to 1.9.x. The Support Matrix remains the authoritative compatibility reference. Contributed by @goktugekin.
+- **README and docs site show the transparent brand icon (#1096)** — the icon URL pinned in the README, its translations and `mkdocs.yml` (logo and favicon) now points at brand revision `e55990a`, where the Driver icon's layer gaps are real transparency instead of white strokes. Documentation only; behavior is unchanged. Contributed by @yeongseon.
 
-* align issue titles with organization writing standard ([#1067](https://github.com/cubrid-lab/pycubrid/issues/1067)) ([629a3ac](https://github.com/cubrid-lab/pycubrid/commit/629a3ac3b9e8492207db9ac092d78d5abcefdd7c))
-* **changelog:** move the schema_info note to the unreleased section ([#1117](https://github.com/cubrid-lab/pycubrid/issues/1117)) ([28b7cdc](https://github.com/cubrid-lab/pycubrid/commit/28b7cdcc16917792393aaccaa0974b905ab178c6))
-* **faq:** clarify supported Python versions ([#1099](https://github.com/cubrid-lab/pycubrid/issues/1099)) ([5b6a814](https://github.com/cubrid-lab/pycubrid/commit/5b6a814ac6fdcaf4c41afdc4cfe8d82a366a51e0))
-* **readme:** repin the brand icon to the transparent role marks ([#1097](https://github.com/cubrid-lab/pycubrid/issues/1097)) ([d9e2e1b](https://github.com/cubrid-lab/pycubrid/commit/d9e2e1b8cb5c02a4af205e2d7b61469f738b7c25))
-* require human-readable agent communication and self-explanatory comments ([#1062](https://github.com/cubrid-lab/pycubrid/issues/1062)) ([83fbbca](https://github.com/cubrid-lab/pycubrid/commit/83fbbca04828b15ea24fe4d3e962d187deb77940))
-* **troubleshooting:** list the connection-closed errors the driver raises ([#1095](https://github.com/cubrid-lab/pycubrid/issues/1095)) ([232c15e](https://github.com/cubrid-lab/pycubrid/commit/232c15ebd3129dbe345da8d3bb426f7eb6dc4c04))
-* **troubleshooting:** make verbose logging example runnable ([#1104](https://github.com/cubrid-lab/pycubrid/issues/1104)) ([818dd04](https://github.com/cubrid-lab/pycubrid/commit/818dd04dfdd43c86223e5cdb6a04ba0eff866a6f))
-* update bug report environment guidance ([#1102](https://github.com/cubrid-lab/pycubrid/issues/1102)) ([e588438](https://github.com/cubrid-lab/pycubrid/commit/e588438a7a8e004f4fdda430ca1f746e7b59344b))
-* use the Python yellow from the brand tokens in the site theme ([#1103](https://github.com/cubrid-lab/pycubrid/issues/1103)) ([c18d35a](https://github.com/cubrid-lab/pycubrid/commit/c18d35a3057e879989868163481068a351bdcbaa))
+* align issue titles with organization writing standard ([#1067](https://github.com/cubrid-lab/pycubrid/issues/1067)) ([629a3ac](https://github.com/cubrid-lab/pycubrid/commit/629a3ac3b9e8492207db9ac092d78d5abcefdd7c)) by @yeongseon.
+* **changelog:** move the schema_info note to the unreleased section ([#1117](https://github.com/cubrid-lab/pycubrid/issues/1117)) ([28b7cdc](https://github.com/cubrid-lab/pycubrid/commit/28b7cdcc16917792393aaccaa0974b905ab178c6)) by @yeongseon.
+* **faq:** clarify supported Python versions ([#1099](https://github.com/cubrid-lab/pycubrid/issues/1099)) ([5b6a814](https://github.com/cubrid-lab/pycubrid/commit/5b6a814ac6fdcaf4c41afdc4cfe8d82a366a51e0)) by @goktugekin (first contribution 🎉).
+* **readme:** repin the brand icon to the transparent role marks ([#1097](https://github.com/cubrid-lab/pycubrid/issues/1097)) ([d9e2e1b](https://github.com/cubrid-lab/pycubrid/commit/d9e2e1b8cb5c02a4af205e2d7b61469f738b7c25)) by @yeongseon.
+* require human-readable agent communication and self-explanatory comments ([#1062](https://github.com/cubrid-lab/pycubrid/issues/1062)) ([83fbbca](https://github.com/cubrid-lab/pycubrid/commit/83fbbca04828b15ea24fe4d3e962d187deb77940)) by @yeongseon.
+* **troubleshooting:** list the connection-closed errors the driver raises ([#1095](https://github.com/cubrid-lab/pycubrid/issues/1095)) ([232c15e](https://github.com/cubrid-lab/pycubrid/commit/232c15ebd3129dbe345da8d3bb426f7eb6dc4c04)) by @bfs2021 (first contribution 🎉).
+* **troubleshooting:** make verbose logging example runnable ([#1104](https://github.com/cubrid-lab/pycubrid/issues/1104)) ([818dd04](https://github.com/cubrid-lab/pycubrid/commit/818dd04dfdd43c86223e5cdb6a04ba0eff866a6f)) by @goktugekin.
+* update bug report environment guidance ([#1102](https://github.com/cubrid-lab/pycubrid/issues/1102)) ([e588438](https://github.com/cubrid-lab/pycubrid/commit/e588438a7a8e004f4fdda430ca1f746e7b59344b)) by @Vamsi-2581 (first contribution 🎉).
+* use the Python yellow from the brand tokens in the site theme ([#1103](https://github.com/cubrid-lab/pycubrid/issues/1103)) ([c18d35a](https://github.com/cubrid-lab/pycubrid/commit/c18d35a3057e879989868163481068a351bdcbaa)) by @yeongseon.
+
+### Tests
+
+- **Release and profiling script tests** — Added offline tests that pin how the benchmark regression script parses its input and reports in report-only mode, when the fetch profiler loop terminates, the call shapes of the execute profiler's DML helpers, the fail-closed exits of `extract_release_notes`, and the license and URL lookup order of the inventory generator ([#1073](https://github.com/cubrid-lab/pycubrid/pull/1073), [#1074](https://github.com/cubrid-lab/pycubrid/pull/1074), [#1075](https://github.com/cubrid-lab/pycubrid/pull/1075), [#1100](https://github.com/cubrid-lab/pycubrid/pull/1100), [#1101](https://github.com/cubrid-lab/pycubrid/pull/1101)) by @kcncb (first contribution 🎉).
 
 ## [1.15.0] - 2026-10-27
 
@@ -179,22 +183,31 @@ This release improves reproducible test-result reporting and documentation prese
   The runner forwards the first SIGINT, SIGTERM or SIGHUP to the running phase as SIGTERM and
   exits 128 + N; `make integration` now `exec`s its runner and also cleans up on SIGHUP.
   `make -n verify` writes nothing. Development tooling only; the driver API and runtime are
-  unchanged.
+  unchanged. Contributed by @yeongseon.
 
-* **make:** write an aggregate verification summary under test-results/verify ([#1054](https://github.com/cubrid-lab/pycubrid/issues/1054)) ([a7e0be2](https://github.com/cubrid-lab/pycubrid/commit/a7e0be2a80f79331cbdf4fec8770c5c3ab645ea4))
+* **make:** write an aggregate verification summary under test-results/verify ([#1054](https://github.com/cubrid-lab/pycubrid/issues/1054)) ([a7e0be2](https://github.com/cubrid-lab/pycubrid/commit/a7e0be2a80f79331cbdf4fec8770c5c3ab645ea4)) by @yeongseon.
 
 ### Documentation
 
-- **README and docs site show the brand icon with white marks (#1071)** — the icon URL pinned in the README, its translations and `mkdocs.yml` (logo and favicon) now points at brand revision `3a385be`, where the Python Yellow icons draw white role marks on a bare cube like every other language. Documentation only; behavior is unchanged.
-- **README and docs site show the emblem-aligned brand icon (#1069)** — the icon URL pinned in the README, its translations and `mkdocs.yml` (logo and favicon) now points at the brand revision `538bad3`, whose Python Yellow keyline keeps the cube silhouette of the organization emblem (open seams, no flat bottom). Documentation only; behavior is unchanged.
-- **README and docs site show the cube-redesign brand icon (#1060)** — the icon URL pinned in the README, its translations and `mkdocs.yml` (logo and favicon) now points at the brand revision `38b4646`, which carries the redesigned Driver icon. Documentation only; behavior is unchanged.
-- **README and docs site show the 2026-10-25 brand icon (#1058)** — the icon URL pinned in the README, its translations and `mkdocs.yml` (logo and favicon) now points at the approved CUBRID Lab brand revision `8aa81b7`. Documentation only; behavior is unchanged.
+- **README and docs site show the brand icon with white marks (#1071)** — the icon URL pinned in the README, its translations and `mkdocs.yml` (logo and favicon) now points at brand revision `3a385be`, where the Python Yellow icons draw white role marks on a bare cube like every other language. Documentation only; behavior is unchanged. Contributed by @yeongseon.
+- **README and docs site show the emblem-aligned brand icon (#1069)** — the icon URL pinned in the README, its translations and `mkdocs.yml` (logo and favicon) now points at the brand revision `538bad3`, whose Python Yellow keyline keeps the cube silhouette of the organization emblem (open seams, no flat bottom). Documentation only; behavior is unchanged. Contributed by @yeongseon.
+- **README and docs site show the cube-redesign brand icon (#1060)** — the icon URL pinned in the README, its translations and `mkdocs.yml` (logo and favicon) now points at the brand revision `38b4646`, which carries the redesigned Driver icon. Documentation only; behavior is unchanged. Contributed by @yeongseon.
+- **README and docs site show the 2026-10-25 brand icon (#1058)** — the icon URL pinned in the README, its translations and `mkdocs.yml` (logo and favicon) now points at the approved CUBRID Lab brand revision `8aa81b7`. Documentation only; behavior is unchanged. Contributed by @yeongseon.
 
-* **profile:** warn that the profilers write to the target database ([#1063](https://github.com/cubrid-lab/pycubrid/issues/1063)) ([1789ebc](https://github.com/cubrid-lab/pycubrid/commit/1789ebc32fab0a2648cbad21f567e3da32ed1e53)), refs [#918](https://github.com/cubrid-lab/pycubrid/issues/918)
-* **readme:** repin the brand icon to the 2026-10-25 brand revision ([#1059](https://github.com/cubrid-lab/pycubrid/issues/1059)) ([a3f7d6b](https://github.com/cubrid-lab/pycubrid/commit/a3f7d6bb30652a592d43a8f492cc88bdcd5d459c))
-* **readme:** repin the brand icon to the cube redesign ([#1061](https://github.com/cubrid-lab/pycubrid/issues/1061)) ([675739e](https://github.com/cubrid-lab/pycubrid/commit/675739ee5fc541fac02f6b289aa533eeb42daba8))
-* **readme:** repin the brand icon to the emblem-aligned keyline ([#1070](https://github.com/cubrid-lab/pycubrid/issues/1070)) ([223d83a](https://github.com/cubrid-lab/pycubrid/commit/223d83a85e187d766f3b256790b3f15671ecd5d0))
-* **readme:** repin the brand icon to the shared white marks ([#1072](https://github.com/cubrid-lab/pycubrid/issues/1072)) ([5dcd360](https://github.com/cubrid-lab/pycubrid/commit/5dcd3608bac3d1e3f71ba85e636a5de6eb974c79))
+* **profile:** warn that the profilers write to the target database ([#1063](https://github.com/cubrid-lab/pycubrid/issues/1063)) ([1789ebc](https://github.com/cubrid-lab/pycubrid/commit/1789ebc32fab0a2648cbad21f567e3da32ed1e53)), refs [#918](https://github.com/cubrid-lab/pycubrid/issues/918) by @paikend.
+* **readme:** repin the brand icon to the 2026-10-25 brand revision ([#1059](https://github.com/cubrid-lab/pycubrid/issues/1059)) ([a3f7d6b](https://github.com/cubrid-lab/pycubrid/commit/a3f7d6bb30652a592d43a8f492cc88bdcd5d459c)) by @yeongseon.
+* **readme:** repin the brand icon to the cube redesign ([#1061](https://github.com/cubrid-lab/pycubrid/issues/1061)) ([675739e](https://github.com/cubrid-lab/pycubrid/commit/675739ee5fc541fac02f6b289aa533eeb42daba8)) by @yeongseon.
+* **readme:** repin the brand icon to the emblem-aligned keyline ([#1070](https://github.com/cubrid-lab/pycubrid/issues/1070)) ([223d83a](https://github.com/cubrid-lab/pycubrid/commit/223d83a85e187d766f3b256790b3f15671ecd5d0)) by @yeongseon.
+* **readme:** repin the brand icon to the shared white marks ([#1072](https://github.com/cubrid-lab/pycubrid/issues/1072)) ([5dcd360](https://github.com/cubrid-lab/pycubrid/commit/5dcd3608bac3d1e3f71ba85e636a5de6eb974c79)) by @yeongseon.
+
+### CI
+
+- **CI installs third-party dependencies from a committed `uv.lock`** — CI, full
+  integration and documentation jobs install locked, hash-checked wheels with source builds
+  disabled, and build the trusted checkout separately with its locked backend. Dependabot
+  updates `pyproject.toml` and `uv.lock` together through its uv ecosystem. Python 3.15 uses a
+  documented pure Python PyYAML 6.0.3 wheel until upstream provides a compatible wheel. No
+  driver API or runtime behaviour changes ([#981](https://github.com/cubrid-lab/pycubrid/pull/981)) by @ryanduguid.
 
 ### Tests
 
@@ -204,7 +217,7 @@ This release improves reproducible test-result reporting and documentation prese
   `make test PYTHON=.venv/bin/python` (or an exported `CUBRID_TEST_PORT`) no longer replaces
   the defaults they assert. The test that runs the real `make test` recipe writes its results
   under its temporary directory instead of deleting the checkout's `test-results/test/`,
-  which a `make verify` in the same checkout reads. No Makefile, driver or runtime change.
+  which a `make verify` in the same checkout reads. No Makefile, driver or runtime change. Contributed by @yeongseon.
 
 ## [1.14.0] - 2026-10-25
 
@@ -212,7 +225,7 @@ This release changes developer verification: `make verify` now runs the live CUB
 
 ### Added
 
-* **make:** run the live integration lane in make verify ([#1050](https://github.com/cubrid-lab/pycubrid/issues/1050)) ([4f63593](https://github.com/cubrid-lab/pycubrid/commit/4f63593d3d7e456edececf75ba566d9ed65f758f))
+* **make:** run the live integration lane in make verify ([#1050](https://github.com/cubrid-lab/pycubrid/issues/1050)) ([4f63593](https://github.com/cubrid-lab/pycubrid/commit/4f63593d3d7e456edececf75ba566d9ed65f758f)) by @yeongseon.
 
 ### Changed
 
@@ -221,20 +234,14 @@ This release changes developer verification: `make verify` now runs the live CUB
   when CUBRID never becomes ready or every live test skips. The live lane starts only after
   the offline tests pass. `make test` stays offline and needs no Docker or database; use
   `make check test` for the former offline-only `make verify`. Development tooling only; the
-  driver API and runtime are unchanged.
+  driver API and runtime are unchanged. Contributed by @yeongseon.
 
 ### CI
 
-- **CI installs third-party dependencies from a committed `uv.lock`** — CI, full
-  integration and documentation jobs install locked, hash-checked wheels with source builds
-  disabled, and build the trusted checkout separately with its locked backend. Dependabot
-  updates `pyproject.toml` and `uv.lock` together through its uv ecosystem. Python 3.15 uses a
-  documented pure Python PyYAML 6.0.3 wheel until upstream provides a compatible wheel. No
-  driver API or runtime behaviour changes.
 - **Every new issue starts in `status: needs triage` (#1033)** — the issue forms add the
   label and `issue-triage.yml` adds it to every opened issue instead of only to issues with
   incomplete titles or labels; the unused `scripts/check_issue_metadata.py` check is removed.
-  Priority and size are still set by a maintainer, who removes the label after triage.
+  Priority and size are still set by a maintainer, who removes the label after triage. Contributed by @yeongseon.
 
 ## [1.13.5] - 2026-10-25
 
