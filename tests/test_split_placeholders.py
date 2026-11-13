@@ -256,11 +256,12 @@ class TestEscapeModeResolution:
             cur._bind_parameters("SELECT ?", [1])
 
     def test_format_parameter_raises_when_escape_mode_unnegotiated(self):
+        from pycubrid._cursor_common import format_parameter
         from pycubrid.exceptions import InterfaceError
 
         cur = self._make_cursor(None)
         with pytest.raises(InterfaceError):
-            cur._format_parameter("x")
+            format_parameter("x", no_backslash_escapes=cur._resolve_escape_mode())
 
     def test_resolve_returns_concrete_bool(self):
         assert self._make_cursor(True)._resolve_escape_mode() is True

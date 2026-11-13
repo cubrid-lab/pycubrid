@@ -751,13 +751,6 @@ class CursorParamsMixin(Generic[_ConnT]):
             rendered.append(_render_parameters(parts, values, mode))
         return rendered
 
-    def _format_parameter(self, value: Any) -> str:
-        return format_parameter(value, no_backslash_escapes=self._resolve_escape_mode())
-
-    @staticmethod
-    def _escape_string(value: str, *, no_backslash_escapes: bool = True) -> str:
-        return escape_string(value, no_backslash_escapes=no_backslash_escapes)
-
     def _build_description(
         self,
         columns: Sequence[_ColumnMetadata],
@@ -786,11 +779,6 @@ def _batch_exception(err: dict[str, Any]) -> DatabaseError:
     }
     exc_cls = exc_map.get(exc_name, DatabaseError)
     return exc_cls(message, code=code, errno=code, sqlstate=sqlstate)
-
-
-def _raise_batch_error(err: dict[str, Any]) -> None:
-    """Raise the appropriate PEP 249 exception for a batch statement failure."""
-    raise _batch_exception(err)
 
 
 def _batch_failure(

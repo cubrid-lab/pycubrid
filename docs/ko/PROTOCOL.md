@@ -691,7 +691,6 @@ CUBRID 10.2와 11.4에서 현재 크기가 아닌 오프셋(값 안쪽이든 끝
 | 메서드 | 설명 |
 |--------|------|
 | `add_byte(value)` | 길이 접두 바이트 쓰기 (1B 길이 + 1B 값) |
-| `add_short(value)` | 길이 접두 short 쓰기 (4B 길이 + 2B 값) |
 | `add_int(value)` | 길이 접두 int 쓰기 (4B 길이 + 4B 값) |
 | `add_long(value)` | 길이 접두 long 쓰기 (4B 길이 + 8B 값) |
 | `add_float(value)` | 길이 접두 float 쓰기 (4B 길이 + 4B 값) |

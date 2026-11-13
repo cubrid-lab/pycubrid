@@ -180,11 +180,6 @@ class PacketWriter:
         self._write_int(DataSize.BYTE)
         self._write_byte(value)
 
-    def add_short(self, value: int) -> None:
-        """Write a length-prefixed short value."""
-        self._write_int(DataSize.SHORT)
-        self._write_short(value)
-
     def add_int(self, value: int) -> None:
         """Write a length-prefixed int value."""
         self._write_int(DataSize.INT)

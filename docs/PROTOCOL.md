@@ -726,7 +726,6 @@ Available parameters (`CCIDbParam`):
 | Method | Description |
 |--------|-------------|
 | `add_byte(value)` | Write length-prefixed byte (1B length + 1B value) |
-| `add_short(value)` | Write length-prefixed short (4B length + 2B value) |
 | `add_int(value)` | Write length-prefixed int (4B length + 4B value) |
 | `add_long(value)` | Write length-prefixed long (4B length + 8B value) |
 | `add_float(value)` | Write length-prefixed float (4B length + 4B value) |
