@@ -245,7 +245,9 @@ def _dedupe_generated(
 
     Use unique same-repository PR identities plus shared behavior wording, or
     unique issue-only references with local commit provenance and a stronger
-    wording match. Any ambiguity leaves the original generated entry intact.
+    wording match. Also drop a bare generated bullet whose single commit is
+    already listed, anywhere in the release, by exactly one bullet with a PR
+    link. Any ambiguity leaves the original generated entry intact.
     """
     from collections import Counter
 
@@ -280,8 +282,38 @@ def _dedupe_generated(
         number for prose in generated_prose for number in set(_OWN_ISSUE.findall(prose))
     )
 
+    def commit_shas(prose: str) -> set[str]:
+        return {m.group("full") for m in _OWN_COMMIT.finditer(prose)}
+
+    def repeats_commit(entry: str) -> bool:
+        # release-please can list one squash commit twice when its body carries a
+        # second conventional-commit line: once with the PR reference, once bare.
+        # Drop only the bare one-line bullet, and only when exactly one other
+        # bullet in the release names the same single commit and carries a PR link.
+        prose = _unfenced_prose(entry)
+        shas = commit_shas(prose)
+        if (
+            len(shas) != 1
+            or len(prose.strip().splitlines()) != 1
+            or _OWN_ISSUE.search(prose)
+            or _OWN_PR.search(prose)
+            or _PRIMARY_CHANGE.search(prose)
+        ):
+            return False
+        sha = next(iter(shas))
+        if not any(sha.startswith(m.group("short")) for m in _OWN_COMMIT.finditer(prose)):
+            return False
+        keepers = [
+            other
+            for other in generated_prose
+            if other != prose and commit_shas(other) == shas and _GENERATED_PR.search(other)
+        ]
+        return len(keepers) == 1
+
     def is_duplicate(entry: str) -> bool:
         prose = _unfenced_prose(entry)
+        if repeats_commit(entry):
+            return True
         pr_ids = {match.group("number") for match in _GENERATED_PR.finditer(prose)}
         if len(pr_ids) == 1:
             number = next(iter(pr_ids))

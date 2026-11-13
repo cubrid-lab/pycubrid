@@ -558,3 +558,94 @@ def test_removing_a_duplicate_keeps_the_remaining_list_tight() -> None:
     version = compose(base, generated, "1.9.0").split("## [1.9.0]", 1)[1]
     assert "warn against rewrapping" not in version
     assert "\n".join(kept) + "\n" in version
+
+
+# release-please lists a squash commit twice when its body carries a second
+# conventional-commit line: once bare, once with the pull request reference.
+SHA_A = "6c2cba8fe7c4742b96f38151a59a85077a156655"
+SHA_B = "1c32deca2089606fc8d5aab3b5b046894ed093a0"
+
+
+def _commit(sha: str) -> str:
+    return f"([{sha[:7]}]({REPO}/commit/{sha}))"
+
+
+def _with_pr(text: str, sha: str, number: int = 1230) -> str:
+    return f"* {text} ([#{number}]({REPO}/issues/{number})) {_commit(sha)}"
+
+
+def _compose_generated(*entries: str, section: str = "Documentation") -> str:
+    generated = f"# Changelog\n\n## [1.9.0](https://example.com) (2026-10-03)\n\n### {section}\n\n"
+    return compose(BASE, generated + "\n".join(entries) + "\n", "1.9.0")
+
+
+def test_bare_bullet_repeating_a_pr_bullet_commit_is_collapsed() -> None:
+    bare = f"* clarify issue handoff and work states {_commit(SHA_A)}"
+    output = _compose_generated(bare, _with_pr("define issue handoff states", SHA_A))
+    assert "clarify issue handoff" not in output
+    assert "define issue handoff states" in output
+    assert "### Documentation\n\n* define" in output
+
+
+def test_collapse_keeps_other_entries_and_list_tightness() -> None:
+    bare = f"* clarify handoff {_commit(SHA_A)}"
+    other = f"* unrelated change {_commit(SHA_B)}"
+    output = _compose_generated(bare, other, _with_pr("define handoff", SHA_A))
+    assert "clarify handoff" not in output
+    assert f"{other}\n* define handoff" in output
+
+
+def test_same_commit_with_pr_references_on_both_bullets_is_kept() -> None:
+    output = _compose_generated(
+        _with_pr("first wording", SHA_A, 1230), _with_pr("second wording", SHA_A, 1231)
+    )
+    assert "first wording" in output and "second wording" in output
+
+
+def test_two_bare_bullets_for_one_commit_are_kept() -> None:
+    output = _compose_generated(
+        f"* first wording {_commit(SHA_A)}", f"* second wording {_commit(SHA_A)}"
+    )
+    assert "first wording" in output and "second wording" in output
+
+
+def test_bare_bullet_with_a_different_commit_is_kept() -> None:
+    output = _compose_generated(
+        f"* bare wording {_commit(SHA_B)}", _with_pr("define handoff", SHA_A)
+    )
+    assert "bare wording" in output and "define handoff" in output
+
+
+def test_bare_bullet_with_an_issue_reference_is_kept() -> None:
+    bare = f"* bare wording {_commit(SHA_A)}, refs [#1130]({REPO}/issues/1130)"
+    output = _compose_generated(bare, _with_pr("define handoff", SHA_A))
+    assert "bare wording" in output and "define handoff" in output
+
+
+def test_bare_bullet_naming_two_commits_is_kept() -> None:
+    bare = f"* bare wording {_commit(SHA_A)} {_commit(SHA_B)}"
+    output = _compose_generated(bare, _with_pr("define handoff", SHA_A))
+    assert "bare wording" in output and "define handoff" in output
+
+
+def test_bare_bullet_is_collapsed_across_sections_of_one_release() -> None:
+    # The comparison covers the whole release, not one section: one commit is one
+    # change wherever release-please files its two lines.
+    generated = (
+        "# Changelog\n\n## [1.9.0](https://example.com) (2026-10-03)\n\n"
+        f"### Documentation\n\n* bare wording {_commit(SHA_A)}\n\n"
+        f"### CI\n\n{_with_pr('define handoff', SHA_A)}\n"
+    )
+    output = compose(BASE, generated, "1.9.0")
+    assert "bare wording" not in output and "define handoff" in output
+    assert "### Documentation" not in output
+
+
+def test_bare_bullet_with_a_section_introduction_is_kept() -> None:
+    generated = (
+        "# Changelog\n\n## [1.9.0](https://example.com) (2026-10-03)\n\n"
+        f"### Documentation\n\nIntro prose.\n\n* bare wording {_commit(SHA_A)}\n\n"
+        f"### CI\n\n{_with_pr('define handoff', SHA_A)}\n"
+    )
+    output = compose(BASE, generated, "1.9.0")
+    assert "Intro prose." in output and "bare wording" in output
