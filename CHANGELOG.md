@@ -1242,7 +1242,7 @@ This release introduces Python 3.15 support for standard GIL builds and expands 
   the C `_decimal` module; a Python built without `libmpdec` lacks it, and the
   `actions/setup-python` 3.15.0 build, the `python:3.15-rc` Docker image and a
   source build without `libmpdec-dev` were observed without it. See the support
-  matrix by @yeongseon.
+  matrix. Contributed by @yeongseon.
 - **CUBRIDdb wrapper collection arguments and `executemany()` (#610)** — the
   opt-in `pycubrid.compat.cubriddb` cursors now accept the official wrapper's
   collection call shapes. `execute(query, args, set_type)` binds `list`,
@@ -1280,7 +1280,7 @@ This release introduces Python 3.15 support for standard GIL builds and expands 
   `charset="ksc5601"` raised `ValueError` on 3.15. pycubrid now maps `ksc5601`
   to EUC-KR itself, as it resolved on Python 3.11–3.14. Other Python KS C 5601
   aliases such as `ks_c_5601` and `korean` follow the running Python's codec
-  table, so on 3.15 they resolve to CP949 and are rejected by @yeongseon.
+  table, so on 3.15 they resolve to CP949 and are rejected. Contributed by @yeongseon.
 - **The second occurrence of a repeated DST hour binds as itself (#819)** — an
   aware `datetime` with a region `tzinfo` (`ZoneInfo`) in a repeated wall time
   was sent with the region alone, which CUBRID resolves to the first
@@ -1298,7 +1298,7 @@ This release introduces Python 3.15 support for standard GIL builds and expands 
   value, renders byte-identically, and a skipped spring-forward wall time is
   still sent with the region alone, which CUBRID rejects with an error.
   Verified on CUBRID 10.2 and 11.4 for `DATETIMETZ` and `TIMESTAMPTZ`, sync
-  and async by @yeongseon.
+  and async. Contributed by @yeongseon.
 - **`scripts/collect_repro.py` classifies bracketed hosts the same way on every
   Python (#753)** — a `CUBRID_TEST_URL` whose bracketed host is not an IPv6
   literal (for example `[bad]` or `[127.0.0.1]`) is now recorded as
@@ -1306,14 +1306,14 @@ This release introduces Python 3.15 support for standard GIL builds and expands 
   3.11 patch releases such as 3.11.1 accepted the host and recorded a
   password-redacted URL instead. The password was redacted either way. Valid
   IPv6 literals such as `[::1]` still parse and keep their host and port. This
-  is a contributor tooling fix; the driver is unchanged by @yeongseon.
+  is a contributor tooling fix; the driver is unchanged. Contributed by @yeongseon.
 - **`make mutation` stops with a message on Python 3.11 (#812)** — mutmut 3.8
   fails at stats collection on 3.11 with a `TypeError` inside its trampoline,
   before testing any mutant. The target now checks for Python 3.12+ first and
   says why, and runs mutmut as `$(PYTHON) -m mutmut` so the check and mutmut
   use the same interpreter; `docs/DEVELOPMENT.md` (+ ko) documents the requirement. CI's weekly
   mutation job already uses 3.12. Contributor tooling only; the driver is
-  unchanged by @yeongseon.
+  unchanged. Contributed by @yeongseon.
 
 * **collect_repro:** redact passwords of CUBRID_TEST_URL values without "://" ([#778](https://github.com/cubrid-lab/pycubrid/issues/778)) ([dc0683f](https://github.com/cubrid-lab/pycubrid/commit/dc0683fd27ad1a7f0500b640baa0c74276c1030c)) by @yeongseon.
 * **collect_repro:** treat non-IPv6 bracketed hosts as unparseable ([#776](https://github.com/cubrid-lab/pycubrid/issues/776)) ([164d0d5](https://github.com/cubrid-lab/pycubrid/commit/164d0d58819aea81281606708e3acfa07492c916)) by @yeongseon.
@@ -1368,7 +1368,7 @@ This release introduces Python 3.15 support for standard GIL builds and expands 
   recognised, so its password is recorded unless `CUBRID_TEST_PASSWORD` also
   holds it. Valid `cubrid://user:pw@host:port/db` URLs of up to 2048 characters
   are still recorded as `cubrid://user:***@host:port/db`. This is a contributor
-  tooling fix; the driver is unchanged by @yeongseon.
+  tooling fix; the driver is unchanged. Contributed by @yeongseon.
 
 ### Documentation
 
@@ -1381,7 +1381,7 @@ This release introduces Python 3.15 support for standard GIL builds and expands 
   all four versions, but it accepts only the narrow prepared type set. The prepare-once
   loop was slower than the batch on 10.2 and 11.0. `executemany()` keeps the literal batch
   by default; the opt-in path, the wider prepared types and per-row failure reporting are
-  tracked in #839, #840 and #841. Docs only; driver behaviour is unchanged by @yeongseon.
+  tracked in #839, #840 and #841. Docs only; driver behaviour is unchanged. Contributed by @yeongseon.
 - **Performance guide explains the `executemany()` gap against CUBRIDdb (#822)** —
   `docs/PERFORMANCE.md` and its Korean copy gain a section with the measured ratios
   (INSERT 1.13x, 1.39x and 1.54x at 100, 1,000 and 10,000 rows; MERGE up to 4.72x), the
@@ -1389,26 +1389,26 @@ This release introduces Python 3.15 support for standard GIL builds and expands 
   literal batch statement against about 131 µs per prepared execute), and what users can do.
   The "not measured" list no longer names UPDATE, DELETE, MERGE and the client/server split.
   The prepared-statement batch path and the cached placeholder tokenisation are tracked in
-  #836 and #837. Docs only; driver behaviour is unchanged by @yeongseon.
+  #836 and #837. Docs only; driver behaviour is unchanged. Contributed by @yeongseon.
 - **Contributor and development guides state the Python 3.11+ requirement (#700)** —
   the prerequisites in `CONTRIBUTING.md` and `docs/DEVELOPMENT.md`, with their Korean
   copies, still said Python 3.10+. They now say 3.11+, and the development guide's note
   points to `requires-python` instead of naming Python 3.10 syntax. The recorded past CI
-  matrix in the development guide is unchanged. Docs only by @yeongseon.
+  matrix in the development guide is unchanged. Docs only. Contributed by @yeongseon.
 - **Connection guide and PRD state the Python 3.11+ requirement (#701)** — the
   prerequisite row in `docs/CONNECTION.md` and the runtime row of the PRD dependency
   matrix, with their Korean copies, still said Python 3.10+ after 1.10.0 raised
   `requires-python` to `>=3.11`. They now say 3.11+. Recorded past measurements and
-  behavior that name Python 3.10 are unchanged. Docs only by @yeongseon.
+  behavior that name Python 3.10 are unchanged. Docs only. Contributed by @yeongseon.
 - **Private vulnerability reporting is the preferred security channel (#751)** — GitHub
   private vulnerability reporting is now enabled for the repository. `SECURITY.md` names it
   as the preferred private route and keeps the maintainer email as the fallback; `README.md`
-  and the translated READMEs say the same. Docs only by @yeongseon.
+  and the translated READMEs say the same. Docs only. Contributed by @yeongseon.
 - **Development guide points to the current CI cost evidence (#750)** —
   `docs/DEVELOPMENT.md` and its Korean copy replace the historical #564 cost
   baseline (a 2 OS × 5 Python matrix with Python 3.10 and pip caching, which no
   longer exists) with a pointer to the measurements and coverage-ownership table
-  in `docs/CI_POLICY.md`, keeping the two outcomes that still apply. Docs only by @yeongseon.
+  in `docs/CI_POLICY.md`, keeping the two outcomes that still apply. Docs only. Contributed by @yeongseon.
 - **README family states the full compatibility matrix as 4 × 4 on dispatch and
   release (#796)** — `README.md` and the Korean, German, Hindi, Russian and
   Chinese READMEs said the full live matrix was 5 × 4, and the German, Hindi,
@@ -1420,7 +1420,7 @@ This release introduces Python 3.15 support for standard GIL builds and expands 
   `integration-tls` job runs Python 3.11 and 3.14 (not 3.10 and 3.14) in
   `docs/DEVELOPMENT.md` and its Korean copy, and the PRD CI summary and
   "CI Matrix" table, which still listed Python 3.10, now describe the current
-  lanes. Documentation only; the driver and workflows are unchanged by @yeongseon.
+  lanes. Documentation only; the driver and workflows are unchanged. Contributed by @yeongseon.
 - **`AGENTS.md` drops stale planning context and volatile counts (#749)** — the
   old "Project Context — Performance Loop System" snapshot (R2/R3 phases, the
   Week 8 decision gate, the #14–#22 issue table and fixed PyMySQL ratios) is
@@ -1430,7 +1430,7 @@ This release introduces Python 3.15 support for standard GIL builds and expands 
   their canonical sources (`pycubrid/constants.py`, `pyproject.toml`,
   `docs/CI_POLICY.md`) instead of being copied. CAS protocol invariants,
   workflow, labelling, release and commit guidance are unchanged. Docs only;
-  the driver is unchanged by @yeongseon.
+  the driver is unchanged. Contributed by @yeongseon.
 - **Performance guide covers pycubrid on CUBRID only (#795)** — `docs/PERFORMANCE.md`
   and its Korean translation no longer compare pycubrid on CUBRID with PyMySQL on
   MySQL: the comparison table, the conclusions drawn from it and the pointers that
@@ -1446,7 +1446,7 @@ This release introduces Python 3.15 support for standard GIL builds and expands 
   and its memory cost are documented. `AGENTS.md` now states driver-focused
   performance goals (release-to-release regression, overhead against the official
   `CUBRIDdb` driver on the same server), and the Performance issue template no
-  longer asks for a PyMySQL ratio. Docs only; the driver is unchanged by @yeongseon.
+  longer asks for a PyMySQL ratio. Docs only; the driver is unchanged. Contributed by @yeongseon.
 
 * **agents:** move stale planning context out of AGENTS.md ([#779](https://github.com/cubrid-lab/pycubrid/issues/779)) ([98acc87](https://github.com/cubrid-lab/pycubrid/commit/98acc8707dea72576c2394a3cd87487fe0e23871)) by @yeongseon.
 * **aio:** correct Python version notes in TLS docstrings ([#824](https://github.com/cubrid-lab/pycubrid/issues/824)) ([b20a1b6](https://github.com/cubrid-lab/pycubrid/commit/b20a1b63a4f4e23527b44504924510a980cecefd)) by @Vieta100-omo (first contribution 🎉).
@@ -1485,12 +1485,12 @@ This release introduces Python 3.15 support for standard GIL builds and expands 
   `dry-run` dispatch now verifies the freshly built wheel instead of the
   already-published version; the post-publication `verify-cookbook` is
   unchanged. Both cookbook calls use one pin, moved to `98866c2`. sqlalchemy-cubrid
-  gets the same change. No runtime change by @yeongseon.
+  gets the same change. No runtime change. Contributed by @yeongseon.
 - **The PyPI duplicate guard uses `hashlib.file_digest()` (#742)** —
   `scripts/pypi_duplicate_guard.py` hashes `dist/` files with the Python 3.11 stdlib
   helper instead of a hand-written chunked read loop; the digests are the same. The
   sqlalchemy-cubrid and cubrid-mcp-server copies get the same change, so the three stay
-  identical. No runtime change by @yeongseon.
+  identical. No runtime change. Contributed by @yeongseon.
 - **Contributor tools moved from the published `dev` extra to dependency groups (#784)** —
   the `dev` and `mutation` extras are gone from the package metadata, so the wheel
   lists only the runtime dependency. `pyproject.toml` declares PEP 735 dependency
@@ -1500,7 +1500,7 @@ This release introduces Python 3.15 support for standard GIL builds and expands 
   declared once and the workflows, `scripts/check_quality_tools.py` and the policy
   tests read it from there. Contributors replace `pip install -e ".[dev]"` with
   `pip install -e . --group dev` (pip 25.1 or later) or `make install`. No driver,
-  runtime dependency or supported-version change by @yeongseon.
+  runtime dependency or supported-version change. Contributed by @yeongseon.
 - **Python 3.15 in the full matrix and as the newest offline endpoint** —
   `integration-full.yml` runs the live suite on Python 3.11–3.15 × four CUBRID
   versions (20 cells) and the TLS lane on Python 3.11, 3.14 and 3.15. The
@@ -1511,18 +1511,18 @@ This release introduces Python 3.15 support for standard GIL builds and expands 
   test ties the offline endpoints and the full matrix to the declared
   classifiers. The manual `python-canary.yml` lane is kept and renamed "Python 3.15
   Packaging Check" (it no longer says 3.15 is unsupported); its install step is
-  the `test` and `release` dependency groups from #784 by @yeongseon.
+  the `test` and `release` dependency groups from #784. Contributed by @yeongseon.
 - **Tests that need the C decimal module skip without it** — CI's Python 3.15.0
   has no `_decimal`, so the Decimal-subclass rendering tests are skipped there,
   the parity round trip binds a plain `Decimal` instead (the collection test keeps its
   other hostile element types and moves the Decimal element to its own case), and a new test checks
-  that such a Python rejects a Decimal subclass with `ProgrammingError` by @yeongseon.
+  that such a Python rejects a Decimal subclass with `ProgrammingError`. Contributed by @yeongseon.
 - **Every workflow artifact has an explicit retention period (#750)** — the weekly SBOM
   upload had none and was kept for the repository default of 90 days, and
   `anchore/sbom-action` stored a second copy of the SBOM. `sbom.yml` now keeps the SBOM
   for 30 days and turns off the action's own upload. A test requires `retention-days` on
   every `actions/upload-artifact` step. `docs/CI_POLICY.md` (+ ko) records the rule and
-  the 2026-10-11 cache review (no cache change needed). CI only by @yeongseon.
+  the 2026-10-11 cache review (no cache change needed). CI only. Contributed by @yeongseon.
 - **The release runs lint, type checking, the public API check and the
   repository tooling tests itself (#750)** — the release path (`publish-pypi.yml`
   → `integration-full.yml`) used to rely on the release PR and the `main` push run
@@ -1536,7 +1536,7 @@ This release introduces Python 3.15 support for standard GIL builds and expands 
   repositories. `tests/test_ci_policy.py` pins the copies to their `ci.yml`
   sources and the gate's `needs`; `docs/CI_POLICY.md` (+ ko), `RELEASING.md` and
   `RELEASE_POLICY.md` describe the new release coverage. About 1.5 extra runner
-  minutes per release. No runtime change by @yeongseon.
+  minutes per release. No runtime change. Contributed by @yeongseon.
 - **Weekly mutation testing is sharded under the 180-minute cap (#750)** — the
   `bug-hunt.yml` `mutation` job runs as four matrix shards selected by mutant name
   (`protocol`, `connection`, `packet-aio-cursor-lob`, `cursor-common`), about
@@ -1550,7 +1550,7 @@ This release introduces Python 3.15 support for standard GIL builds and expands 
   in `tests/test_protocol_fuzz.py`: after a test cleared the `ZoneInfo` cache, a
   decoded `Asia/Seoul` value was a different object from the expected one, and
   `ZoneInfo` compares by identity. The comparison now checks the zone key. No
-  runtime change by @yeongseon.
+  runtime change. Contributed by @yeongseon.
 - **Dependabot groups minor and patch updates (#750)** — `.github/dependabot.yml`
   groups minor and patch version updates into one PR per ecosystem and directory
   (`dev-tools` for pip `/`, `docs-tools` for pip `/docs`, `github-actions`), so a
@@ -1558,7 +1558,7 @@ This release introduces Python 3.15 support for standard GIL builds and expands 
   security updates (`applies-to: version-updates`) and the runtime dependency
   `tzdata` stay in their own PRs; majors are still held from auto-merge, and a
   grouped PR still needs the required checks. `docs/CI_POLICY.md` (+ ko) documents
-  it and `tests/test_workflow_pins.py` pins the settings. No runtime change by @yeongseon.
+  it and `tests/test_workflow_pins.py` pins the settings. No runtime change. Contributed by @yeongseon.
 - **"Prepare release" fails visibly when a merged release is blocked** —
   `scripts/reconcile_release_labels.py` now classifies every merged
   `autorelease: pending` release PR it cannot mark tagged by the newest
@@ -1573,15 +1573,15 @@ This release introduces Python 3.15 support for standard GIL builds and expands 
   failure, release-please only logged "aborting" on every push and the run stayed
   green. The tagged transition and its fail-closed proof are unchanged; nothing
   is relabelled, rerun or dispatched automatically. See RELEASING.md, "When
-  preparation is blocked". No runtime change by @yeongseon.
-- **Cookbook release verification pinned to the cookbook SHA with the PyPI wait** — the `verify-cookbook` call in `.github/workflows/publish-pypi.yml` is pinned to `32e80c6ea9ae78324f764d7b873ffb64b000ddcc` (cubrid-cookbook-python#274), the same commit in pycubrid, sqlalchemy-cubrid and cubrid-mcp-server. The cookbook now waits up to 10 minutes for PyPI to serve the exact requested version before installing, and reports what PyPI served if it times out; this fixes the 1.10.0 post-publish stale-CDN failure that blocked release-please. No runtime change by @yeongseon.
+  preparation is blocked". No runtime change. Contributed by @yeongseon.
+- **Cookbook release verification pinned to the cookbook SHA with the PyPI wait** — the `verify-cookbook` call in `.github/workflows/publish-pypi.yml` is pinned to `32e80c6ea9ae78324f764d7b873ffb64b000ddcc` (cubrid-cookbook-python#274), the same commit in pycubrid, sqlalchemy-cubrid and cubrid-mcp-server. The cookbook now waits up to 10 minutes for PyPI to serve the exact requested version before installing, and reports what PyPI served if it times out; this fixes the 1.10.0 post-publish stale-CDN failure that blocked release-please. No runtime change. Contributed by @yeongseon.
 - **CHANGELOG lint applies the duplicate-heading check only after the cutoff** —
   `scripts/lint_changelog.py` now gates rule 5 (no repeated `###` heading within one
   version section) by `SECTION_POLICY_CUTOFF` like the section policy: it applies in
   `[Unreleased]` and releases after 1.10.0, and released history up to 1.10.0 is never
   rewritten. Before, the check also ran on older releases. The script is now identical
   to the one in sqlalchemy-cubrid except for the cutoff value. This is contributor
-  tooling; the driver is unchanged by @yeongseon.
+  tooling; the driver is unchanged. Contributed by @yeongseon.
 - **CHANGELOG tooling treats fenced code as content** — `scripts/lint_changelog.py` and
   `scripts/compose_release_changelog.py` no longer read a `###` line inside a fenced
   code block as a heading, so a code example in a CHANGELOG entry is no longer rejected
@@ -1592,7 +1592,7 @@ This release introduces Python 3.15 support for standard GIL builds and expands 
   code compose and lint exactly as before. `scripts/lint_changelog.py` now has the
   same section parsing as cubrid-mcp-server; the same rules reach that repo and
   cubrid-cookbook-python in follow-up PRs. Contributor tooling only; the driver is
-  unchanged by @yeongseon.
+  unchanged. Contributed by @yeongseon.
 - **GitHub Release naming and standard release-note sections** — `AGENTS.md` gains a
   "GitHub Release Policy" section: a Release title is exactly its tag `vX.Y.Z`, drafts
   included; tags are never moved or recreated to fix a title; stale drafts are
@@ -1613,15 +1613,15 @@ This release introduces Python 3.15 support for standard GIL builds and expands 
   the standard headings instead of a `### Conventional commits` block. The
   `[Unreleased]` sections are reordered to the standard order; no entry changed.
   `scripts/check_release_please.cjs` reads the current manifest version instead of the
-  stale 1.8.0 bootstrap value. No runtime change by @yeongseon.
-- **Cookbook release verification pinned to the shared cookbook SHA** — the `verify-cookbook` call to `cubrid-cookbook-python`'s `smoke-test.yml` in `.github/workflows/publish-pypi.yml` is pinned to `bd6749093813d3a447f993fec72ac733adbeae63`, the same commit as the other two package repositories (pycubrid, sqlalchemy-cubrid, cubrid-mcp-server). Since the previous pin the cookbook adds the Python 3.11 cell on release calls (`Smoke Tests (CUBRID 11.4, Python 3.11)`), so the release verification report now needs all three cells (11.2/3.12, 11.4/3.12, 11.4/3.11). `RELEASING.md` lists the third job. No runtime change by @yeongseon.
+  stale 1.8.0 bootstrap value. No runtime change. Contributed by @yeongseon.
+- **Cookbook release verification pinned to the shared cookbook SHA** — the `verify-cookbook` call to `cubrid-cookbook-python`'s `smoke-test.yml` in `.github/workflows/publish-pypi.yml` is pinned to `bd6749093813d3a447f993fec72ac733adbeae63`, the same commit as the other two package repositories (pycubrid, sqlalchemy-cubrid, cubrid-mcp-server). Since the previous pin the cookbook adds the Python 3.11 cell on release calls (`Smoke Tests (CUBRID 11.4, Python 3.11)`), so the release verification report now needs all three cells (11.2/3.12, 11.4/3.12, 11.4/3.11). `RELEASING.md` lists the third job. No runtime change. Contributed by @yeongseon.
 - **Documentation site build on pull requests (#786)** — `ci.yml` gains a
   `docs-build` job that runs the `docs.yml` build (install `docs/requirements.txt`,
   `scripts/generate_llms_full.py`, `mkdocs build --strict`) when `docs/**`,
   `mkdocs.yml`, `scripts/generate_llms_full.py`, `docs.yml` or `ci.yml` change. The new
   `site` path filter selects it, `CI Gate` expects it exactly when selected, and it
   never uploads or deploys anything. Previously a broken strict build or docs-tool pin
-  bump only failed on `main` by @yeongseon.
+  bump only failed on `main`. Contributed by @yeongseon.
 - **Pinned docs tools and scan concurrency (#782, #783)** — `docs.yml` installs
   `mkdocs`, `mkdocs-material` and `pymdown-extensions` from the pinned
   `docs/requirements.txt`, which Dependabot now updates. `codeql.yml` and
@@ -1629,7 +1629,7 @@ This release introduces Python 3.15 support for standard GIL builds and expands 
   pull-request runs only; every other event uses a unique per-run group, since GitHub
   replaces a pending run within one group even without `cancel-in-progress`, so main and
   scheduled runs are never cancelled or dropped. `security.yml` and `maintenance.yml`
-  install the `bandit[toml]==1.9.4` pinned in `pyproject.toml` by @yeongseon.
+  install the `bandit[toml]==1.9.4` pinned in `pyproject.toml`. Contributed by @yeongseon.
 - **Scheduled and release validation without duplicate work (#750)** —
   `docs/CI_POLICY.md` now records measured job counts, runner minutes and
   failure yield per event, and which workflow owns each kind of coverage.
@@ -1645,7 +1645,7 @@ This release introduces Python 3.15 support for standard GIL builds and expands 
     `full-matrix-result` requires it. The release previously relied on a
     `ci.yml` push run that it never checked and that a later merge could
     cancel.
-  - Pull requests and main pushes are unchanged by @yeongseon.
+  - Pull requests and main pushes are unchanged. Contributed by @yeongseon.
 - **Offline tests run on the oldest and newest supported Python (#745)** — the
   `offline-tests` job of `ci.yml` now picks its Python matrix from the event.
   Main pushes, the weekly Monday schedule and manual dispatch run the full
@@ -1656,7 +1656,7 @@ This release introduces Python 3.15 support for standard GIL builds and expands 
   flag carry the Python version (`coverage-py<version>.xml`,
   `offline-coverage-py<version>`, `offline-py<version>`). `CI Gate` still fails
   when any endpoint cell fails, is cancelled or never runs. Timeouts, pinned
-  actions, read-only permissions and the immutable checkout SHA are unchanged by @yeongseon.
+  actions, read-only permissions and the immutable checkout SHA are unchanged. Contributed by @yeongseon.
 - **The workflow-reader guard catches split paths and indirect readers (#770)** —
   `tests/test_workflow_path_impact.py` now finds workflow references with the
   regex `\.github['"]?\)?\s*[/,]\s*['"]?workflows` over each module's AST, so
@@ -1675,7 +1675,7 @@ This release introduces Python 3.15 support for standard GIL builds and expands 
   each of these shapes, plus docstring and comment mentions that must not
   trigger. Two-step path constants, glob patterns, imported names and tests
   defined inside top-level `if`/`try` blocks remain out of scope. No test
-  module needed a new mark; this is a test-only change by @yeongseon.
+  module needed a new mark; this is a test-only change. Contributed by @yeongseon.
 
 ### Tests
 
@@ -1691,7 +1691,7 @@ This release introduces Python 3.15 support for standard GIL builds and expands 
   for abandoning a merged release (remove `autorelease: pending`, never add
   `autorelease: tagged`), and the blocked-preparation steps say to skip waiting
   for a green publisher run in that case. Test and docs only; the driver and workflows are
-  unchanged by @yeongseon.
+  unchanged. Contributed by @yeongseon.
 - **Makefile signal-cleanup test no longer depends on how pytest was launched
   (#775)** — `test_signal_cleanup_preserves_volumes[SIGINT-*]` failed every time
   pytest ran as a background job of a non-interactive shell (for example two
@@ -1703,7 +1703,7 @@ This release introduces Python 3.15 support for standard GIL builds and expands 
   to 60 s. The Python stub now blocks only for the `wait_for_cubrid.py`
   readiness probe and exits 0 for any other call, so a skipped trap fails fast
   (under 1 s) with the real assertion instead of hanging until the 60 s wait
-  expires. The assertions are unchanged, and the `Makefile` is unchanged by @yeongseon.
+  expires. The assertions are unchanged, and the `Makefile` is unchanged. Contributed by @yeongseon.
 
 ## [1.10.0] - 2026-10-08
 
@@ -1918,7 +1918,7 @@ Behavior changes you may notice (details in the entries below):
   values, and invalid JSON decoded by the built-in `json.loads` (#543). Errors
   from a caller-supplied `json_deserializer` are not reclassified, and the
   prepared API in `pycubrid.compat.native` stays fail-closed: it still raises
-  `OperationalError` and closes the session by @yeongseon.
+  `OperationalError` and closes the session. Contributed by @yeongseon.
 - `CALL`, `callproc()` and `EVALUATE` results and `NULL`-typed columns return
   decoded values (`42`, a `datetime`) instead of raw `bytes`. (#542) by @yeongseon.
 - An `execute()` that fails after the previous query handle was closed no
@@ -1927,9 +1927,9 @@ Behavior changes you may notice (details in the entries below):
   handle itself fails, `execute()` raises and the buffered result is kept.
   (#373) by @ryanduguid.
 - `decimal.Decimal` parameters are sent in plain fixed-point notation, so values
-  such as `Decimal("1E-7")` stay `NUMERIC` instead of coming back as `float` by @yeongseon.
+  such as `Decimal("1E-7")` stay `NUMERIC` instead of coming back as `float`. Contributed by @yeongseon.
 - Negative, NaN and infinite `connect_timeout`/`read_timeout` values are
-  rejected before a socket is opened. (#367) by @yeongseon, co-authored by @blackmore-technology-group.
+  rejected before a socket is opened. (#367) by @yeongseon, co-authored. Contributed by @blackmore-technology-group.
 - `Lob.read()`/`Lob.write()` raise `InterfaceError` for an `offset` or `length`
   that is not a plain `int`, including `bool`. (#449) by @HarshRajSinghania.
 - `DBAPIType` no longer compares equal to `bool` values: `STRING == True` is
@@ -1943,38 +1943,38 @@ Behavior changes you may notice (details in the entries below):
 - Sync `connect(..., ssl=...)` without `read_timeout` gives up on a stalled TLS
   handshake after 10 seconds with `OperationalError` instead of waiting forever.
   (#535) by @yeongseon.
-- Python 3.10 support is deprecated; see Deprecated below by @yeongseon.
+- Python 3.10 support is deprecated; see Deprecated below. Contributed by @yeongseon.
 
 ### Added
 
 - **Runnable README Quick Start examples (#327)** — add short parameterized CRUD,
   commit/rollback and `ProgrammingError` examples with shared scratch-table setup
   and cleanup, mirrored in all five maintained translations and verified on
-  CUBRID 11.4. No driver behavior, API, dependency or support change by @yeongseon.
+  CUBRID 11.4. No driver behavior, API, dependency or support change. Contributed by @yeongseon.
 - **Python 3.15 preview preparation** — add a manual-only Ubuntu/standard-GIL
   offline and wheel/sdist installation lane at an immutable commit. Python 3.15
   is not yet officially supported; final-runtime and live CUBRID evidence are
   required before promotion. Routine PR test frequency and supported versions
-  remain unchanged by @yeongseon.
+  remain unchanged. Contributed by @yeongseon.
 - **Native connection utilities (#666)** — add opt-in zero-argument full
   `server_version()`, truthful frozen own-driver `client_version()` and integer
   query `ping()`, plus the wrapper's two server/ping delegates. Requests stay on
   the exact live physical owner without retry/reconnect, use effective mode and
   respect private schema/result cleanup guards. Client identities are not a
   matching-ID or version-format promise. Ordinary/async APIs and defaults remain
-  unchanged; this additive subset does not certify full native error/recovery parity by @yeongseon.
+  unchanged; this additive subset does not certify full native error/recovery parity. Contributed by @yeongseon.
 - **Real terminal walkthroughs (#320)** — replace the illustrative README GIF
   with a recorded sync/async query run and add a Quick Start CRUD/context-manager
   video. Editable VHS tapes, asserted demo code and source-wheel provenance
   distinguish local-build evidence from a PyPI release or full compatibility
-  certificate. No driver API, dependency, support or publication change by @yeongseon.
+  certificate. No driver API, dependency, support or publication change. Contributed by @yeongseon.
 - **Wrapper transaction delegates (#662)** — the opt-in sync CUBRIDdb-style
   connection gains zero-argument `commit()` and `rollback()`, forwarding once to
   its native owner with `None` returns and unchanged error propagation. Existing
   successful-boundary result rules apply; rollback can invalidate fetching while
   wrapper rowcount/description snapshots remain. Manual mode is explicit, and
   defaults, ordinary/async APIs, recovery logic and thread-sharing promises are
-  unchanged by @yeongseon.
+  unchanged. Contributed by @yeongseon.
 - **Native LOB file transfer (#443)** — sync native holders gain positional
   `imports(file, type="B")` and `export(file)` for raw BLOB/CLOB bytes in
   bounded chunks, preserving byte position. Import stages a replacement until
@@ -1985,7 +1985,7 @@ Behavior changes you may notice (details in the entries below):
   cover successful stored-column transfers; empty output is candidate-only
   evidence, not official empty-export parity. No general filesystem, unsafe
   C-failure or whole-driver parity is claimed. Ordinary/async/wrapper APIs,
-  dependencies, defaults and release publication are unchanged by @yeongseon.
+  dependencies, defaults and release publication are unchanged. Contributed by @yeongseon.
 - **Native cursor positioning (#444)** — sync native cursors gain
   `data_seek`, `row_seek` and `row_tell` with the official safe dual counters,
   relative-boundary clamp/error behavior and one retained response page. Cache
@@ -1996,7 +1996,7 @@ Behavior changes you may notice (details in the entries below):
   distinguish public results from candidate-only page/stream metrics. Local
   args, selector `__index__` callback/overflow and owner/result safety differences are explicit.
   Metadata, ordinary/async APIs, wrapper public names, dependencies and release
-  publication are unchanged by @yeongseon.
+  publication are unchanged. Contributed by @yeongseon.
 - **Native extended column metadata (#445)** — the opt-in sync native cursor
   gains `result_info([n])`, returning cached 15-field tuples with measured CCI
   types, integer constraint flags and actual names/default strings. All/one
@@ -2007,12 +2007,12 @@ Behavior changes you may notice (details in the entries below):
   message-only args as a classified native difference. Owned 10.2/11.4 and pinned
   official comparisons cover this subset, including collection/JSON types and
   Unicode metadata, not non-UTF-8 or complete driver parity. Ordinary/async APIs,
-  dependencies and release publication are unchanged by @yeongseon.
+  dependencies and release publication are unchanged. Contributed by @yeongseon.
 - **Discoverable Korean performance guide (#313)** — the Korean README now
   links to the existing `docs/ko/PERFORMANCE.md` translation, with working
   section anchors and a benchmark table identical to the English source.
   Historical benchmark values, methodology and profiling commands are retained;
-  this documentation update adds no new performance measurements by @yeongseon.
+  this documentation update adds no new performance measurements. Contributed by @yeongseon.
 - **Qualified wrapper row cursors (#466)** — `cubriddb.Connection.cursor()` now
   selects tuple or exact-name dictionary rows; direct qualified
   `pycubrid.compat.cursors.Cursor/DictCursor` construction and connection-local
@@ -2027,7 +2027,7 @@ Behavior changes you may notice (details in the entries below):
   APIs, dependencies and release publication are unchanged. Collected wrapper
   cursors now attempt best-effort same-session native-handle cleanup without
   commit or reconnect; explicit close remains the deterministic path. Offline, owned
-  CUBRID 10.2/11.4 and pinned official differential cases cover this subset by @yeongseon.
+  CUBRID 10.2/11.4 and pinned official differential cases cover this subset. Contributed by @yeongseon.
 - **Native cached settings and effective mode setters (#467)** — the explicit
   sync `pycubrid.compat.native.connection` now exposes writable cached
   `autocommit`, `isolation_level`, `lock_timeout` and `max_string_len` members;
@@ -2044,7 +2044,7 @@ Behavior changes you may notice (details in the entries below):
   conservative non-transferable provenance after later commit. Ordinary
   driver defaults, ordinary/async setting APIs, dependencies and release
   publication are unchanged. Offline and owned CUBRID 10.2/11.4 cases plus a
-  pinned official-driver differential record the bounded behavior by @yeongseon.
+  pinned official-driver differential record the bounded behavior. Contributed by @yeongseon.
 - **Explicit native LOB byte-position stream (#442)** — `pycubrid.compat.native.lob`
   now adds sync-only `write(data, type="B")`, `read(length=0)` and
   `seek(offset, whence=SEEK_CUR)`, plus the three `SEEK_*` constants. BLOB and
@@ -2061,7 +2061,7 @@ Behavior changes you may notice (details in the entries below):
   close remains unchanged. Ordinary `Lob.read(length, offset=0)` and
   `write(bytes, offset=0)`, async, file import/export and dependencies are
   unchanged. Focused offline tests, CUBRID 10.2/11.4 live storage checks and
-  safe official C-extension differential cases cover the new surface by @yeongseon.
+  safe official C-extension differential cases cover the new surface. Contributed by @yeongseon.
 - **Advisory nightly downstream corpus (#356)** — `bug-hunt.yml` now runs three
   isolated CUBRID 11.4 dogfood lanes against the exact pycubrid workflow commit:
   SQLAlchemy ORM and pool tests, MCP live tool tests, and Cookbook AI-agent and
@@ -2076,17 +2076,17 @@ Behavior changes you may notice (details in the entries below):
   run failing keeps the step failed. This bounded check covers trace/query
   serialization, distinct correct responses and real cursor cleanup, not stdio
   concurrency, pooling or per-request transaction isolation. PR, release and
-  full-matrix gates, driver behavior and dependencies are unchanged by @yeongseon.
+  full-matrix gates, driver behavior and dependencies are unchanged. Contributed by @yeongseon.
 - **Deferred-close flush safety matrix (#585)** — real TCP replay checks four
   generation/reconnect/native-error/transport-error properties for sync and
   async commit and rollback. Removing the generation filter or flush guards
-  now fails these regressions; production behavior and dependencies are unchanged by @yeongseon.
+  now fails these regressions; production behavior and dependencies are unchanged. Contributed by @yeongseon.
 - **Shared scalar-formatting coverage and observable escape recovery (#563)** —
   Duplicate async scalar examples now use the existing pure-function golden
   matrix under both escape modes, with small sync/async adapter wiring checks.
   Explicit-mode recovery cases observe bound SQL and TCP sessions instead of
   incidental private flags. Hostile inputs, unknown-mode rejection, generation
-  fences and malformed-reply safety tests remain; runtime behavior is unchanged by @yeongseon.
+  fences and malformed-reply safety tests remain; runtime behavior is unchanged. Contributed by @yeongseon.
 - **Native LOB handle fetch and bind (#441)** — `pycubrid.compat.native`
   fetches and binds BLOB/CLOB handles with the official names:
   `connection.lob()` (or `native.lob(conn)`), `cursor.fetch_lob(col, lob, /)`
@@ -2112,7 +2112,7 @@ Behavior changes you may notice (details in the entries below):
   cap), NULL and mixed columns, repeated execution, cross-connection binds
   and reconnect. Fourteen new official differential claims (eleven match, three
   classified deviations) pass
-  on CUBRID 10.2 and 11.4. LOB write/read/seek and files remain #442/#443 by @yeongseon.
+  on CUBRID 10.2 and 11.4. LOB write/read/seek and files remain #442/#443. Contributed by @yeongseon.
 - **Native collection binding (#440)** — `pycubrid.compat.native` binds
   SET, MULTISET and SEQUENCE parameter values with the official names:
   `connection.set()` (or `native.set(conn)`), `set.imports(data, type, /, *,
@@ -2166,7 +2166,7 @@ Behavior changes you may notice (details in the entries below):
   codec and `errors="replace"`. `charset=None` means the default, and a CUBRID
   locale such as `"ko_KR.euckr"` is accepted. `get_schema_info()` checks its arguments before sending, so an
   unencodable table or column pattern no longer closes the connection. A new `integration-charset` CI job runs the live round trips
-  against CUBRID 11.4 created with `CUBRID_LOCALE=ko_KR.euckr` by @yeongseon.
+  against CUBRID 11.4 created with `CUBRID_LOCALE=ko_KR.euckr`. Contributed by @yeongseon.
 - **Official-driver differential gate (#446)** — official behavior that
   pycubrid claims is now listed in `tests/fixtures/official_differential_claims.json`.
   Each claim is a `match`, or a `deviation` with a reason, an issue and both
@@ -2187,7 +2187,7 @@ Behavior changes you may notice (details in the entries below):
   `scripts/check_official_differential.py` validates the ledger offline and
   the evidence in CI, and generates the claim counts in the compatibility
   guides. `check_integration_lanes.py` gains an `official` lane, and
-  `--lane official` accepts no skip by @yeongseon.
+  `--lane official` accepts no skip. Contributed by @yeongseon.
 - **Typed collection parameters for ordinary cursors (#567)** — new
   `pycubrid.types.Set`, `Multiset` and `Sequence` (also exported from
   `pycubrid`) wrap an immutable tuple of elements and bind through `execute()`
@@ -2223,7 +2223,7 @@ Behavior changes you may notice (details in the entries below):
   only its keys and silently drop the values — and `Sequence` additionally
   rejects a `set`/`frozenset` argument (`TypeError`), since its iteration
   order is not guaranteed and would make `Sequence`'s element order
-  nondeterministic; `Set` and `Multiset` still accept a `set`/`frozenset` by @yeongseon.
+  nondeterministic; `Set` and `Multiset` still accept a `set`/`frozenset`. Contributed by @yeongseon.
 - **Internal: typed collection binding wire contract (#482)** — not
   user-visible. Prepared FC3 requests can carry an immutable
   SET/SEQUENCE/MULTISET value of INT or STRING elements (NULL elements, empty
@@ -2231,7 +2231,7 @@ Behavior changes you may notice (details in the entries below):
   nested and unsupported elements before any bytes are built. There is no public collection API yet (#440); ordinary sync/async
   execution and the public API are unchanged. Live 10.2/11.4 evidence: the
   broker rejects the MULTISET kind (error -454), and a SET value stored into a
-  MULTISET column drops duplicates while a SEQUENCE value keeps them by @yeongseon.
+  MULTISET column drops duplicates while a SEQUENCE value keeps them. Contributed by @yeongseon.
 - **Internal: LOB-handle binding wire contract (#441)** — not user-visible.
   Prepared FC3 requests can carry an immutable BLOB/CLOB handle binding whose
   bytes equal the official driver's `bind_lob()` request (checked against a
@@ -2240,7 +2240,7 @@ Behavior changes you may notice (details in the entries below):
   and physical session it was made for, and the native prepared cursor sends
   it only on that session (never on a replacement session or another
   connection that happens to have the same generation number). There is no
-  public LOB binding API yet; ordinary sync/async execution is unchanged by @yeongseon.
+  public LOB binding API yet; ordinary sync/async execution is unchanged. Contributed by @yeongseon.
 
 **Additional generated commit references:**
 
@@ -2262,29 +2262,29 @@ Behavior changes you may notice (details in the entries below):
 
 - Select the existing repository-tooling CI lane when its official-fixture or
   scenario-ledger tests, or their upstream scenario CSV, change (#651); retain
-  the single Linux/Python lane and documentation-only skips by @yeongseon.
+  the single Linux/Python lane and documentation-only skips. Contributed by @yeongseon.
 - Reduce routine PR CI to one representative offline lane and targeted live checks;
   move full compatibility matrices to explicit dispatch/releases and schedule representative checks weekly.
   Keep shell gate tests portable when Bash is unavailable and synchronize workflow
   cadence, representative matrix guidance and support-section headings in EN/KO docs.
   Conservatively validate new driver/test paths with one offline regression lane;
-  bind manual validation to a requested SHA and current PR head before/after testing by @yeongseon.
+  bind manual validation to a requested SHA and current PR head before/after testing. Contributed by @yeongseon.
 - **Private CCI metadata type evidence (#631)** — full column metadata retains
   the exact CCI extended-type value from legacy or two-byte type headers.
   Ordinary type codes, descriptions, row/schema parsing and public APIs are
   unchanged. This internal prerequisite adds no `result_info` API or parity
-  claim; that remains separate work under #445 by @yeongseon.
+  claim; that remains separate work under #445. Contributed by @yeongseon.
 - **Shared simple CAS reply prefix (#560)** — ten simple packet parsers reuse
   one private helper for reader creation, CAS_INFO skipping, response-code
   parsing and server-error dispatch. Packet-specific payload parsing, encoding,
   error lengths and failure behavior are preserved; handshake, database-open,
-  row/metadata packets and CHECK_CAS retain their distinct parsing paths by @yeongseon.
+  row/metadata packets and CHECK_CAS retain their distinct parsing paths. Contributed by @yeongseon.
 - **Direct cursor imports and unused-helper cleanup (#561)** — the sync
   connection imports the real `Cursor` directly instead of maintaining a lazy
   module-global class cache. The unused async connect-dispatch helper is removed,
   and cursor exception imports are centralized at module scope. Intentional SSL
   and cursor helper aliases, cursor ownership, timing, error metadata, public
-  APIs and runtime behavior are preserved by @yeongseon.
+  APIs and runtime behavior are preserved. Contributed by @yeongseon.
 - **Faster FETCH row parsing (#559)** — a new offline microbenchmark,
   `tests/test_bench_fetch_parsing.py` (2000-row scalar, text, mixed and
   collection replies), guided two changes to the common row loop. The SET
@@ -2296,7 +2296,7 @@ Behavior changes you may notice (details in the entries below):
   differential run of the old and new parser over 10,490 seed, truncated and
   byte-mutated FETCH replies gave identical rows and identical exception types
   and messages. Without `--benchmark-enable`, the benchmark runs only as a
-  correctness check by @yeongseon.
+  correctness check. Contributed by @yeongseon.
 - **Internal: explicit per-reply session verification and one escape-mode policy (#525)** —
   refactor with no behavior change in either driver. Whether an OUT_TRAN reply
   still needed a `CHECK_CAS` probe was decided by comparing CAS_INFO object
@@ -2309,7 +2309,7 @@ Behavior changes you may notice (details in the entries below):
   scenarios, including the #557 round-trip budgets, send identical request
   sequences before and after the change. The backslash-escape probe SQL, result
   interpretation and error messages, previously copied in the sync connect,
-  async connect and async recovery paths, are now one shared helper by @yeongseon.
+  async connect and async recovery paths, are now one shared helper. Contributed by @yeongseon.
 - **Autocommit cursor handles are released with the next statement (#488)** —
   in autocommit mode only `commit()`/`rollback()` sent `CLOSE_REQ` for unclosed
   cursors, the connection kept every cursor alive, and an explicit close cost a
@@ -2344,13 +2344,13 @@ Behavior changes you may notice (details in the entries below):
 - Earlier release workflow unification with the sibling repos: new `RELEASING.md`; `make release`
   replaced by the read-only `make release-check VERSION=x.y.z`; `publish-pypi.yml` was
   manual-dispatch only and then dispatched the cookbook smoke test after a successful
-  publish (replacing `notify-cookbook.yml`); CI lints `CHANGELOG.md` by @yeongseon.
+  publish (replacing `notify-cookbook.yml`); CI lints `CHANGELOG.md`. Contributed by @yeongseon.
 - **PyPI publish fails closed on duplicate files (#494)** — `publish-pypi.yml` no longer
   passes `skip-existing: true`. The new stdlib-only `scripts/pypi_duplicate_guard.py`
   compares the SHA-256 of every verified file with the file PyPI already serves under the
   same name: an identical file (a partial upload recovered with `gh run rerun --failed`)
   is dropped from the upload, and a different hash or an unreachable PyPI fails the job.
-  `RELEASING.md` documents the bounded recovery; offline tests cover the guard by @yeongseon.
+  `RELEASING.md` documents the bounded recovery; offline tests cover the guard. Contributed by @yeongseon.
 - **CI: releases happen automatically when a reviewed release PR is merged (#539)** —
   `prepare-release.yml` opens the `chore: release vX.Y.Z` PR (moves `[Unreleased]` into a
   dated section, bumps `__version__`, runs `make release-check`). On every push to `main`,
@@ -2366,7 +2366,7 @@ Behavior changes you may notice (details in the entries below):
   `publish-pypi.yml` were removed; a narrow recovery dispatch (`resume`, `verify-only`,
   `dry-run`) remains. The guarded workflow now uses `publish-pypi.yml` to match the
   registered PyPI identity; the former manual publisher is not restored. Curated
-  CHANGELOG notes remain alongside release-please generated notes by @yeongseon.
+  CHANGELOG notes remain alongside release-please generated notes. Contributed by @yeongseon.
 - Ruff/Mypy pre-commit hooks are now `repo: local` / `language: system` hooks that
   invoke `python3 -m ruff`/`python3 -m mypy` from the active `.[dev]` environment
   instead of separately versioned mirror repos, so there is a single source of
@@ -2397,16 +2397,16 @@ Behavior changes you may notice (details in the entries below):
   with environment `pypi`, correcting the filename mismatch behind `invalid-publisher`.
   Retain release/full-matrix/artifact/tag/cookbook gates and synchronize recovery
   commands and successful-publication label reconciliation. No driver behavior,
-  version, dependency or support change by @yeongseon.
+  version, dependency or support change. Contributed by @yeongseon.
 - **`fetchmany()` validates integer size before fetching (#371)** —
   ordinary sync and async cursors raise `ProgrammingError` for non-integer
   types, including floats and booleans, before buffer consumption or a FETCH
   request. Positive sizes and omitted/`None` defaults keep their behavior;
   existing zero/negative integer no-ops and the separate compatibility wrapper
   are preserved. This type tightening is classified MINOR, since booleans
-  and nonpositive floats previously completed without error by @yeongseon.
-- Preserve existing Docker volumes during automatic integration/TLS cleanup, including readiness and test failures (#501) by @yeongseon, co-authored by @HarshRajSinghania.
-- **Connection timeouts are validated before socket creation (#367)** — sync and async connections reject negative, NaN, and infinite `connect_timeout`/`read_timeout` values during common initialization, preventing invalid timeout values from leaking a newly opened socket; `None`, zero, and finite positive values retain their existing semantics by @yeongseon, co-authored by @blackmore-technology-group.
+  and nonpositive floats previously completed without error. Contributed by @yeongseon.
+- Preserve existing Docker volumes during automatic integration/TLS cleanup, including readiness and test failures (#501) by @yeongseon, co-authored. Contributed by @HarshRajSinghania.
+- **Connection timeouts are validated before socket creation (#367)** — sync and async connections reject negative, NaN, and infinite `connect_timeout`/`read_timeout` values during common initialization, preventing invalid timeout values from leaking a newly opened socket; `None`, zero, and finite positive values retain their existing semantics. Contributed by @yeongseon, co-authored by @blackmore-technology-group.
 - **TLS preflight fatal alerts and timeout context (#592)** — the Python 3.10
   async certificate probe sends queued fatal alert bytes best effort within
   its existing deadline, then re-raises the original TLS error even if alert
@@ -2414,7 +2414,7 @@ Behavior changes you may notice (details in the entries below):
   errno while suppressing internal WantRead context in displayed traces. The
   existing trickle-peer regression now covers sync default and explicit
   handshake budgets too. Socket cleanup, required final-flight failures,
-  optional shutdown bounds, defaults, dependencies and public APIs are unchanged by @yeongseon.
+  optional shutdown bounds, defaults, dependencies and public APIs are unchanged. Contributed by @yeongseon.
 - **Hostile timezone errors and pure-Python temporal fallback (#530)** — datetime
   parameter timezone callbacks, key lookup and offset-field errors now raise
   `ProgrammingError("invalid tzinfo on datetime parameter")` with the original
@@ -2425,14 +2425,14 @@ Behavior changes you may notice (details in the entries below):
   reads can consume forged fields. Exact fallback values, C-backed subclasses,
   ordinary literals, public APIs and dependencies are unchanged. Offline
   regressions include fresh subprocesses with `_datetime` and `_zoneinfo`
-  disabled, alongside hostile callback and offset cases by @yeongseon.
+  disabled, alongside hostile callback and offset cases. Contributed by @yeongseon.
 - **Reserved-word hints describe the diagnostic position (#509)** — an
   `unexpected 'VARCHAR'` syntax message no longer claims that `VARCHAR` is the
   offending identifier. The appended hint says an identifier at or before the
   reported token may be reserved, with the existing quoting advice and link.
   Original server text, error metadata, hint triggers and SQL behavior are
   unchanged. Offline regressions use messages captured on CUBRID 10.2, 11.2
-  and 11.4 brokers by @yeongseon.
+  and 11.4 brokers. Contributed by @yeongseon.
 - **Interrupted deferred CLOSE flush retains unsent handles (#601)** — sync
   and async `commit()`/`rollback()` no longer remove the entire deferred-close
   queue before sending its first `CLOSE_REQ`. Each same-session queued ID is
@@ -2440,7 +2440,7 @@ Behavior changes you may notice (details in the entries below):
   send keeps unsent IDs in FIFO order, while completed/uncertain sends are not
   replayed. Stale-session IDs are discarded, GC additions during a flush stay
   behind its original batch, and an uncertain transport still retires the
-  session without `END_TRAN`. Public APIs and SQL results are unchanged by @yeongseon.
+  session without `END_TRAN`. Public APIs and SQL results are unchanged. Contributed by @yeongseon.
 - **Repeated native prepared execution errors retain the real server code
   (#611)** — after a complete broker error, the opt-in sync prepared cursor
   returns that failure unchanged. Only the next explicit caller `execute()`
@@ -2450,7 +2450,7 @@ Behavior changes you may notice (details in the entries below):
   instead of conversion `-494`, without replaying a possibly effective
   statement inside its failing call. Close/prepare/count/session failures
   abort before FC3; temporary LOB bindings require explicit reprepare and
-  rebind. Ordinary FC41, async execution and public signatures are unchanged by @yeongseon.
+  rebind. Ordinary FC41, async execution and public signatures are unchanged. Contributed by @yeongseon.
 - `DBAPIType` comparison no longer reads `bool` values as integer type codes:
   `STRING == True` and `STRING != False` are now `False` and `True`. Integer
   subclasses such as `enum.IntEnum` still compare equal by value, so
@@ -2465,7 +2465,7 @@ Behavior changes you may notice (details in the entries below):
   handle changes). Later `write()`/`read()` requests carry the updated
   handle, as CCI's do; return values and errors are unchanged. Live 10.2/11.4
   evidence: written BLOB/CLOB handles up to 1 MB, bound through the internal
-  binding below, store their full length by @yeongseon.
+  binding below, store their full length. Contributed by @yeongseon.
 - **`Lob.read()`/`Lob.write()` reject non-int and boolean offset/length
   (#449)** — `offset` (`read`/`write`) and `length` (`read`) must now be a
   concrete Python `int`: `type(value) is not int` is rejected, so `bool` (a
@@ -2480,19 +2480,19 @@ Behavior changes you may notice (details in the entries below):
   the empty-write shortcut's return value, and the `DataError` raised for an
   in-range `int` too large to serialize (e.g. `offset=2**63`) are unchanged.
   The regression suite's closed-LOB-precedes-invalid-arguments ordering test
-  is adapted from heyadhithya's PR #458 by @yeongseon and @HarshRajSinghania, co-authored by @heyadhithya.
+  is adapted from heyadhithya's PR #458. Contributed by @yeongseon and @HarshRajSinghania, co-authored by @heyadhithya.
 - **Missing-timezone test fixtures isolate cached wheel resources (#605)** —
   Offline and integration helpers hide cached `tzdata.*` modules as well as
   system timezone paths, then restore the original modules and exact caller
   path. Preloaded-resource and cleanup regressions prevent order-dependent
   successes in tests that require missing data; production timezone policy
-  and dependency declarations are unchanged by @yeongseon.
+  and dependency declarations are unchanged. Contributed by @yeongseon.
 - **Collection conversion errors cannot hide malformed later elements (#595)** —
   Known decoded collection members validate length words, payload bounds and
   exact decoder consumption. The first complete `DataError` is saved while
   subsequent members still run their decoders; later structural damage retires
   the sync/async session. Complete collections keep the first error and cause.
-  NULL-only, opaque/disabled decoding and unsupported nested layouts are unchanged by @yeongseon.
+  NULL-only, opaque/disabled decoding and unsupported nested layouts are unchanged. Contributed by @yeongseon.
 - **Pooling-off autocommit replies retire freed handle ownership (#584)** —
   Direct CUBRID CAS reuses handle IDs after an automatic transaction end.
   Sync and async drivers now invalidate cursor/schema ownership on the actual
@@ -2502,7 +2502,7 @@ Behavior changes you may notice (details in the entries below):
   fail explicitly rather than closing or fetching another cursor's reused ID.
   Final ordinary autocommit FETCH and error replies follow the same rule.
   Physical-session generation, pooling-on/manual/schema behavior and liveness
-  probes are preserved; arbitrary OUT_TRAN echoes and batch replies are excluded by @yeongseon.
+  probes are preserved; arbitrary OUT_TRAN echoes and batch replies are excluded. Contributed by @yeongseon.
 - **Metadata text errors cannot hide damaged FC41/FC3 tails (#591)** —
   Undecodable metadata retains column types for validation of remaining
   counts, fields and inline rows before the original `DataError` is raised.
@@ -2511,7 +2511,7 @@ Behavior changes you may notice (details in the entries below):
   cells after an unrepresentable row value, including collection and LOB
   validation. Negative collection element counts and partial inline-fetch
   headers are rejected; absent optional headers and undeclared trailing bytes
-  retain their contracts. Bounds re-walks use checked reader marks by @yeongseon.
+  retain their contracts. Bounds re-walks use checked reader marks. Contributed by @yeongseon.
 - **Column metadata finishes its framing check before `DataError`; FC41 count gaps closed (#581)** —
   column metadata text that is not valid in the connection codec raised
   `DataError` at once in FC2, FC3 (refreshed columns) and FC41 replies, so
@@ -2523,7 +2523,7 @@ Behavior changes you may notice (details in the entries below):
   now rejects a negative bind count, `total_tuple_count` or inline tuple count
   (previously ignored, passed through, or read as zero rows) and a column count
   the reply cannot hold, as FC2 already did; FC3 rejects a negative inline
-  tuple count. Sync and async behave the same by @yeongseon.
+  tuple count. Sync and async behave the same. Contributed by @yeongseon.
 - **Sync TLS handshake is bounded without `read_timeout`; the Python 3.10 TLS preflight probe closes its socket (#535)** —
   `pycubrid.connect(..., ssl=...)` without `read_timeout` waited forever when the
   broker (or a proxy in front of it) stalled during the TLS handshake. The
@@ -2542,7 +2542,7 @@ Behavior changes you may notice (details in the entries below):
   sending the final handshake flight propagate instead of being suppressed.
   Best-effort close_notify cannot extend that deadline (#593). The
   same CPython 3.10 `ssl` behavior can still affect the sync driver's
-  `wrap_socket()` upgrade on 3.10; `docs/CONNECTION.md` (+ Korean) documents it by @yeongseon.
+  `wrap_socket()` upgrade on 3.10; `docs/CONNECTION.md` (+ Korean) documents it. Contributed by @yeongseon.
 - **Transport failures retire cursor handles; async timeout errors name their cause (#556)** —
   an uncertain transport failure closed the connection but left cursors
   holding the dead session's query handle ids: the sync socket-error and
@@ -2568,7 +2568,7 @@ Behavior changes you may notice (details in the entries below):
   treated as a transport failure by both drivers (session closed, wrapped in
   `OperationalError`); it now propagates unchanged and the session stays open.
   A `ValueError`-family error from a custom deserializer (orjson, simplejson)
-  is still treated as a malformed reply and retires the session by @yeongseon.
+  is still treated as a malformed reply and retires the session. Contributed by @yeongseon.
 - **Negative FC41 column metadata lengths and column counts are rejected
   (#555)** — a `PREPARE_AND_EXECUTE` reply whose column name, real name, table
   name or default length was negative decoded that field as an empty string,
@@ -2579,7 +2579,7 @@ Behavior changes you may notice (details in the entries below):
   response from broker')` on the sync and async connections and closes the
   connection, like other framing damage (#383, #533). A normal server does not
   send such replies. Zero-length metadata, valid FC2/FC3/FC41 replies and the
-  session-keeping `DataError` for a complete reply (#492, #512) are unchanged by @yeongseon.
+  session-keeping `DataError` for a complete reply (#492, #512) are unchanged. Contributed by @yeongseon.
 - **Async setup failure no longer leaks into waiting tasks (#554)** — while
   `AsyncConnection.connect()` configured a new session, other tasks waiting on
   the setup gate re-raised the setup owner's exception instance, so cancelling
@@ -2593,7 +2593,7 @@ Behavior changes you may notice (details in the entries below):
   task; retry operation")`. The setup owner still raises its own exception
   (including `CancelledError`), a waiter's own cancellation is unchanged, and
   the failed session is still discarded before the gate opens. This covers
-  `connect()`, including the reconnect of `ping(reconnect=True)` by @yeongseon.
+  `connect()`, including the reconnect of `ping(reconnect=True)`. Contributed by @yeongseon.
 - **Invalid JSON text in a complete reply raises `DataError` (#543)** — a
   `JSON` column value that is not valid JSON, decoded with
   `json_deserializer=json.loads`, raised `json.JSONDecodeError` — a
@@ -2613,7 +2613,7 @@ Behavior changes you may notice (details in the entries below):
   stays fail-closed as for invalid UTF-8 and zero dates: it raises
   `OperationalError` and retires the session. A caller-supplied
   `json_deserializer` is not wrapped: only the built-in `json.loads` path is
-  reclassified by @yeongseon.
+  reclassified. Contributed by @yeongseon.
 - **The autocommit setter keeps `SET_DB_PARAMETER` and `COMMIT` on one CAS session (#551)** —
   in both drivers, `conn.autocommit = v` / `await conn.set_autocommit(v)` sent
   `COMMIT` with implicit reconnect after an OUT_TRAN `SET_DB_PARAMETER` reply,
@@ -2628,7 +2628,7 @@ Behavior changes you may notice (details in the entries below):
   `OperationalError` is raised with the cause chained; a rejected
   `SET_DB_PARAMETER` still raises its native error and keeps the session.
   Found by the offline sync/async replay parity suite (#521), whose strict
-  `xfail` scenario now passes by @yeongseon.
+  `xfail` scenario now passes. Contributed by @yeongseon.
 - **Sync `Connection.connect()` after `close()` restores an explicit `autocommit` (#520)** —
   reopening a closed sync connection did not re-send `SET_DB_PARAMETER`
   (`AUTO_COMMIT`), so the new CAS session kept the broker default while
@@ -2649,7 +2649,7 @@ Behavior changes you may notice (details in the entries below):
   failure closes the connection and raises `OperationalError` (the native
   error is its `__cause__`; previously the native `DatabaseError` escaped and
   the socket stayed open). A healthy connect no longer sends the extra
-  `CHECK_CAS` between the two requests by @yeongseon.
+  `CHECK_CAS` between the two requests. Contributed by @yeongseon.
 - **`connect()` verifies an OUT_TRAN session before applying autocommit (#521)** —
   with automatic `no_backslash_escapes` detection the escape probe ends with a
   `ROLLBACK`, so a new session is OUT_TRAN when the constructor's
@@ -2663,7 +2663,7 @@ Behavior changes you may notice (details in the entries below):
   that recovery and not again by `connect()`, and an interrupted sync setup
   retires the new session instead of leaving it half-configured.
   The async escape probe of that replacement also now carries the connection's
-  autocommit flag, like every other escape probe in both drivers by @yeongseon.
+  autocommit flag, like every other escape probe in both drivers. Contributed by @yeongseon.
 - **Sync `ping(reconnect=False)` closes a session whose `CHECK_CAS` failed, like async (#521)** —
   when `CHECK_CAS` returned a negative code (broken CAS-to-DB link), the sync
   driver returned `False` but kept the session, and the next request probed it
@@ -2671,13 +2671,13 @@ Behavior changes you may notice (details in the entries below):
   confirmed-broken session: `ping(reconnect=False)` still returns `False`
   without reconnecting, and later calls raise `InterfaceError` until
   `connect()` or `ping(reconnect=True)`. A healthy ping, a closed connection
-  and `ping(reconnect=True)` are unchanged by @yeongseon.
+  and `ping(reconnect=True)` are unchanged. Contributed by @yeongseon.
 - Clear previous results in synchronous and asynchronous `execute()` calls
   after closing the old query handle (#373). A subsequent binding or request
   failure leaves `description=None`, `rowcount=-1`, `lastrowid=None` and no
   fetchable rows or held fetch-page error. If closing the old handle fails,
   `execute()` keeps the buffered result and its page error; connection invalidation
-  or reconnect handling may still retire the handle by @ryanduguid.
+  or reconnect handling may still retire the handle. Contributed by @ryanduguid.
 - **`CALL` and `EVALUATE` results and `NULL`-typed columns decode their values (#542)** —
   under CAS protocol 8 (CUBRID 10.2+) each such cell starts with the two-byte
   type header `0x80 | collection bits | charset`, type, the layout of column
@@ -2722,7 +2722,7 @@ Behavior changes you may notice (details in the entries below):
   differences are listed per scenario with a reason and documented, with the
   four unintended ones it found (fixed above), in `docs/DEVELOPMENT.md`
   (+ Korean). `prepare_and_execute_reply()` in `tests/helpers/cas_reply.py`
-  gains a `total` keyword for replies that leave rows to later FETCH pages by @yeongseon.
+  gains a `total` keyword for replies that leave rows to later FETCH pages. Contributed by @yeongseon.
 - **Tests: protocol fuzzing seeds realistic replies (#523)** — every
   `tests/test_protocol_fuzz.py` seed used to carry zero columns, so no fuzz
   case reached column metadata or row cells. Seeds built by
@@ -2736,7 +2736,7 @@ Behavior changes you may notice (details in the entries below):
   `OperationalError`), server errors and `DataError` for complete replies,
   also through the sync and async connections. Thirteen tests whose only
   assertion was `is not None` now check the expected value, and two unittest
-  guards use `self.fail()` instead of a narrowing `assert` by @yeongseon.
+  guards use `self.fail()` instead of a narrowing `assert`. Contributed by @yeongseon.
 - **Tests: a configured but unreachable CUBRID now errors instead of skipping (#522, #432)** —
   16 integration modules probed the server at import time and called
   `skipif("CUBRID instance not available")`, so pointing the suite at a dead
@@ -2759,7 +2759,7 @@ Behavior changes you may notice (details in the entries below):
   removes the container, and accepts `CUBRID_TEST_PORT=<port>` (also used by
   `docker-compose.yml`) to avoid a busy port 33000. `make integration-tls` also
   waits for readiness instead of sleeping, audits its JUnit report and always
-  removes the container by @yeongseon.
+  removes the container. Contributed by @yeongseon.
 - **Rows fetched before a failing page are no longer lost (#507)** — when a
   later FETCH page raised a data-level `DataError` (invalid text #492, an
   unresolved zone #413, a zero date #512), `fetchall()` and `fetchmany()`
@@ -2776,8 +2776,8 @@ Behavior changes you may notice (details in the entries below):
   server. The connection stays usable and the cursor keeps its handle, sync
   and async alike. Documented in `docs/API_REFERENCE.md`, `docs/TYPES.md` and
   `docs/TROUBLESHOOTING.md` (+ Korean); live-tested against CUBRID 11.4 with a
-  zero `DATE` several FETCH pages into the result by @yeongseon.
-- **`pycubrid.aio` no longer logs an asyncio warning whenever a TLS broker closes the connection (#514)** — after the in-place `loop.start_tls()` upgrade the stream protocol still believed it was on a plaintext transport, so every TLS peer close (broker restart, CAS recycle, idle timeout, dropped session before a reconnect) made asyncio log `WARNING returning true from eof_received() has no effect when using ssl`. The upgrade now marks the stream protocol as running over TLS, as `StreamWriter.start_tls()` does on Python 3.11+. Log output only; connection state, errors and the sync driver are unchanged by @yeongseon.
+  zero `DATE` several FETCH pages into the result. Contributed by @yeongseon.
+- **`pycubrid.aio` no longer logs an asyncio warning whenever a TLS broker closes the connection (#514)** — after the in-place `loop.start_tls()` upgrade the stream protocol still believed it was on a plaintext transport, so every TLS peer close (broker restart, CAS recycle, idle timeout, dropped session before a reconnect) made asyncio log `WARNING returning true from eof_received() has no effect when using ssl`. The upgrade now marks the stream protocol as running over TLS, as `StreamWriter.start_tls()` does on Python 3.11+. Log output only; connection state, errors and the sync driver are unchanged. Contributed by @yeongseon.
 - **`pycubrid.aio.connect(..., ssl=...)` no longer hangs forever when the TLS handshake is interrupted (#513)** — if the broker stalled or reset the connection before the TLS handshake completed, `read_timeout` (or the 10-second `ssl_handshake_timeout`) fired as intended, but connect cleanup then awaited `StreamWriter.wait_closed()` on a stream that asyncio never marks closed (its `SSLProtocol` drops `connection_lost` while still handshaking), so the call never returned on Python 3.11+. The failed upgrade now notifies the stream protocol itself after aborting the transport, and connect raises `OperationalError` within `read_timeout` and closes the socket. The sync driver was not affected. `docs/CONNECTION.md` and `docs/TROUBLESHOOTING.md` (+ Korean) now state which timeout bounds the TLS handshake (`read_timeout`; `connect_timeout` covers only the TCP connect) by @yeongseon.
 - **Reads past the end of a broker reply are rejected (#383)** — a length
   field that ran past the end of a reply was cut short by a Python slice and
@@ -2818,7 +2818,7 @@ Behavior changes you may notice (details in the entries below):
   `docs/TYPES.md` and `docs/TROUBLESHOOTING.md` (+ Korean) document SQL
   workarounds (`NULLIF(d, DATE'0000-00-00')`, `CASE`, `TO_CHAR`). Found by
   the CUBRID 10.2-11.4 version differential (#351); the behavior was the same
-  on 10.2, 11.0, 11.2 and 11.4 by @yeongseon.
+  on 10.2, 11.0, 11.2 and 11.4. Contributed by @yeongseon.
 - **Security: `str`, `bytes`, date and time parameters are rendered without
   calling overridable methods (#528)** — `format_parameter()` escaped `str`
   parameters with `value.replace(...)` and `"\x00" in value`, rendered
@@ -2844,13 +2844,13 @@ Behavior changes you may notice (details in the entries below):
   `ProgrammingError`, because that module copies their value through
   attributes a subclass can forge. Output for plain `str`, `bytes`,
   `bytearray`, `date`, `datetime` and `time` values is byte-identical except
-  for the year padding below, and sync and async cursors share the change by @yeongseon.
+  for the year padding below, and sync and async cursors share the change. Contributed by @yeongseon.
 - **Years below 1000 are zero-padded in `DATE`/`DATETIME`/`DATETIMETZ`
   literals (#519)** — the year was rendered with `strftime("%Y")`, which does
   not pad on Linux, and CUBRID reads `DATE'99-01-02'` as 1999-01-02, so
   `date(99, 1, 2)` and `datetime(99, ...)` were silently stored and compared as
   year 1999. Years are now always four digits (`DATE'0099-01-02'`); years 1,
-  99, 999 and 1000 round-trip on CUBRID 10.2 and 11.4 by @yeongseon.
+  99, 999 and 1000 round-trip on CUBRID 10.2 and 11.4. Contributed by @yeongseon.
 - **Security: `int`, `float` and `Decimal` subclasses are bound by value
   (#518)** — `format_parameter()` rendered `int` and `float` parameters with
   `str(value)` and `Decimal` with `format(value, "f")`, which dispatch to
@@ -2863,7 +2863,7 @@ Behavior changes you may notice (details in the entries below):
   `NaN`/`Infinity` and 38-digit checks and `format(..., "f")`), so `Color.RED`
   is sent as `1` and `Perm.R | Perm.W` as `6`. Output for plain `int`, `float`
   and `Decimal` values is unchanged, `bool` still renders as `1`/`0`, and
-  sync and async cursors share the change by @yeongseon.
+  sync and async cursors share the change. Contributed by @yeongseon.
 - `decimal.Decimal` parameters are now rendered in plain fixed-point notation
   instead of `str(value)`, which switched to E notation (`Decimal("1E-7")` was
   sent as `1E-7`). CUBRID parses an E-notation literal as `DOUBLE`, so such
@@ -2935,7 +2935,7 @@ Behavior changes you may notice (details in the entries below):
 * **aio:** bound async TLS connect when the handshake stalls or is reset ([#534](https://github.com/cubrid-lab/pycubrid/issues/534)) ([bd878fe](https://github.com/cubrid-lab/pycubrid/commit/bd878fe1af7b4e0eb5e76e47c9da3407d5394944)) by @yeongseon.
 * **async:** isolate setup cancellation from waiting operations ([#578](https://github.com/cubrid-lab/pycubrid/issues/578)) ([7f5fe22](https://github.com/cubrid-lab/pycubrid/commit/7f5fe229000ebec13bc14427f0dfe277acfb5b09)) by @yeongseon.
 * **binding:** keep invalid timezone failures within DB-API errors ([4fcd9c8](https://github.com/cubrid-lab/pycubrid/commit/4fcd9c82be27e56fcdf1ab8d992c56d1d8b0c994)) by @yeongseon.
-* **changelog:** reject duplicate release subsections ([#648](https://github.com/cubrid-lab/pycubrid/issues/648)) ([3c57bb9](https://github.com/cubrid-lab/pycubrid/commit/3c57bb9ffab347f5c57e27d080d4a9b205c64083)) by @yeongseon, co-authored by @chenzeyan54-commits.
+* **changelog:** reject duplicate release subsections ([#648](https://github.com/cubrid-lab/pycubrid/issues/648)) ([3c57bb9](https://github.com/cubrid-lab/pycubrid/commit/3c57bb9ffab347f5c57e27d080d4a9b205c64083)) by @yeongseon, co-authored. Contributed by @chenzeyan54-commits.
 * **ci:** report a skipped cookbook verification as failed in the release summary ([#548](https://github.com/cubrid-lab/pycubrid/issues/548)) ([45f3374](https://github.com/cubrid-lab/pycubrid/commit/45f3374b4cfa9d191316c935b3801e827aa94b1b)) by @yeongseon.
 * classify foreign-key restrict failures (-924, -1284) as IntegrityError ([95a34e6](https://github.com/cubrid-lab/pycubrid/commit/95a34e6fcb6dcca27ed10a11e24aadb18cb34c2d)) by @yeongseon.
 * clear previous results after failed execute ([#531](https://github.com/cubrid-lab/pycubrid/issues/531)) ([32195b1](https://github.com/cubrid-lab/pycubrid/commit/32195b1f856b8d499a6e45ebfb89ee4a7ebc57ea)) by @ryanduguid (first contribution 🎉).
@@ -2951,7 +2951,7 @@ Behavior changes you may notice (details in the entries below):
 * **driver:** render Decimal parameters in plain notation so CUBRID keeps them NUMERIC ([#526](https://github.com/cubrid-lab/pycubrid/issues/526)) ([a7a3563](https://github.com/cubrid-lab/pycubrid/commit/a7a3563e4ee2fecc06c9208ecbe42392f575749f)) by @yeongseon.
 * **driver:** render int, float and Decimal subclasses by value instead of str() ([#527](https://github.com/cubrid-lab/pycubrid/issues/527)) ([0577cd8](https://github.com/cubrid-lab/pycubrid/commit/0577cd82e1de3858b3694b0105f3f13c622082f9)), closes [#518](https://github.com/cubrid-lab/pycubrid/issues/518) by @yeongseon.
 * **driver:** render str, bytes, date and time parameters without calling overridable methods ([#529](https://github.com/cubrid-lab/pycubrid/issues/529)) ([dde9a07](https://github.com/cubrid-lab/pycubrid/commit/dde9a071f44ae275a5db486dea8ecf1521889761)) by @yeongseon.
-* **integration:** preserve volumes during automatic Docker cleanup ([#647](https://github.com/cubrid-lab/pycubrid/issues/647)) ([f3b2e69](https://github.com/cubrid-lab/pycubrid/commit/f3b2e6983e62ae3d5d72149188d3357de96e5445)) by @yeongseon, co-authored by @HarshRajSinghania.
+* **integration:** preserve volumes during automatic Docker cleanup ([#647](https://github.com/cubrid-lab/pycubrid/issues/647)) ([f3b2e69](https://github.com/cubrid-lab/pycubrid/commit/f3b2e6983e62ae3d5d72149188d3357de96e5445)) by @yeongseon, co-authored. Contributed by @HarshRajSinghania.
 * keep the session when a complete broker reply carries invalid UTF-8 ([734fb29](https://github.com/cubrid-lab/pycubrid/commit/734fb294276927fa50c6887e99871a82a2c8eebc)) by @yeongseon.
 * **lob:** keep the handle size current and add internal LOB-handle binding ([#615](https://github.com/cubrid-lab/pycubrid/issues/615)) ([35d4e2c](https://github.com/cubrid-lab/pycubrid/commit/35d4e2cbedbea85bbdac0d76d047572e5cffb6ff)) by @yeongseon.
 * **protocol:** avoid blaming following tokens for reserved identifiers ([5fde41f](https://github.com/cubrid-lab/pycubrid/commit/5fde41f37dd030f7c6098f3a7a8d70a9ecbc5f4a)) by @yeongseon.
@@ -2969,7 +2969,7 @@ Behavior changes you may notice (details in the entries below):
 * reject malformed qualified callproc names ([#515](https://github.com/cubrid-lab/pycubrid/issues/515)) ([601a879](https://github.com/cubrid-lab/pycubrid/commit/601a879f52b951ccdc366d95fde47b3d2d84b75a)), closes [#372](https://github.com/cubrid-lab/pycubrid/issues/372) [#372](https://github.com/cubrid-lab/pycubrid/issues/372) by @yotam1001 (first contribution 🎉).
 * **test:** fail instead of skip when a configured CUBRID endpoint is unreachable ([#541](https://github.com/cubrid-lab/pycubrid/issues/541)) ([68851c9](https://github.com/cubrid-lab/pycubrid/commit/68851c9aa9b125496250f7fff2ae6c4a3821f2b5)) by @yeongseon.
 * tighten TZ fold selection and reject out-of-range offsets ([98d8150](https://github.com/cubrid-lab/pycubrid/commit/98d8150403a525dc27f7d6003d8f5944984cdadc)) by @yeongseon.
-* **timeouts:** validate configuration before transport acquisition ([#646](https://github.com/cubrid-lab/pycubrid/issues/646)) ([7577e4d](https://github.com/cubrid-lab/pycubrid/commit/7577e4d5c33911ee7c7ca7707fbd37e2ad9e04d4)) by @yeongseon, co-authored by @blackmore-technology-group.
+* **timeouts:** validate configuration before transport acquisition ([#646](https://github.com/cubrid-lab/pycubrid/issues/646)) ([7577e4d](https://github.com/cubrid-lab/pycubrid/commit/7577e4d5c33911ee7c7ca7707fbd37e2ad9e04d4)) by @yeongseon, co-authored. Contributed by @blackmore-technology-group.
 * **tls:** bound sync TLS handshakes without read_timeout and close sockets on the Python 3.10 pre-connect path ([#586](https://github.com/cubrid-lab/pycubrid/issues/586)) ([3af12ae](https://github.com/cubrid-lab/pycubrid/commit/3af12ae7d97ea6e1c5e30e616babc0f54fc7ddd0)) by @yeongseon.
 * **tls:** preserve probe failures while notifying TLS peers ([fa7b22a](https://github.com/cubrid-lab/pycubrid/commit/fa7b22ad4707510830d8cccb1518c3a875d1c330)) by @yeongseon.
 * **tls:** preserve the total verification probe deadline ([#594](https://github.com/cubrid-lab/pycubrid/issues/594)) ([7dddab3](https://github.com/cubrid-lab/pycubrid/commit/7dddab31c22f8bb8b837c30d6e942d483abe5f10)), closes [#593](https://github.com/cubrid-lab/pycubrid/issues/593) by @yeongseon.
@@ -2989,37 +2989,37 @@ Behavior changes you may notice (details in the entries below):
 - **Reviewed backlog priorities (#566)** — reconcile the dated roadmap index with
   current release, verification and compatibility work. Preserve contributor
   ownership and distinguish upstream reporting from release preparation; no
-  driver behavior, supported-version or publication-policy change by @yeongseon.
+  driver behavior, supported-version or publication-policy change. Contributed by @yeongseon.
 - **CAS session-loss contract and upstream follow-up (#614)** — retain
   `OperationalError` for an incomplete CAS reply and document session retirement,
   explicit recovery without statement replay, and the differential harness's
   isolation/exclusion evidence. CUBRID's collection/NUMERIC `IF` SIGSEGV remains
   unfixed; upstream reporting is tracked separately in #675. No driver behavior,
-  public API or supported-version change by @yeongseon.
+  public API or supported-version change. Contributed by @yeongseon.
 - **`TIME` binding precision is stated in the type reference** — `docs/TYPES.md`
   (English and Korean) now says that a bound `datetime.time` loses its
   microseconds and `tzinfo` silently, as `docs/PARAMETER_BINDING.md` already
   did. CUBRID `TIME` has second precision; the driver keeps truncating rather
-  than raising `DataError`, so existing 1.x callers are unaffected by @yeongseon.
+  than raising `DataError`, so existing 1.x callers are unaffected. Contributed by @yeongseon.
 - **Korean contribution guide (#329)** — translate the current contribution
   procedures and preserve command examples, English GitHub artifacts,
   contributor/maintainer responsibilities and release boundaries. Add discovery
-  from the Korean README and existing docs navigation; English policy is unchanged by @yeongseon.
+  from the Korean README and existing docs navigation; English policy is unchanged. Contributed by @yeongseon.
 - **Renewed CAS error-code evaluation (#505)** — document numeric-code-first
   dispatch, inner-code `-1`-only text fallback and raw `code`/`errno` preservation.
   Retain the flag-zero compatibility contract despite the bounded four-build
   renewed-code producer proof; numeric-only normalization is unsafe because
   legacy CAS and engine numbers overlap. Negotiation, consumer migration,
-  handshake/API behavior and the separate holdable feature remain unchanged by @yeongseon.
+  handshake/API behavior and the separate holdable feature remain unchanged. Contributed by @yeongseon.
 - **Current verification guidance (#415)** — replace volatile current version,
   module and test/coverage counts with existing source, measured coverage and
   CI policy references in the README/translations, agent and development guides,
   roadmap, support matrix and canonical LLM index. Full coverage retains the
   95% floor; routine PR smoke is not a coverage or full-matrix claim. Historical
-  release/transport milestones and support/security/release policies are unchanged by @yeongseon.
+  release/transport milestones and support/security/release policies are unchanged. Contributed by @yeongseon.
 
-- Align SECURITY.md with latest-minor support and current Python 3.10 TLS preflight guidance while retaining disclosure instructions (#422) by @yeongseon, co-authored by @chenzeyan54-commits.
-- **`llms.txt` no longer advertises prepared statements, and the two entry points are single-sourced (#414)** — the root `llms.txt` claimed prepared statements and a `Cursor.prepare()` method, which ordinary cursors do not have, listed an incomplete exception hierarchy, hardcoded test and coverage counts and linked to the retired `cubrid-cookbook/python` paths, while `docs/llms.txt` was a separately maintained, differing index. `docs/llms.txt` is now the only maintained index, checked against the code: driver-side literal binding and its documented limits, the opt-in sync-only `pycubrid.compat.native` prepared subset, sync and async (`pycubrid.aio`) feature parity, the full PEP 249 exception list and `cubrid-cookbook-python` links. `scripts/generate_llms_full.py` copies it byte-for-byte to the root `llms.txt`, and the CI `lint` job now fails when either `docs/llms-full.txt` or `llms.txt` is stale. `docs/SUPPORT_MATRIX.md` and `docs/TROUBLESHOOTING.md` (+ Korean) no longer describe `cursor.execute(sql, params)` as server-side `PREPARE_AND_EXECUTE` binding (the section is renamed "Parameterized Query Issues"), and the support matrix notes that `nextset()` raises `NotSupportedError`; the Korean, German, Hindi, Russian and Chinese READMEs now describe driver-side binding like the English README. `CONTRIBUTING.md` documents the workflow by @yeongseon.
+- Align SECURITY.md with latest-minor support and current Python 3.10 TLS preflight guidance while retaining disclosure instructions (#422) by @yeongseon, co-authored. Contributed by @chenzeyan54-commits.
+- **`llms.txt` no longer advertises prepared statements, and the two entry points are single-sourced (#414)** — the root `llms.txt` claimed prepared statements and a `Cursor.prepare()` method, which ordinary cursors do not have, listed an incomplete exception hierarchy, hardcoded test and coverage counts and linked to the retired `cubrid-cookbook/python` paths, while `docs/llms.txt` was a separately maintained, differing index. `docs/llms.txt` is now the only maintained index, checked against the code: driver-side literal binding and its documented limits, the opt-in sync-only `pycubrid.compat.native` prepared subset, sync and async (`pycubrid.aio`) feature parity, the full PEP 249 exception list and `cubrid-cookbook-python` links. `scripts/generate_llms_full.py` copies it byte-for-byte to the root `llms.txt`, and the CI `lint` job now fails when either `docs/llms-full.txt` or `llms.txt` is stale. `docs/SUPPORT_MATRIX.md` and `docs/TROUBLESHOOTING.md` (+ Korean) no longer describe `cursor.execute(sql, params)` as server-side `PREPARE_AND_EXECUTE` binding (the section is renamed "Parameterized Query Issues"), and the support matrix notes that `nextset()` raises `NotSupportedError`; the Korean, German, Hindi, Russian and Chinese READMEs now describe driver-side binding like the English README. `CONTRIBUTING.md` documents the workflow. Contributed by @yeongseon.
 
 **Additional generated commit references:**
 
@@ -3045,7 +3045,7 @@ Behavior changes you may notice (details in the entries below):
 * **release:** fix create-release recovery command; make SBOM re-upload idempotent ([9784b0a](https://github.com/cubrid-lab/pycubrid/commit/9784b0a9677172a5fb1346d6f3011729c1640800)) by @yeongseon.
 * replace fixed Docker startup sleeps ([8154952](https://github.com/cubrid-lab/pycubrid/commit/8154952a475a772aca7dae96505d52b02eee551f)) by @nightcityblade (first contribution 🎉).
 * scope the time zone persistence to a retained CAS session ([8814081](https://github.com/cubrid-lab/pycubrid/commit/881408120342f51868805fc61563ab9d9a4a27f1)) by @yeongseon.
-* **security:** align maintenance and TLS guidance ([#649](https://github.com/cubrid-lab/pycubrid/issues/649)) ([ac63fd3](https://github.com/cubrid-lab/pycubrid/commit/ac63fd38fc946b6ad3cfab91333784cafc76a45f)) by @yeongseon, co-authored by @chenzeyan54-commits.
+* **security:** align maintenance and TLS guidance ([#649](https://github.com/cubrid-lab/pycubrid/issues/649)) ([ac63fd3](https://github.com/cubrid-lab/pycubrid/commit/ac63fd38fc946b6ad3cfab91333784cafc76a45f)) by @yeongseon, co-authored. Contributed by @chenzeyan54-commits.
 * single-source llms.txt and remove unsupported prepared-statement claims ([6039dbe](https://github.com/cubrid-lab/pycubrid/commit/6039dbec69f88091578083011d8a93924317b8b6)) by @yeongseon.
 * single-source llms.txt and remove unsupported prepared-statement claims ([8957eaf](https://github.com/cubrid-lab/pycubrid/commit/8957eaf6e6c92e127f0768af72df219200cb544d)), closes [#414](https://github.com/cubrid-lab/pycubrid/issues/414) by @yeongseon.
 * **types:** state that a bound datetime.time drops microseconds ([#670](https://github.com/cubrid-lab/pycubrid/issues/670)) ([8332517](https://github.com/cubrid-lab/pycubrid/commit/833251756ff92c1300d59fde59e2b9015776054d)) by @yeongseon.
@@ -3053,7 +3053,7 @@ Behavior changes you may notice (details in the entries below):
 
 ### CI
 
-- Replace the release PR preparer with pinned release-please; preserve curated Upgrade notes and guarded publication, and freeze reviewed candidates before editing by @yeongseon.
+- Replace the release PR preparer with pinned release-please; preserve curated Upgrade notes and guarded publication, and freeze reviewed candidates before editing. Contributed by @yeongseon.
 
 - **Bounded bug-hunt failure context (#655)** — the existing property job
   supplies its three xunit1 reports and an optional same-probe readiness sidecar
@@ -3061,7 +3061,7 @@ Behavior changes you may notice (details in the entries below):
   states; replay uses only available targets and quoted tokens, with known
   credentials redacted before byte-limited details. Collection is best effort,
   not a passing-job signal, and binary Hypothesis examples still require trusted
-  review before sharing. Matrix/gates and public driver APIs are unchanged by @yeongseon.
+  review before sharing. Matrix/gates and public driver APIs are unchanged. Contributed by @yeongseon.
 - **Mutation lane migrated to mutmut 3 after 14 consecutive crashed runs (#612)** —
   `[tool.mutmut]` still used the 2.x keys. With `mutmut>=3.0` resolving to 3.8,
   `tests_dir` (a string) was concatenated onto a list at
@@ -3103,7 +3103,7 @@ Behavior changes you may notice (details in the entries below):
   so a failure turns the nightly run red, though `bug-hunt.yml` has no gate job
   and is schedule/on-demand only, so nothing blocks a PR or a release. Whether
   the lane should become advisory is a policy decision recorded in #612, not
-  something this migration changes by @paikend.
+  something this migration changes. Contributed by @paikend.
 - **CI pip download caching and readiness path-filter fix (#564)** —
   baseline measurements found 19 expanded jobs making separate editable dev
   installs; `cache: pip` on the 10 `setup-python` YAML steps now permits
@@ -3116,7 +3116,7 @@ Behavior changes you may notice (details in the entries below):
   official comparison failure previously failed `CI Gate`, and new tests
   preserve that fail-closed behavior and the docs-only skip exception. No
   job, endpoint, release/nightly gate or required-check context changed.
-  Detailed data and limitations are in `docs/DEVELOPMENT.md` by @yeongseon.
+  Detailed data and limitations are in `docs/DEVELOPMENT.md`. Contributed by @yeongseon.
 
 ### Tests
 
@@ -3126,7 +3126,7 @@ Behavior changes you may notice (details in the entries below):
   bound strings in a mode an unconfigured CUBRID does not use. It now pins
   `True`. The offline suite passes unchanged with either value; tests about a
   specific mode already set it explicitly, and `no_escape_pin` modules still
-  negotiate for real by @yeongseon.
+  negotiate for real. Contributed by @yeongseon.
 - **The version differential no longer generates a conditional that crashes
   every supported CUBRID (#614)** — `SELECT IF(1=0, SET{1}, 0.000)` ends `csql`
   with SIGSEGV on 10.2, 11.0, 11.2 and 11.4; original CI observed CAS session
@@ -3139,7 +3139,7 @@ Behavior changes you may notice (details in the entries below):
   `CASE WHEN` now leave the collection/numeric pairing out
   (`_is_fatal_conditional`); only `IF` was measured, `CASE WHEN` is excluded
   with it unverified. Not validated against live servers in this change. The
-  crash itself is unchanged; upstream reporting is tracked separately in #675 by @yeongseon.
+  crash itself is unchanged; upstream reporting is tracked separately in #675. Contributed by @yeongseon.
 - **A fatal statement now fails one test and names every version it affects,
   instead of cascading and reporting only the first endpoint to die (#614)** —
   two separate defects. First, the `servers` fixture is module-scoped and every
@@ -3172,14 +3172,14 @@ Behavior changes you may notice (details in the entries below):
   a four-endpoint matrix names all four
   when all are fatal, and names only the affected one when a single version is.
   The underlying CUBRID crash is not fixed here — it is a server-side defect to
-  report upstream, tracked separately in #675 by @paikend.
+  report upstream, tracked separately in #675. Contributed by @paikend.
 - **`tests/test_docs_reason.py` runs the docs-sync script in-process instead
   of spawning a fresh `python -` subprocess per fixture case, and the fake
   `git` shim is a shell script instead of a Python one (#429)** — the event
   JSON regression test took ~8.7s of the offline suite's ~22s runtime; it now
   runs in well under a second, exercising the exact script text extracted
   from the workflow file against the same fake `git` subprocess, just without
-  the per-case interpreter startup cost by @yeongseon.
+  the per-case interpreter startup cost. Contributed by @yeongseon.
 - **`scripts/check_docs_reason.py` reduces empty emphasis inside a caption
   before deciding it is populated (#429)** — a reason whose only content is a
   caption like `[**<!-- empty -->**](/issue)` rendered no visible
@@ -3194,7 +3194,7 @@ Behavior changes you may notice (details in the entries below):
   issue offered as an alternative to rewriting the helper; see the issue for
   the recorded decision. The helper is shared byte-for-byte with
   sqlalchemy-cubrid and cubrid-cookbook-python (#429), so the same fix needs
-  the same follow-up PR in each by @yeongseon.
+  the same follow-up PR in each. Contributed by @yeongseon.
 - **The backslash-escape-mode pin opts out on an explicit marker, not a
   filename guess (#524)** — `tests/conftest.py`'s autouse fixture used to skip
   the pin for any module whose path matched one of 17 hardcoded filename
@@ -3226,7 +3226,7 @@ Behavior changes you may notice (details in the entries below):
   `test_aio_tls_handshake_hang.py` were checked and correctly excluded: both
   talk to an in-process fake local server, not the configured live CUBRID
   endpoint, and either pass `no_backslash_escapes` explicitly or only
-  exercise failure paths that never reach negotiation by @yeongseon.
+  exercise failure paths that never reach negotiation. Contributed by @yeongseon.
 - **Per-operation round-trip budgets for the sync/async replay harness
   (#557)** — `tests/test_replay_parity.py` scenarios compared whole-session
   request sequences, so both drivers growing the same extra request on a
@@ -3250,7 +3250,7 @@ Behavior changes you may notice (details in the entries below):
   Existing scenarios, their checks and the sync/async parity and
   reconnect/no-replay coverage are unchanged. No production behavior changes
   in this PR; these scenarios are the reproducibility baseline that later
-  round-trip-reduction work (#419/#488/#525) must not silently regress by @yeongseon.
+  round-trip-reduction work (#419/#488/#525) must not silently regress. Contributed by @yeongseon.
 - **Repository policy/tooling checks run in a separate required CI job
   instead of the default offline-tests matrix (#558)** — the offline suite
   mixed mocked driver-behavior tests with subprocess-/importlib-heavy
@@ -3279,7 +3279,7 @@ Behavior changes you may notice (details in the entries below):
   Gate, alongside `offline-tests`, `lint`, `typecheck`, `packaging-smoke-test`
   and `compat-check` — no CI requirement is weakened or dropped.
   `docs/DEVELOPMENT.md` (and its Korean translation) documents the fast-driver,
-  repository-tooling and combined offline commands by @yeongseon.
+  repository-tooling and combined offline commands. Contributed by @yeongseon.
 
 ## [1.8.0] - 2026-09-29
 
