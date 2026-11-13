@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 This maintenance update improves source builds, setup and migration guidance, and core DB-API regression tests. The changes currently recorded below do not alter normal driver runtime behavior.
 
+### Changed
+
+- **Removed the `make changelog` target** — The target ran `git-cliff --output CHANGELOG.md`, which would overwrite the curated `CHANGELOG.md` that release automation and `scripts/extract_release_notes.py` read, and `git-cliff` is not a declared dependency. The target and the unused `cliff.toml` are removed; no workflow, script or document called them ([#1109](https://github.com/cubrid-lab/pycubrid/issues/1109)) by @yeongseon.
+
 ### Fixed
 
 - **Source builds** — Declared setuptools 77 or newer because earlier versions reject the package's SPDX license metadata. The separate `wheel` build requirement is no longer needed; installing an already published wheel is unaffected ([#1108](https://github.com/cubrid-lab/pycubrid/issues/1108), [PR #1148](https://github.com/cubrid-lab/pycubrid/pull/1148)) by @yeongseon.

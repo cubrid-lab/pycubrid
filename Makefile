@@ -1,4 +1,4 @@
-.PHONY: help install doctor tooling-check lint format-check format typecheck security docs-reason-check check check-all verify test mutation integration integration-local integration-tls docker-up docker-down docker-clean docker-fix-db-host changelog clean clean-all release-check agent-eval-check
+.PHONY: help install doctor tooling-check lint format-check format typecheck security docs-reason-check check check-all verify test mutation integration integration-local integration-tls docker-up docker-down docker-clean docker-fix-db-host clean clean-all release-check agent-eval-check
 
 # Every tool runs through the same interpreter, and each can be overridden from the
 # command line or the environment, e.g. `make check PYTHON=.venv/bin/python`.
@@ -179,9 +179,6 @@ docker-fix-db-host: ## Repair a running container's volume that registers testdb
 		grep "^testdb[[:space:]]" "$$f"'
 
 ##@ Maintenance and release
-
-changelog: ## Generate changelog with git-cliff
-	git-cliff --output CHANGELOG.md
 
 clean: ## Remove build artifacts and caches
 	rm -rf build/ dist/ *.egg-info .pytest_cache/ .coverage .ruff_cache/ __pycache__/ mutants/ test-results/
