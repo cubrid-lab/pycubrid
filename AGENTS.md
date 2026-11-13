@@ -61,7 +61,7 @@ make check            # Static gate: lint, format-check, typecheck, security, do
 make lint             # ruff check only; make format-check for ruff format --check
 make format           # Auto-fix lint/format (the only mutating quality target)
 make integration      # scripts/run_integration.py: Docker → readiness → tests → skip audit → cleanup
-make help             # Every target, grouped by purpose (check-all is a deprecated alias of check)
+make help             # Every target, grouped by purpose
 ```
 
 ### Test Commands (manual)

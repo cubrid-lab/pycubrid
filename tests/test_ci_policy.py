@@ -303,7 +303,7 @@ def test_mypy_runs_once_and_only_in_the_code_gated_typecheck_job() -> None:
     assert _make_goals(jobs["typecheck"]) == [["typecheck"]]
     assert jobs["typecheck"]["if"] == "needs.detect-changes.outputs.code == 'true'"
     # Goals that run mypy; a lint job that runs one of them again fails here.
-    mypy_goals = {"typecheck", "check", "check-all", "verify"}
+    mypy_goals = {"typecheck", "check", "verify"}
     mypy_jobs = [
         name for name, job in jobs.items() for goals in _make_goals(job) if mypy_goals & set(goals)
     ]

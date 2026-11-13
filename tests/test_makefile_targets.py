@@ -2,8 +2,8 @@
 
 The tests run the real Makefile with a ``PYTHON`` stub that records each call, so
 they need none of the tools installed: ``doctor`` fails when a tool is missing,
-``lint``/``format-check`` never modify files, ``check`` is the complete static gate
-with ``check-all`` as a deprecated alias, ``verify`` is ``check``, ``test`` and then
+``lint``/``format-check`` never modify files, ``check`` is the complete static gate,
+``verify`` is ``check``, ``test`` and then
 the managed live ``integration`` lane (#1022) and always writes an aggregate summary
 (#1053), every tool goes through ``$(PYTHON) -m`` and stays overridable, and
 ``help`` groups the targets.
@@ -160,16 +160,6 @@ def _assert_check_calls(calls: list[str]) -> None:
 
 def test_check_is_the_complete_static_gate(tmp_path: Path) -> None:
     _assert_check_calls(_calls(tmp_path, "check"))
-
-
-def test_check_all_is_a_deprecated_alias_of_check(tmp_path: Path) -> None:
-    stub, log = _python_stub(tmp_path)
-    result = _make("check-all", f"PYTHON={stub}")
-    assert result.returncode == 0, result.stderr
-    _assert_check_calls(log.read_text().splitlines())
-    assert "'make check-all' is deprecated" in result.stderr
-    assert "use 'make check'" in result.stderr
-    assert "deprecated" not in result.stdout
 
 
 def _verify_results(tmp_path: Path) -> list[str]:

@@ -1,7 +1,7 @@
 # Reproducible terminal recordings
 
 The README GIF and Quick Start MP4 show real execution of `record_demo.py`,
-not the illustrative output in the older JSON renderer. The script asserts
+not illustrative output. The script asserts
 its results and prints its final success marker only after resource cleanup.
 These examples verify their recorded scenarios, not full driver compatibility.
 

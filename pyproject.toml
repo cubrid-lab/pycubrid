@@ -69,7 +69,6 @@ security = [
 build = [
     "build",
     "setuptools==84.2.1",
-    "wheel==0.48.0",
 ]
 release = [
     {include-group = "build"},
@@ -92,7 +91,6 @@ dev = [
     {include-group = "lint"},
     {include-group = "security"},
     {include-group = "release"},
-    "tox",
 ]
 
 [project.urls]
