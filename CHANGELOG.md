@@ -257,7 +257,7 @@ This maintenance release improves the safety of stored test-run metadata by mask
   `password`, `passwd`, `pwd`, `token`, `secret` or `api_key` key (`--password=x`,
   `--password x`, `CUBRID_PASSWORD=x`) are now saved as `***`; any other command text is
   unchanged. This is best-effort masking: keep real credentials off command lines. The
-  schema, statuses and exit codes are unchanged by @yeongseon.
+  schema, statuses and exit codes are unchanged. Contributed by @yeongseon.
 
 * **reporting:** redact credentials in saved integration command metadata ([#1046](https://github.com/cubrid-lab/pycubrid/issues/1046)) ([80e9c07](https://github.com/cubrid-lab/pycubrid/commit/80e9c07caf8ccaabcbdc8caa0f0c4b03d197af0f)) by @yeongseon.
 
@@ -281,10 +281,10 @@ This is the next actually published release after v1.13.1. **v1.13.2 was never p
 
 - **`make format-check` and `make verify` (#1007)** — `make format-check` runs only
   `ruff format --check`; `make verify` runs `make check` and then `make test`, without
-  Docker. `scripts/run_integration.py` now runs the Docker integration lanes by @yeongseon.
+  Docker. `scripts/run_integration.py` now runs the Docker integration lanes. Contributed by @yeongseon.
 - **`make docker-clean` (#1006)** — runs `docker compose down -v`: it removes the CUBRID
   container, its network and the `cubrid-data` and `cubrid-databases` volumes with all test
-  data. It is now the only Make target that deletes them by @yeongseon.
+  data. It is now the only Make target that deletes them. Contributed by @yeongseon.
 
 ### Changed
 
@@ -296,36 +296,36 @@ This is the next actually published release after v1.13.1. **v1.13.2 was never p
   `INCOMPLETE` and prints the same one-line summary; a skipped or unexecuted lane is never
   `PASS`, no credential is written, and exit codes are unchanged. The directory is gitignored
   and `make clean` removes it. `INTEGRATION_RESULTS` no longer defaults to
-  `integration-results.xml` in the repository root. CI is unchanged by @yeongseon.
+  `integration-results.xml` in the repository root. CI is unchanged. Contributed by @yeongseon.
 - **Makefile targets have one meaning each (#1007)** — `make lint` runs only `ruff check`;
   `make format` is the only quality target that modifies files. `make check` is the complete
   static gate: `lint`, `format-check`, `typecheck`, `security` and `docs-reason-check`.
   `make doctor` now exits non-zero, without its success line, when a required tool is
   missing or fails `--version`. Every tool variable (`PIP`, `PYTEST`, `RUFF`, `MYPY`,
   `BANDIT`, `PRE_COMMIT`) runs as `$(PYTHON) -m <tool>` and can be overridden with `?=`
-  from the command line or the environment. `make help` groups the targets by purpose by @yeongseon.
+  from the command line or the environment. `make help` groups the targets by purpose. Contributed by @yeongseon.
 - **`make integration` and `make integration-tls` are one `scripts/run_integration.py` call
   (#1007)** — the script owns the Compose lifecycle, readiness, SIGINT/SIGTERM handling,
   cleanup, exit status and the every-test-skipped audit. Test selection, the pinned
   endpoint and volume handling are unchanged: cleanup runs `docker compose down`, never
   `-v`, after success, failure or a signal. Cleanup now also runs when
-  `docker compose up` fails by @yeongseon.
+  `docker compose up` fails. Contributed by @yeongseon.
 - **`make docker-down` keeps the test data (#1006)** — it now runs `docker compose down`,
   which removes the container and network but keeps the named data volumes, so the next
   `make docker-up` opens the same database. It used to run `docker compose down -v` and
   delete them; use `make docker-clean` for that. `make docker-up`, `make docker-down` and
-  `make docker-clean` pass `CUBRID_TEST_PORT` to Compose by @yeongseon.
+  `make docker-clean` pass `CUBRID_TEST_PORT` to Compose. Contributed by @yeongseon.
 - **The Compose broker listens only on `127.0.0.1` (#1006)** — `docker-compose.yml`
   publishes it as `127.0.0.1:${CUBRID_TEST_PORT:-33000}:33000` instead of on every host
   interface, so the test database is no longer reachable from other machines. Connections
   to `localhost` or `127.0.0.1` on the host, `make integration` and the readiness probe are
   unchanged. The readiness probe's stale-host hint now names `make docker-clean` as the
-  destructive fix by @yeongseon.
+  destructive fix. Contributed by @yeongseon.
 
 ### Deprecated
 
 - **`make check-all` (#1007)** — an alias of `make check` that prints a notice on stderr.
-  It will be removed after the next minor release; use `make check` by @yeongseon.
+  It will be removed after the next minor release; use `make check`. Contributed by @yeongseon.
 
 ### Fixed
 
@@ -340,7 +340,7 @@ This is the next actually published release after v1.13.1. **v1.13.2 was never p
   the first holds its `flock` lock (POSIX only). Cleanup, after success, failure or SIGINT/SIGTERM, is now
   `docker compose -p <project> down -v` of that run-owned project, so each run starts from an
   empty database and leaves no volumes; the manual lab's containers and data are untouched.
-  Readiness, the lane audit and exit statuses are unchanged by @yeongseon.
+  Readiness, the lane audit and exit statuses are unchanged. Contributed by @yeongseon.
 
 * **test:** isolate make integration from the manual Docker Compose project ([#1027](https://github.com/cubrid-lab/pycubrid/issues/1027)) ([588cd8a](https://github.com/cubrid-lab/pycubrid/commit/588cd8affe771e1ca7b741b7022d84fa94e69a58)) by @yeongseon.
 
@@ -355,7 +355,7 @@ This is the next actually published release after v1.13.1. **v1.13.2 was never p
   `CHECK_CAS`, unknown outcomes without replay, client-side TLS, and CUBRID CAS (Common
   Application Server) versus Compare-And-Swap. `PROTOCOL.md` and `ARCHITECTURE.md` stay
   authoritative; the README, the site index, the connection guide and both reference
-  pages link to the overview. No driver behavior changed by @yeongseon.
+  pages link to the overview. No driver behavior changed. Contributed by @yeongseon.
 
 * **advanced:** introduce CUBRID CAS architecture and protocol concepts ([#1019](https://github.com/cubrid-lab/pycubrid/issues/1019)) ([dd70ef1](https://github.com/cubrid-lab/pycubrid/commit/dd70ef1f2d05aa7e9cf2d619eedd28a294e24b73)) by @yeongseon.
 * **agents:** require repository-local issue authoring checks ([#1014](https://github.com/cubrid-lab/pycubrid/issues/1014)) ([03ca2f9](https://github.com/cubrid-lab/pycubrid/commit/03ca2f96de47865cd3f596755b3bda8ae1156bae)) by @yeongseon.
@@ -373,7 +373,7 @@ This is the next actually published release after v1.13.1. **v1.13.2 was never p
   benchmark or downstream suites). No job switched: none could keep its versions, matrix,
   test selection, lane audit, result files and readiness unchanged.
   `tests/test_workflow_make_contract.py` fails when a new live job has neither. Steps,
-  permissions, secrets and triggers are unchanged by @yeongseon.
+  permissions, secrets and triggers are unchanged. Contributed by @yeongseon.
 
 - **CI publishes the test-results summary and uploads it on every run (#1024)** — the offline
   (`offline-tests`, `offline-endpoints`), integration and TLS integration jobs of `ci.yml` and
@@ -382,7 +382,7 @@ This is the next actually published release after v1.13.1. **v1.13.2 was never p
   then upload `test-results/` with `actions/upload-artifact` (the commit `publish-pypi.yml`
   already pins), both with `if: always()`; one 7-day artifact per matrix entry. Test
   selection, coverage files, Codecov uploads, lane checks, permissions, secrets and triggers
-  are unchanged by @yeongseon.
+  are unchanged. Contributed by @yeongseon.
 
 - **The lint lanes run `make check` (#1007)** — `ci.yml`, its release copy in
   `integration-full.yml` and `maintenance.yml` call `make check` instead of `make lint` (and,
@@ -391,7 +391,7 @@ This is the next actually published release after v1.13.1. **v1.13.2 was never p
   `lint` job in `ci.yml`, and its release copy in `integration-full.yml`, now run
   `make lint format-check security docs-reason-check`, which is `make check` without
   `typecheck`. mypy runs only in the `typecheck` job, which runs for code changes and which
-  the CI gate still requires. `make check` and `maintenance.yml` are unchanged by @yeongseon.
+  the CI gate still requires. `make check` and `maintenance.yml` are unchanged. Contributed by @yeongseon.
 
 ### Tests
 
@@ -420,7 +420,7 @@ This maintenance release corrects several database result/transaction behaviors 
   back, drops its table and closes the cursor and connection, keeping the workload error
   and noting any cleanup failure on it. A cleanup failure after a successful workload
   raises `ScratchCleanupError`. A killed run or a lost connection can still leave the
-  table; it is not retried through a reconnect. The driver itself is unchanged by @yeongseon.
+  table; it is not retried through a reconnect. The driver itself is unchanged. Contributed by @yeongseon.
 
 ### Fixed
 
@@ -431,7 +431,7 @@ This maintenance release corrects several database result/transaction behaviors 
   read-modify-write turned it into NULL. A `BIT`/`VARBIT` cell of size `0` now decodes as
   `b""`, also after a CALL or NULL-typed cell header, sync and async, as the official JDBC
   driver reads it. Size-0 cells of every other type still decode as `None`. The prepared
-  path still rejects `b""`, because the broker reads a zero-length bind as NULL by @yeongseon and @paikend.
+  path still rejects `b""`, because the broker reads a zero-length bind as NULL. Contributed by @yeongseon and @paikend.
 
 - **An empty `BIT VARYING` collection element is decoded as `b""`, not `None` (#998)** — with
   `decode_collections=True`, the element decoder read every element length `<= 0` as NULL,
@@ -440,7 +440,7 @@ This maintenance release corrects several database result/transaction behaviors 
   string as length `0`; a `BIT`/`VARBIT` element of length `0` now decodes as `b""`, sync
   and async, matching row cells (#994). Zero-length elements of every other type still
   decode as `None`, collection size and consumed-bytes validation is unchanged, and raw
-  collection bytes (`decode_collections=False`) are unchanged by @yeongseon.
+  collection bytes (`decode_collections=False`) are unchanged. Contributed by @yeongseon.
 
 - **A `?` inside a quoted identifier raises an explained `ProgrammingError` (#990)** —
   the CUBRID broker counts every `?` outside comments and single-quoted strings as a
@@ -450,7 +450,7 @@ This maintenance release corrects several database result/transaction behaviors 
   whose message names this cause; `errno`, `code` and `error_source` are unchanged, and
   `sqlstate` changes from `HY000` to `42000` with the new class. Bracket identifiers
   (`[a?b]`) are affected the same way. A server-indicator `-1007` is not affected. The
-  statement itself still fails by @paikend.
+  statement itself still fails. Contributed by @paikend.
 - **Subnormal floats and `-0.0` round-trip through the literal path (#988)** — `execute()`
   and the default `executemany()` rendered a `float` with `float.__repr__`. CUBRID rejects
   every subnormal literal (`5e-324` failed with -493 "exceeds limit of double"), and reads
@@ -459,7 +459,7 @@ This maintenance release corrects several database result/transaction behaviors 
   doubles, and `-0.0` as the DOUBLE literal `-0.0e0`. Every other `float` renders as
   before, so stored NUMERIC and string values do not change. `-0.0` into a string column
   now stores `-0` instead of `0.0`, and `SELECT ?` bound to `-0.0` now returns the
-  `float` `-0.0` instead of `Decimal('0.0')` by @paikend.
+  `float` `-0.0` instead of `Decimal('0.0')`. Contributed by @paikend.
 
 - **Tasks waiting on async connection setup keep `error_source` (#952)** — when
   `AsyncConnection` setup failed with a `DatabaseError`, each task waiting on that setup
@@ -468,7 +468,7 @@ This maintenance release corrects several database result/transaction behaviors 
   `"cas"`. The copy now keeps `error_source` exactly (including `None`), also when a
   subclass with another constructor falls back to the nearest `pycubrid.exceptions` class.
   Each waiter still gets its own exception instance chained to the original as
-  `__cause__`, and owner and waiter cancellation handling is unchanged by @yeongseon.
+  `__cause__`, and owner and waiter cancellation handling is unchanged. Contributed by @yeongseon.
 
 - **Leaving a connection context keeps the original error of a retired session (#951)** —
   when the body of `with conn:` or `async with conn:` failed in a way that already retired
@@ -479,7 +479,7 @@ This maintenance release corrects several database result/transaction behaviors 
   original `OperationalError` or `asyncio.CancelledError` propagates. A rollback that fails
   on a live session is logged as a `pycubrid` warning and named in a note on the body
   exception instead of replacing it. Commit on success, a commit failure on a successful
-  body, rollback on a healthy failure and a new cancellation during cleanup are unchanged by @yeongseon.
+  body, rollback on a healthy failure and a new cancellation during cleanup are unchanged. Contributed by @yeongseon.
 
 - **A `Lob` is not sent on a replaced physical session (#932)** — after
   `ping(reconnect=True)` or a failed out-of-transaction `CHECK_CAS` probe replaced the
@@ -488,7 +488,7 @@ This maintenance release corrects several database result/transaction behaviors 
   retrying; create the LOB again or fetch its row again. The check holds the connection's
   session lock, and the request itself is fenced to the `Lob`'s session. A `Lob` created
   or wrapped on the current session, partial-write handling, async connections (no LOB
-  support) and `compat.native` lobs are unchanged by @yeongseon.
+  support) and `compat.native` lobs are unchanged. Contributed by @yeongseon.
 
 - **Corrupted packed LOB handles in a reply are rejected (#933)** — a fetched BLOB/CLOB
   cell whose packed handle had a negative locator size, a locator shorter than the rest of
@@ -500,7 +500,7 @@ This maintenance release corrects several database result/transaction behaviors 
   `DataError`. The rules follow the CUBRID 10.2 and 11.4 broker source
   (`add_res_data_lob_handle`) and live handles from both versions. Valid handles, a value
   without an external file (size `-1`, empty locator) and bytes after the cell are
-  unchanged by @yeongseon.
+  unchanged. Contributed by @yeongseon.
 
 * **agent-eval:** copy the held worktree by descriptor and validate prepared_epoch ([#986](https://github.com/cubrid-lab/pycubrid/issues/986)) ([81f327d](https://github.com/cubrid-lab/pycubrid/commit/81f327d683f868ac53af6103fe65e82f7eef29b9)) by @yeongseon.
 * **agent-eval:** create and read the runner start record without following links ([#987](https://github.com/cubrid-lab/pycubrid/issues/987)) ([14ebed1](https://github.com/cubrid-lab/pycubrid/commit/14ebed12a1137ea1949286bea724e2446c9e6bd2)) by @yeongseon.
@@ -535,7 +535,7 @@ This maintenance release corrects several database result/transaction behaviors 
   successful `verify-only` recovery), recorded from those summaries. The "start CI after the final bot update" step now describes what happened for
   candidate #931 (runs waiting as `action_required`, no check runs) instead of saying that
   bot pushes start no workflow. `CONTRIBUTING.md`, its Korean page and `AGENTS.md` point to
-  the checklist. The release workflows and gates are unchanged by @yeongseon.
+  the checklist. The release workflows and gates are unchanged. Contributed by @yeongseon.
 
 - **The documentation site says it is built from `main` (#960)** — every page of the site,
   English and Korean, now opens with a notice that it is development documentation for the
@@ -546,7 +546,7 @@ This maintenance release corrects several database result/transaction behaviors 
   the site shows no hardcoded latest version. The quickstart says separately which source it
   describes, what its examples were tested with (pycubrid 1.13.0 and CUBRID 11.4, with dates)
   and how to find the published release; the support matrix and `llms.txt` say that
-  `__version__` on `main` is not proof of publication. The deploy workflow is unchanged by @yeongseon.
+  `__version__` on `main` is not proof of publication. The deploy workflow is unchanged. Contributed by @yeongseon.
 
 - **Removing the Docker lab also removes its volume (#964)** — the `cubrid/cubrid` images
   declare a `VOLUME` for the database directory, so `docker rm -f pycubrid-quickstart` left an
@@ -554,7 +554,7 @@ This maintenance release corrects several database result/transaction behaviors 
   Finish Safely lessons (English and Korean) now use `docker rm -f -v pycubrid-quickstart`,
   and Finish Safely explains that `-v` deletes that volume and that without it the volume
   stays (`docker volume ls`). The lab image, port, database and tutorial programs are
-  unchanged by @yeongseon.
+  unchanged. Contributed by @yeongseon.
 
 - **Five focused beginner lessons and a reader-based navigation (#958)** — the quickstart's
   remaining steps are split into lessons, each with its prerequisites, program, command,
@@ -573,7 +573,7 @@ This maintenance release corrects several database result/transaction behaviors 
   form and `SECURITY.md` reporting routes), Operations, and Development and contributing
   (Protocol, Architecture, the upstream ledgers and the binding design move there), with
   the same groups in Korean. The home pages group their links the same way, and
-  `docs/DEVELOPMENT.md` documents the lesson convention by @yeongseon.
+  `docs/DEVELOPMENT.md` documents the lesson convention. Contributed by @yeongseon.
 
 - **The first query is its own lesson (#958)** — `docs/first-query.md` ("Run Your First
   Query", Korean `docs/ko/first-query.md`) is the first of the focused lessons split from the
@@ -586,7 +586,7 @@ This maintenance release corrects several database result/transaction behaviors 
   reader, question, previous and next page and the decision for it (keep, split or move in
   navigation), so the beginner path, the user reference and the development material keep
   distinct purposes. The site navigation lists the new lesson after the quickstart in both
-  languages, and every page now shows previous and next links in its footer by @yeongseon.
+  languages, and every page now shows previous and next links in its footer. Contributed by @yeongseon.
 
 - **A first-connection path for CUBRID beginners (#955)** — `docs/quickstart.md` ("Your
   First CUBRID Connection") now starts by explaining that pycubrid is a connector to a
@@ -602,23 +602,23 @@ This maintenance release corrects several database result/transaction behaviors 
   the previous section headings keep their text, so their anchors still work, and the
   Python 3.10 note moves to Compatibility. The site navigation puts the quickstart and
   Troubleshooting under Start here and moves Protocol to Reference. The Korean quickstart,
-  README and index match by @yeongseon.
+  README and index match. Contributed by @yeongseon.
 - **A block-quoted issue number no longer renders as a heading on the site (#941)** — in
   `docs/API_REFERENCE.md`, a block quote line began with `#492`, which the MkDocs site rendered
-  as an `<h1>`. It is now escaped as `\#492`; GitHub shows the same text by @yeongseon.
+  as an `<h1>`. It is now escaped as `\#492`; GitHub shows the same text. Contributed by @yeongseon.
 
 - **A maintainer's review is the standalone-agent alternative to Copilot (#943)** —
   `AGENTS.md` and `CONTRIBUTING.md` now say that a standalone agent PR waits for a
   substantive submitted GitHub Copilot review or a maintainer's review, recorded on the
   PR, instead of "another person's" review (maintainer decision, 2026-10-15). A reviewer
   agent run by the implementer does not count. The Korean contributor guide gains the
-  review-route paragraph it lacked by @yeongseon.
+  review-route paragraph it lacked. Contributed by @yeongseon.
 
 - **Wrapped issue numbers no longer render as headings on the site (#938)** — 33 paragraph
   lines under `docs/` began with an issue number (for example `#750 gives each ...`), which
   Python-Markdown, unlike GitHub, renders as an `<h1>`. Their leading `#` is now escaped as
   `\#`. The wording and line breaks are unchanged, and both renderers show `#750`.
-  `scripts/check_docs_links.py` reports such a line under `docs/` from now on by @yeongseon.
+  `scripts/check_docs_links.py` reports such a line under `docs/` from now on. Contributed by @yeongseon.
 
 - **Agent guidance split into task guides (#926)** — the root `AGENTS.md` (733 lines,
   45,359 bytes) keeps the project overview, commands, code conventions and every review,
@@ -627,7 +627,7 @@ This maintenance release corrects several database result/transaction behaviors 
   performance pointers moved unchanged to `docs/agents/`. The root file is now 402 lines and
   25,807 bytes. `scripts/check_agents_docs.py` checks the links, anchors, guide reachability,
   `make` targets and script paths of these files, and with `--retained-from REF` that no
-  line of an earlier `AGENTS.md` was dropped. No code, CI or release behavior changes by @yeongseon.
+  line of an earlier `AGENTS.md` was dropped. No code, CI or release behavior changes. Contributed by @yeongseon.
 
 - **Abandoned release without a tag** — RELEASING.md's abandoned-version recovery now says
   to set the top-level `last-release-sha` in `release-please-config.json` to the abandoned
@@ -652,31 +652,31 @@ This maintenance release corrects several database result/transaction behaviors 
 
 ### CI
 
-- **The CUBRID 11.4 Docker test database is kept in a named volume (#1002)** — `docker-compose.yml` mounted its named volume only at `/var/lib/cubrid`, where images up to 11.3 keep their databases. `cubrid/cubrid:11.4` keeps them in `/home/cubrid/CUBRID/databases` (`CUBRID_DATABASES`, also its declared `VOLUME`), so with `CUBRID_VERSION=11.4` the database lived in an anonymous volume: `docker compose down` (also run at the end of every `make integration`) detached it, the next `up` started a new empty database, and each run left a dangling volume behind. A second named volume, `cubrid-databases`, now holds that path. Checked on CUBRID 10.2, 11.2 and 11.4: a table created before `docker compose down` is still there after `up`, `make docker-fix-db-host` works on 11.4, and `docker compose down -v` leaves no volume behind. Versions up to 11.3 still share `cubrid-data`; `docs/DEVELOPMENT.md` now says to run `make docker-down` before switching `CUBRID_VERSION`, since opening a database created by another CUBRID version is not verified. An 11.4 database kept in an earlier anonymous volume is not moved; it was already lost on the next `down` and `up` by @yeongseon.
+- **The CUBRID 11.4 Docker test database is kept in a named volume (#1002)** — `docker-compose.yml` mounted its named volume only at `/var/lib/cubrid`, where images up to 11.3 keep their databases. `cubrid/cubrid:11.4` keeps them in `/home/cubrid/CUBRID/databases` (`CUBRID_DATABASES`, also its declared `VOLUME`), so with `CUBRID_VERSION=11.4` the database lived in an anonymous volume: `docker compose down` (also run at the end of every `make integration`) detached it, the next `up` started a new empty database, and each run left a dangling volume behind. A second named volume, `cubrid-databases`, now holds that path. Checked on CUBRID 10.2, 11.2 and 11.4: a table created before `docker compose down` is still there after `up`, `make docker-fix-db-host` works on 11.4, and `docker compose down -v` leaves no volume behind. Versions up to 11.3 still share `cubrid-data`; `docs/DEVELOPMENT.md` now says to run `make docker-down` before switching `CUBRID_VERSION`, since opening a database created by another CUBRID version is not verified. An 11.4 database kept in an earlier anonymous volume is not moved; it was already lost on the next `down` and `up`. Contributed by @yeongseon.
 
-- **The Docker test database keeps working after its container is recreated (#1000)** — the image registers the database in `databases.txt`, which 10.2 and 11.2 keep on the `cubrid-data` volume, for `CUBRID_DB_HOST`, or, when that is unset, for the creating container's hostname, its container ID. `docker-compose.yml` did not set it, and `docker compose down` (also run at the end of every `make integration`) keeps the volume, so the next container, with a new ID, could not resolve the recorded host: every connection failed with -353 and the next `make integration` retried 36 times before giving up. `docker-compose.yml` now sets `CUBRID_DB_HOST: localhost`, which a recreated container resolves; checked on CUBRID 10.2 and 11.2 across `down` and `up`, and with two full `make integration` runs on a repaired 11.2 volume. 11.4 keeps its databases outside that volume (see #1002 below). A volume created before this change keeps the old ID: `make docker-fix-db-host` rewrites only `testdb`'s host field to `localhost`, keeps the data and, on its first run, saves the previous file as `databases.txt.before-fix-db-host` (a later run keeps that copy), and `make docker-down` (`docker compose down -v`) deletes the volume and its data. `scripts/wait_for_cubrid.py` now receives `CUBRID_TEST_DOCKER_CONTAINER` from `make integration` and `make integration-tls`, and stops at the first -353 whose hosts all fail `getent hosts` inside that container, naming both fixes; a host that resolves, a failed lookup or no container keeps the existing retries. CI starts CUBRID as a service, not with Compose, and is unchanged; the driver is unchanged by @yeongseon.
+- **The Docker test database keeps working after its container is recreated (#1000)** — the image registers the database in `databases.txt`, which 10.2 and 11.2 keep on the `cubrid-data` volume, for `CUBRID_DB_HOST`, or, when that is unset, for the creating container's hostname, its container ID. `docker-compose.yml` did not set it, and `docker compose down` (also run at the end of every `make integration`) keeps the volume, so the next container, with a new ID, could not resolve the recorded host: every connection failed with -353 and the next `make integration` retried 36 times before giving up. `docker-compose.yml` now sets `CUBRID_DB_HOST: localhost`, which a recreated container resolves; checked on CUBRID 10.2 and 11.2 across `down` and `up`, and with two full `make integration` runs on a repaired 11.2 volume. 11.4 keeps its databases outside that volume (see #1002 below). A volume created before this change keeps the old ID: `make docker-fix-db-host` rewrites only `testdb`'s host field to `localhost`, keeps the data and, on its first run, saves the previous file as `databases.txt.before-fix-db-host` (a later run keeps that copy), and `make docker-down` (`docker compose down -v`) deletes the volume and its data. `scripts/wait_for_cubrid.py` now receives `CUBRID_TEST_DOCKER_CONTAINER` from `make integration` and `make integration-tls`, and stops at the first -353 whose hosts all fail `getent hosts` inside that container, naming both fixes; a host that resolves, a failed lookup or no container keeps the existing retries. CI starts CUBRID as a service, not with Compose, and is unchanged; the driver is unchanged. Contributed by @yeongseon.
 
-- **The agent-evaluation runner's start record is created and read without following links (#985)** — `prepare` wrote its start record with `Path.write_text`, which follows a symlink at that path, and `collect` read it the same way. The record is now created with `O_CREAT|O_EXCL|O_NOFOLLOW` and mode `0600`; a stale or planted entry at its path is removed (a symlink itself, never its target) and the record created afresh. `collect` reads it only as a regular file of at most 4 KiB, without following links, and otherwise falls back to `attempt.json`, labelled as such. The state directory is created with, or reset to, exactly `0700` (so neither group or other access nor a missing owner write bit remains) and refused when it is a symlink or belongs to another user. `run.json`'s `over_max_minutes` may be `"unknown"` as well as `true` or `false` by @yeongseon.
+- **The agent-evaluation runner's start record is created and read without following links (#985)** — `prepare` wrote its start record with `Path.write_text`, which follows a symlink at that path, and `collect` read it the same way. The record is now created with `O_CREAT|O_EXCL|O_NOFOLLOW` and mode `0600`; a stale or planted entry at its path is removed (a symlink itself, never its target) and the record created afresh. `collect` reads it only as a regular file of at most 4 KiB, without following links, and otherwise falls back to `attempt.json`, labelled as such. The state directory is created with, or reset to, exactly `0700` (so neither group or other access nor a missing owner write bit remains) and refused when it is a symlink or belongs to another user. `run.json`'s `over_max_minutes` may be `"unknown"` as well as `true` or `false`. Contributed by @yeongseon.
 
-- **The agent-evaluation runner copies the checkout by descriptor and measures the attempt itself (#985)** — `collect` copied the held checkout with `shutil.copytree`, which descends into subdirectories and opens files by path, so a path swapped for a symlink during the copy could pull outside content into `candidate/patch.diff`. It now walks the checkout with `os.fwalk(follow_symlinks=False)` and opens every file relative to its directory's descriptor without following links; a symlink is copied as a link. The attempt's start time came only from the attempt-writable `attempt.json`, where a non-numeric `prepared_epoch` raised a traceback and a forged one could hide `over_max_minutes`. `prepare` now also records the start outside `OUT_DIR`, which `collect` prefers; without that record a valid `attempt.json` value is used and labelled, and an invalid one makes the duration and `over_max_minutes` `"unknown"`. `run.json` gains `duration_source`. This is opt-in contributor tooling; the driver is unchanged by @yeongseon.
+- **The agent-evaluation runner copies the checkout by descriptor and measures the attempt itself (#985)** — `collect` copied the held checkout with `shutil.copytree`, which descends into subdirectories and opens files by path, so a path swapped for a symlink during the copy could pull outside content into `candidate/patch.diff`. It now walks the checkout with `os.fwalk(follow_symlinks=False)` and opens every file relative to its directory's descriptor without following links; a symlink is copied as a link. The attempt's start time came only from the attempt-writable `attempt.json`, where a non-numeric `prepared_epoch` raised a traceback and a forged one could hide `over_max_minutes`. `prepare` now also records the start outside `OUT_DIR`, which `collect` prefers; without that record a valid `attempt.json` value is used and labelled, and an invalid one makes the duration and `over_max_minutes` `"unknown"`. `run.json` gains `duration_source`. This is opt-in contributor tooling; the driver is unchanged. Contributed by @yeongseon.
 
-- **Every repository-tooling test module and its inputs select the tooling lane (#983)** — tests marked `repo_tooling` run only in `repo-tooling-tests`, which runs only when the `tooling` paths filter matches, so a pull request that changed only one of 25 such modules (among them `tests/test_quality_tools.py`, `tests/test_docs_reason.py`, `tests/test_release_detect.py` and `tests/test_agent_eval.py`), or a file only they read, ran none of the tests that check it. The filter now lists every such module and the files only they read: `agent-evals/**`, the four tutorial pages the `lab-volume-964` acceptance script reads, `THIRD_PARTY_LICENSES.md`, `release-please-config.json` and `api-baseline.json`. A guard in `tests/test_workflow_path_impact.py` now fails when a module with `repo_tooling` tests is not selected; the always-on lint job (and its release copy) also runs it, because a pull request that adds only an unlisted module selects no tooling lane. Which tests each lane runs is unchanged by @yeongseon.
+- **Every repository-tooling test module and its inputs select the tooling lane (#983)** — tests marked `repo_tooling` run only in `repo-tooling-tests`, which runs only when the `tooling` paths filter matches, so a pull request that changed only one of 25 such modules (among them `tests/test_quality_tools.py`, `tests/test_docs_reason.py`, `tests/test_release_detect.py` and `tests/test_agent_eval.py`), or a file only they read, ran none of the tests that check it. The filter now lists every such module and the files only they read: `agent-evals/**`, the four tutorial pages the `lab-volume-964` acceptance script reads, `THIRD_PARTY_LICENSES.md`, `release-please-config.json` and `api-baseline.json`. A guard in `tests/test_workflow_path_impact.py` now fails when a module with `repo_tooling` tests is not selected; the always-on lint job (and its release copy) also runs it, because a pull request that adds only an unlisted module selects no tooling lane. Which tests each lane runs is unchanged. Contributed by @yeongseon.
 
-- **An offline grader for agent task evaluations (#925)** — `scripts/agent_eval.py` grades what a coding agent produced for a pycubrid task: a unified diff, the agent's report of what it ran and did not run, and a runner's record of the commands actually executed on the base and the patched tree. Against a versioned task manifest (`agent-evals/`, format 1: base commit, problem and evidence links, allowed files, required documentation, validation commands, regression tests, expected behavior, limits) it checks the scope, the size limits, that each named regression test is added by the patch and fails on the base but passes on the patch, the required documentation, SQL built by string formatting in added Python lines, and that every validation claim is backed by the evidence. It runs no model, test or network request; the grade is sorted JSON with input digests, so a replay is byte-identical, and there is no single score. `make agent-eval-check` self-tests it on seven hand-written candidates (a correct solution, a missing regression test, a misleading validation claim, an unrelated-file change, unsafe SQL, a test that already passes on the base, missing documentation). Ordinary CI and the driver's tests are unchanged; real task manifests and the opt-in runner follow in later pull requests by @yeongseon.
+- **An offline grader for agent task evaluations (#925)** — `scripts/agent_eval.py` grades what a coding agent produced for a pycubrid task: a unified diff, the agent's report of what it ran and did not run, and a runner's record of the commands actually executed on the base and the patched tree. Against a versioned task manifest (`agent-evals/`, format 1: base commit, problem and evidence links, allowed files, required documentation, validation commands, regression tests, expected behavior, limits) it checks the scope, the size limits, that each named regression test is added by the patch and fails on the base but passes on the patch, the required documentation, SQL built by string formatting in added Python lines, and that every validation claim is backed by the evidence. It runs no model, test or network request; the grade is sorted JSON with input digests, so a replay is byte-identical, and there is no single score. `make agent-eval-check` self-tests it on seven hand-written candidates (a correct solution, a missing regression test, a misleading validation claim, an unrelated-file change, unsafe SQL, a test that already passes on the base, missing documentation). Ordinary CI and the driver's tests are unchanged; real task manifests and the opt-in runner follow in later pull requests. Contributed by @yeongseon.
 
-- **Three agent evaluation tasks from earlier pycubrid fixes (#925)** — `agent-evals/tasks/` adds `reply-bounds-383` (a malformed reply length must close the session without reading past the frame; #383), `lob-generation-932` (a LOB handle of a replaced physical session must fail before anything is sent; #932) and `lab-volume-964` (a tutorial documentation fix whose macOS check cannot run on Linux; #964). Each manifest links its issue, pull request and commit and ships the merged fix as `reference.diff`; each regression test was checked to exit 1 on the base with the fix's tests and to pass on the fix. The manifest format gains `[validation] manual`, checks only a person can do, which an attempt must list as not run and never claim; `[validation] acceptance`, scripts in the task directory that the runner runs on both trees and that must exit 1 on the base and 0 on the patch (`lab-volume-964` uses one to check the tutorial's removal commands and volume explanation, so a patch that only touches the required documents fails); and `[expected] reference_fix`. `grade --output FILE` now writes the grade to the file and prints only the verdict. `agent-evals/` joins the shared Ruff scope (`LINT_PATHS` and the pre-commit hooks). Ordinary CI and the driver are unchanged by @yeongseon.
+- **Three agent evaluation tasks from earlier pycubrid fixes (#925)** — `agent-evals/tasks/` adds `reply-bounds-383` (a malformed reply length must close the session without reading past the frame; #383), `lob-generation-932` (a LOB handle of a replaced physical session must fail before anything is sent; #932) and `lab-volume-964` (a tutorial documentation fix whose macOS check cannot run on Linux; #964). Each manifest links its issue, pull request and commit and ships the merged fix as `reference.diff`; each regression test was checked to exit 1 on the base with the fix's tests and to pass on the fix. The manifest format gains `[validation] manual`, checks only a person can do, which an attempt must list as not run and never claim; `[validation] acceptance`, scripts in the task directory that the runner runs on both trees and that must exit 1 on the base and 0 on the patch (`lab-volume-964` uses one to check the tutorial's removal commands and volume explanation, so a patch that only touches the required documents fails); and `[expected] reference_fix`. `grade --output FILE` now writes the grade to the file and prints only the verdict. `agent-evals/` joins the shared Ruff scope (`LINT_PATHS` and the pre-commit hooks). Ordinary CI and the driver are unchanged. Contributed by @yeongseon.
 
-- **An opt-in runner for agent evaluation attempts (#925)** — `scripts/agent_eval_run.py prepare` makes a fresh repository holding only a task's base commit (a depth-1 fetch, so the reference fix and later history are absent) and a prompt without the expected behavior, the reference fix or the evidence links. `collect TASK_DIR OUT_DIR` takes the task and the source repository from the caller, never from the attempt-writable `OUT_DIR` (whose `attempt.json` only has to agree with them), and takes the attempt's uncommitted changes as the candidate patch, builds the base tree (base plus the patch's `tests/` files) and the candidate tree (base plus the whole patch), runs the validation commands, regression tests and acceptance scripts there, writes their exit codes as evidence with redacted logs, grades the attempt and writes `run.json`: model and tool versions, prompt ID, seed, tokens and cost (`"unknown"` when not observed), base commit, duration against `max_minutes`, passing commands, out-of-scope edits, regression escapes, human review actions including every manual check, and the SHA-256 of every artifact. Git never runs in the attempt's checkout (its files are diffed in a fresh clone of the base, without external diff or textconv helpers). Each check runs, with every capability dropped, in new user, mount, PID and network namespaces inside a private root that exposes only the system directories and the interpreter read-only and the tree under test as the only writable path, so the caller's home directory, credential files, host sockets, the other tree and the runner's artifacts are not visible and there is no network; the checks run under process, address-space and file-size limits with a 512 MB `/tmp`; host-side Git ignores the caller's global and system configuration; the runner's scratch lives in a private temporary directory and it refuses symlinked or pre-existing paths in `OUT_DIR`, so an attempt cannot redirect what the runner writes; the environment is allowlisted, a timeout kills the whole process group, and where the sandbox cannot be built `collect` refuses to run unless `--no-sandbox` is passed and recorded. The runner never commits, pushes or publishes. `summarize` reports repeated attempts as distributions of verdicts and failed checks per task, never one success rate. It runs no model and is not part of ordinary CI; `make agent-eval-check` now also runs its tests. `AGENTS.md` links the evaluation guide from its task routing table by @yeongseon.
+- **An opt-in runner for agent evaluation attempts (#925)** — `scripts/agent_eval_run.py prepare` makes a fresh repository holding only a task's base commit (a depth-1 fetch, so the reference fix and later history are absent) and a prompt without the expected behavior, the reference fix or the evidence links. `collect TASK_DIR OUT_DIR` takes the task and the source repository from the caller, never from the attempt-writable `OUT_DIR` (whose `attempt.json` only has to agree with them), and takes the attempt's uncommitted changes as the candidate patch, builds the base tree (base plus the patch's `tests/` files) and the candidate tree (base plus the whole patch), runs the validation commands, regression tests and acceptance scripts there, writes their exit codes as evidence with redacted logs, grades the attempt and writes `run.json`: model and tool versions, prompt ID, seed, tokens and cost (`"unknown"` when not observed), base commit, duration against `max_minutes`, passing commands, out-of-scope edits, regression escapes, human review actions including every manual check, and the SHA-256 of every artifact. Git never runs in the attempt's checkout (its files are diffed in a fresh clone of the base, without external diff or textconv helpers). Each check runs, with every capability dropped, in new user, mount, PID and network namespaces inside a private root that exposes only the system directories and the interpreter read-only and the tree under test as the only writable path, so the caller's home directory, credential files, host sockets, the other tree and the runner's artifacts are not visible and there is no network; the checks run under process, address-space and file-size limits with a 512 MB `/tmp`; host-side Git ignores the caller's global and system configuration; the runner's scratch lives in a private temporary directory and it refuses symlinked or pre-existing paths in `OUT_DIR`, so an attempt cannot redirect what the runner writes; the environment is allowlisted, a timeout kills the whole process group, and where the sandbox cannot be built `collect` refuses to run unless `--no-sandbox` is passed and recorded. The runner never commits, pushes or publishes. `summarize` reports repeated attempts as distributions of verdicts and failed checks per task, never one success rate. It runs no model and is not part of ordinary CI; `make agent-eval-check` now also runs its tests. `AGENTS.md` links the evaluation guide from its task routing table. Contributed by @yeongseon.
 
-- **The documentation check reads three more `case` forms in shell commands (#977)** — `_substitution_end()` in the shared `scripts/_markdown.py` took `case` inside arithmetic (`$((case + 1))`) for a keyword, never closed an empty `case x in esac`, and let `esac` after a pattern `|` (`x|esac)`) close the `case`; each dropped the `make` goals of the whole documented command. It now tracks arithmetic parentheses and each `case`'s subject, `in`, clause start, pattern and body, as the cookbook copy does (cubrid-lab/cubrid-cookbook-python#404); the unused `_keyword_at()` is removed, and the file matches that copy apart from its header lines. The first review here found three more forms, also fixed: `;&` and `;;&` end a clause like `;;`, a word continued by a quote or backslash (`esac"x"`, `esac\*`) is a pattern rather than `esac`, and a `#` comment at a word boundary inside a substitution changes nothing (an escaped separator, a quote or a closing `)` keeps the word going, so the `#` stays literal). The 8 cookbook regression cases (3 failed here before) and 13 new ones are added; the cookbook copy takes the same change next so the copies stay identical by @yeongseon.
+- **The documentation check reads three more `case` forms in shell commands (#977)** — `_substitution_end()` in the shared `scripts/_markdown.py` took `case` inside arithmetic (`$((case + 1))`) for a keyword, never closed an empty `case x in esac`, and let `esac` after a pattern `|` (`x|esac)`) close the `case`; each dropped the `make` goals of the whole documented command. It now tracks arithmetic parentheses and each `case`'s subject, `in`, clause start, pattern and body, as the cookbook copy does (cubrid-lab/cubrid-cookbook-python#404); the unused `_keyword_at()` is removed, and the file matches that copy apart from its header lines. The first review here found three more forms, also fixed: `;&` and `;;&` end a clause like `;;`, a word continued by a quote or backslash (`esac"x"`, `esac\*`) is a pattern rather than `esac`, and a `#` comment at a word boundary inside a substitution changes nothing (an escaped separator, a quote or a closing `)` keeps the word going, so the `#` stays literal). The 8 cookbook regression cases (3 failed here before) and 13 new ones are added; the cookbook copy takes the same change next so the copies stay identical. Contributed by @yeongseon.
 
-- **The documentation check allocates site anchors as the site does (#975)** — `scripts/_markdown.py`, the parser shared with sqlalchemy-cubrid and cubrid-cookbook-python, now reads this repository's `mkdocs.yml` and uses the slugifier it configures (`pymdownx.slugs`, as before; Python-Markdown's default for a site that sets none), and allocates site ids with the `toc` extension's rule: a heading with an empty slug gets `_1` instead of an empty id, and a taken `_N` id is incremented (`_1` then `_2`) instead of becoming `_N_1`. Ordinary headings keep their anchors. The change is the one merged in cubrid-lab/cubrid-cookbook-python#402, so the shared functions stay identical; tests cover accented and Korean headings under both slugifiers, the `mkdocs.yml` detection and the collision rules by @yeongseon.
+- **The documentation check allocates site anchors as the site does (#975)** — `scripts/_markdown.py`, the parser shared with sqlalchemy-cubrid and cubrid-cookbook-python, now reads this repository's `mkdocs.yml` and uses the slugifier it configures (`pymdownx.slugs`, as before; Python-Markdown's default for a site that sets none), and allocates site ids with the `toc` extension's rule: a heading with an empty slug gets `_1` instead of an empty id, and a taken `_N` id is incremented (`_1` then `_2`) instead of becoming `_N_1`. Ordinary headings keep their anchors. The change is the one merged in cubrid-lab/cubrid-cookbook-python#402, so the shared functions stay identical; tests cover accented and Korean headings under both slugifiers, the `mkdocs.yml` detection and the collision rules. Contributed by @yeongseon.
 
-- **A change to the site notice template runs its tests (#971)** — `tests/test_docs_channel_notice.py` is now a `repo_tooling` test, and the `tooling` path filter in `ci.yml` selects `docs/overrides/**`, `mkdocs.yml` (whose notice wiring the test checks) and the test itself, so a pull request that changes only the template runs the rendering tests in `repo-tooling-tests` instead of just the strict site build. Before, `docs/**` counted as documentation only and selected no test lane by @yeongseon.
+- **A change to the site notice template runs its tests (#971)** — `tests/test_docs_channel_notice.py` is now a `repo_tooling` test, and the `tooling` path filter in `ci.yml` selects `docs/overrides/**`, `mkdocs.yml` (whose notice wiring the test checks) and the test itself, so a pull request that changes only the template runs the rendering tests in `repo-tooling-tests` instead of just the strict site build. Before, `docs/**` counted as documentation only and selected no test lane. Contributed by @yeongseon.
 
-- **The site notice template tests run in CI (#971)** — `tests/test_docs_channel_notice.py` skipped its six rendering tests in every CI lane, because no lane that runs it installs Jinja2 (`offline-tests` installs the `dev` group; only the documentation build installs the `docs` group, and it runs no tests). The `test` dependency group now includes `jinja2>=3.1`, the test imports it directly instead of skipping, so a lane without it fails, and `tests/test_workflow_pins.py` and `THIRD_PARTY_LICENSES.md` (Jinja2 and MarkupSafe rows) record the new dependency. No workflow changes by @yeongseon.
+- **The site notice template tests run in CI (#971)** — `tests/test_docs_channel_notice.py` skipped its six rendering tests in every CI lane, because no lane that runs it installs Jinja2 (`offline-tests` installs the `dev` group; only the documentation build installs the `docs` group, and it runs no tests). The `test` dependency group now includes `jinja2>=3.1`, the test imports it directly instead of skipping, so a lane without it fails, and `tests/test_workflow_pins.py` and `THIRD_PARTY_LICENSES.md` (Jinja2 and MarkupSafe rows) record the new dependency. No workflow changes. Contributed by @yeongseon.
 
-- **Prepare release checks the `last-release-sha` baseline override (#969)** — the recovery for an abandoned version sets a temporary `last-release-sha` in `release-please-config.json`, but nothing enforced its removal, and a stale override makes a later recovery silently list commits that already shipped. `scripts/reconcile_release_labels.py`, which runs before release-please, now classifies the override exactly as sqlalchemy-cubrid does (byte-identical again, from cubrid-lab/sqlalchemy-cubrid#950): it is active only while it is the merge of a release PR on `main` with a recorded abandonment, no `autorelease: pending`/`tagged` label and no tag for its version; once a later release containing it passes the existing publication proof, it is obsolete and preparation stops with a request to remove it in a normal PR. A malformed, unrelated or unreadable override also stops preparation, and an API error is reported as unresolved rather than as absence. Nothing is edited automatically. `RELEASING.md` ("Baseline override lifecycle") and `AGENTS.md` describe the rule; `main` has no override today, so the check reports none by @yeongseon.
+- **Prepare release checks the `last-release-sha` baseline override (#969)** — the recovery for an abandoned version sets a temporary `last-release-sha` in `release-please-config.json`, but nothing enforced its removal, and a stale override makes a later recovery silently list commits that already shipped. `scripts/reconcile_release_labels.py`, which runs before release-please, now classifies the override exactly as sqlalchemy-cubrid does (byte-identical again, from cubrid-lab/sqlalchemy-cubrid#950): it is active only while it is the merge of a release PR on `main` with a recorded abandonment, no `autorelease: pending`/`tagged` label and no tag for its version; once a later release containing it passes the existing publication proof, it is obsolete and preparation stops with a request to remove it in a normal PR. A malformed, unrelated or unreadable override also stops preparation, and an API error is reported as unresolved rather than as absence. Nothing is edited automatically. `RELEASING.md` ("Baseline override lifecycle") and `AGENTS.md` describe the rule; `main` has no override today, so the check reports none. Contributed by @yeongseon.
 
 - **The documentation check is in sync with sqlalchemy-cubrid's again (#953)** —
   `scripts/_markdown.py` and its tests take the six shell fixes from
@@ -685,7 +685,7 @@ This maintenance release corrects several database result/transaction behaviors 
   checked, but not one inside single quotes; arithmetic `$((...))` runs no command except the
   substitutions nested in it; an unquoted newline in a substitution body separates commands; and
   text that is not shell names no goal. The two copies differ only in headers, issue references
-  and the test marker by @yeongseon.
+  and the test marker. Contributed by @yeongseon.
 
 - **`agent-review` no longer counts empty reply-only Copilot records as review rounds
   (#948)** — a Copilot record with no body and no thread-opening comment, such as a reply
@@ -693,7 +693,7 @@ This maintenance release corrects several database result/transaction behaviors 
   as a summary-only round, which could put a PR past the two-round budget and reject valid
   evidence. A record that opens a thread still counts. Ported unchanged from
   cubrid-lab/cubrid-mcp-server#349, so the gate copies stay identical outside their
-  constants by @yeongseon.
+  constants. Contributed by @yeongseon.
 - **The documentation check converges with sqlalchemy-cubrid's parser (#941)** —
   `scripts/_markdown.py` takes sqlalchemy-cubrid's reviewed parser
   (cubrid-lab/sqlalchemy-cubrid#922, cubrid-lab/sqlalchemy-cubrid#924,
@@ -711,7 +711,7 @@ This maintenance release corrects several database result/transaction behaviors 
     before references are checked, at their source positions, including inside image alt text;
   - the `#<digit>` line check follows Python-Markdown's block quote, list marker and list
     indentation rules, in linear time. It now also reports such lines as list items and in block
-    quotes, and no longer reports an indented continuation line by @yeongseon.
+    quotes, and no longer reports an indented continuation line. Contributed by @yeongseon.
 
 - **Advisory `agent-review` check for review evidence (#924)** —
   `.github/workflows/agent-review.yml` runs `scripts/agent_review_gate.py` from the base
@@ -730,7 +730,7 @@ This maintenance release corrects several database result/transaction behaviors 
   is advisory: a pull request can publish a check with the same name, so it must not be
   made a required check until it is posted from an identity a PR cannot impersonate
   (#945). `CONTRIBUTING.md`, `AGENTS.md`, the PR template and `docs/CONTRIBUTING.ko.md`
-  document it by @yeongseon.
+  document it. Contributed by @yeongseon.
 - **The documentation check closes its parser gaps (#939)** — `scripts/_markdown.py` now
   matches sqlalchemy-cubrid's reviewed parser (cubrid-lab/sqlalchemy-cubrid#919), plus the
   four cases of cubrid-lab/sqlalchemy-cubrid#921:
@@ -746,7 +746,7 @@ This maintenance release corrects several database result/transaction behaviors 
   - grouped Makefile rules declare every target;
   - findings after multi-line HTML tags and link titles keep their exact line.
 
-  The quickstart video's site-relative `<source src>` is marked as a reviewed exception by @yeongseon.
+  The quickstart video's site-relative `<source src>` is marked as a reviewed exception. Contributed by @yeongseon.
 
 - **Deterministic documentation defects block the merge (#927)** — a new `docs-check` job
   in `ci.yml` runs `scripts/check_docs_links.py` and `scripts/check_agents_docs.py` on every
@@ -763,7 +763,7 @@ This maintenance release corrects several database result/transaction behaviors 
   GitHub and the site, and `make` in prose is not a command. External links are never
   fetched. The shared `doc-lint` workflow stays advisory; its style, Mermaid and link findings
   are recorded in `docs/CI_POLICY.md`. `<!-- docs-check: ignore -->` marks a reviewed false
-  positive by @yeongseon.
+  positive. Contributed by @yeongseon.
 
 ## [1.13.0] - 2026-10-14
 
@@ -776,7 +776,7 @@ This release tightens authentication-error reporting and network/connection beha
   `HY000`. `except DatabaseError` still catches them, because `OperationalError` is a subclass.
   Code that tested `type(exc) is DatabaseError` or `sqlstate == "HY000"` for these codes, or that
   treats every `OperationalError` from `connect()` as a transient connection failure worth
-  retrying, should check `errno` or `sqlstate == "28000"`. `errno` is unchanged by @yeongseon.
+  retrying, should check `errno` or `sqlstate == "28000"`. `errno` is unchanged. Contributed by @yeongseon.
 
 - **Native error code meanings now follow CUBRID `error_code.h` (#895)** — code that
   matched `sqlstate == "08S01"` or `description='Communication error'` for errno `-4`
@@ -786,7 +786,7 @@ This release tightens authentication-error reporting and network/connection beha
   carry a description and are raised as `DatabaseError` with SQLSTATE `HY000`. Before,
   `-6`, `-11` and `-12` were `OperationalError`, `-7` and `-8` `DataError` and `-394`
   `ProgrammingError`, each for a client-side meaning the server never sends under that
-  number. `-14` (`ER_IO_WRITE`) is now `OperationalError`. See Fixed by @yeongseon.
+  number. `-14` (`ER_IO_WRITE`) is now `OperationalError`. See Fixed. Contributed by @yeongseon.
 
 ### Added
 
@@ -810,7 +810,7 @@ This release tightens authentication-error reporting and network/connection beha
   current repository (#878)** — the English and Korean guides now list the `aio` and
   `compat` packages, the private shared modules, `error_codes.py` and `timing.py`, describe
   `tests/` by its behavior-oriented modules instead of the removed `test_suite.py`, and no
-  longer hard-code function-code, type or packet-class counts. Documentation only by @yeongseon.
+  longer hard-code function-code, type or packet-class counts. Documentation only. Contributed by @yeongseon.
 
 - **Internal: the prepared bind types and encoders moved out of `protocol.py`
   (#856)** — refactor with no behavior change. `_PreparedScalar`,
@@ -829,7 +829,7 @@ This release tightens authentication-error reporting and network/connection beha
   charset and official-differential lanes for the new file as it does for
   `protocol.py`; mutation testing (`only_mutate` and the `protocol` shard) and
   CODEOWNERS include it. `docs/ARCHITECTURE.md`, `docs/PARAMETER_BINDING.md`
-  and `AGENTS.md` name the new module by @yeongseon.
+  and `AGENTS.md` name the new module. Contributed by @yeongseon.
 
 ### Deprecated
 
@@ -858,7 +858,7 @@ This release tightens authentication-error reporting and network/connection beha
   with the session kept. The event-loop hold itself is unchanged and now measured and documented
   (about 7-10 µs per row of a simple three-column row on CUBRID 11.4; see
   `docs/PERFORMANCE.md` and `scripts/measure_async_prepared_encoding.py`), together with the
-  cancellation semantics after `PREPARE` and after `EXECUTE_ARRAY` by @yeongseon.
+  cancellation semantics after `PREPARE` and after `EXECUTE_ARRAY`. Contributed by @yeongseon.
 
 - **`TimingStats` counts executes and fetches consistently and as documented (#899)** — the
   escape-mode probe that `connect()` runs on a new session was counted as an application
@@ -866,7 +866,7 @@ This release tightens authentication-error reporting and network/connection beha
   counted. One successful `executemany()` call now counts as one execute in both drivers:
   the `EXECUTE_BATCH` and `prepared=True` paths recorded nothing, and the per-row loop
   counted every row. `fetch_count` is unchanged and now documented as the number of server
-  `FETCH` requests, so the `SELECT 1` + `fetchall()` example reports `fetch=0` by @yeongseon.
+  `FETCH` requests, so the `SELECT 1` + `fetchall()` example reports `fetch=0`. Contributed by @yeongseon.
 
 - **Sub-minute UTC offsets, verbs followed by a comment and `Lob.write()` input (#898)** —
   three input-handling gaps, fixed in both drivers where they apply:
@@ -880,14 +880,14 @@ This release tightens authentication-error reporting and network/connection beha
   - `Lob.write()` accepts only `bytes`, `bytearray` and `memoryview`; anything else, such as
     a `str`, raises `InterfaceError` instead of a raw `TypeError` or a request. Every empty
     value returns `0` without broker I/O, as the docstring said, and a multi-byte
-    `memoryview` writes and reports its byte count instead of its item count by @yeongseon.
+    `memoryview` writes and reports its byte count instead of its item count. Contributed by @yeongseon.
 
 - **Malformed FC20 and FC40 replies are reported as malformed (#897)** — an `EXECUTE_BATCH`
   reply whose row error has a negative message length was read as an empty message, and a
   `GET_LAST_INSERT_ID` reply whose two-byte type header did not fit its one-byte value read
   the second byte past the value and returned `''`. Both now raise
   `OperationalError('malformed response from broker')` and close the session, as the
-  `EXECUTE_ARRAY` and row-cell parsers already did by @yeongseon.
+  `EXECUTE_ARRAY` and row-cell parsers already did. Contributed by @yeongseon.
 
 - **Undecodable JSON values raise `DataError` and keep the session (#900)** — with
   `json_deserializer=json.loads`, complete JSON text that `json.loads` cannot decode now
@@ -898,7 +898,7 @@ This release tightens authentication-error reporting and network/connection beha
   `DataError: JSON value is not valid JSON` (#543). CUBRID 11.4 stores and returns a JSON
   array nested 20,000 levels deep, which raised the raw `RecursionError`; it rejects a
   5,000-digit integer at insert, so that case was reproduced offline only. The `CUBRIDDataType.NULL` alias of `UNKNOWN` is now documented, and a
-  stale comment about collection element bounds in `packet.py` matches the code by @yeongseon.
+  stale comment about collection element bounds in `packet.py` matches the code. Contributed by @yeongseon.
 
 - **`ping(reconnect=True)` and broker redirects fail the same way in both drivers (#896)**
   — a sync `Connection.ping(reconnect=True)` whose reconnect the server rejected at
@@ -906,7 +906,7 @@ This release tightens authentication-error reporting and network/connection beha
   returning `False`; it now returns `False`, as the async driver already did. A broker
   redirect to a port above `65535` now raises `OperationalError` in both drivers before any
   reconnect. Before, the async driver let a raw `OverflowError` escape for a numeric host,
-  and the sync driver's resolver reduced the port to 16 bits and tried that other port by @yeongseon.
+  and the sync driver's resolver reduced the port to 16 bits and tried that other port. Contributed by @yeongseon.
 
 - **Async requests refused during another task's session setup keep that session (#894)**
   — an `AsyncConnection` request that passed the setup wait before `ping(reconnect=True)`
@@ -918,7 +918,7 @@ This release tightens authentication-error reporting and network/connection beha
   `OperationalError` before any cleanup or recovery, without sending anything. A schema
   result from the replaced session keeps its retired outcome (`fetch_schema_info()` raises
   `InterfaceError`, `close_schema_info()` is a no-op); both also check the gate before they
-  send. The setup task's own requests are unchanged by @yeongseon.
+  send. The setup task's own requests are unchanged. Contributed by @yeongseon.
 
 - **CAS error `-4` is an interrupted statement, not a communication error (#895)** — the
   error tables in `pycubrid.error_codes` followed an old client-side CCI numbering for
@@ -944,7 +944,7 @@ This release tightens authentication-error reporting and network/connection beha
     `ER_IO_WRITE` and `ER_IO_WRITE_OUT_OF_SPACE` replace the old CCI-style names.
 
   The API reference and the troubleshooting and connection guides now show the real
-  authentication errors by @yeongseon.
+  authentication errors. Contributed by @yeongseon.
 
 * **aio:** keep get_schema_info() from dropping a session another task is setting up ([#902](https://github.com/cubrid-lab/pycubrid/issues/902)) ([ffa0069](https://github.com/cubrid-lab/pycubrid/commit/ffa006989c234aedf7b4f07f7d4b529342e7cb6f)) by @yeongseon.
 * **binding:** keep a negative number after a minus sign from starting a comment ([#901](https://github.com/cubrid-lab/pycubrid/issues/901)) ([626e2f4](https://github.com/cubrid-lab/pycubrid/commit/626e2f4dcff36ee50f0fe39c7a31fe4779e738af)) by @yeongseon.
@@ -976,7 +976,7 @@ This release tightens authentication-error reporting and network/connection beha
   English README and its Korean, Chinese, Hindi, German and Russian translations open with the
   pycubrid icon, centered and without a caption, and the documentation site uses it as its
   header logo and favicon. All of them load the SVG from one immutable
-  [cubrid-lab/brand](https://github.com/cubrid-lab/brand) commit by @yeongseon.
+  [cubrid-lab/brand](https://github.com/cubrid-lab/brand) commit. Contributed by @yeongseon.
 
 * **agents:** refresh the module map, test, docs and commit sections ([#877](https://github.com/cubrid-lab/pycubrid/issues/877)) ([6e05ce0](https://github.com/cubrid-lab/pycubrid/commit/6e05ce0fce91e92dde2c9e249dcf5eba9e8cac1f)) by @yeongseon.
 * **brand:** add shared Driver icon to README ([#920](https://github.com/cubrid-lab/pycubrid/issues/920)) ([05f1db3](https://github.com/cubrid-lab/pycubrid/commit/05f1db339de618113ee6305f5988dd71c47cf7db)) by @yeongseon.
@@ -1002,7 +1002,7 @@ This release tightens authentication-error reporting and network/connection beha
   always an ordinary parameterized `execute()` loop. The new offline
   `tests/test_benchmarks_workload.py` runs the workloads on SQLite, and the first reference run
   on CUBRID 11.4 and 10.2 is in `benchmarks/2026-10-14-micro-explicit-keys-v2`. The dev group
-  needs pytest-benchmark 5.0. Test harness only; no driver change by @yeongseon.
+  needs pytest-benchmark 5.0. Test harness only; no driver change. Contributed by @yeongseon.
 
 - **The wide-row measurement synchronizes the async batches' readiness and reports batch time
   alone (#914)** — in `scripts/measure_prepared_wide_rows.py` the two async connections now
@@ -1012,7 +1012,7 @@ This release tightens authentication-error reporting and network/connection beha
   connecting, `CREATE TABLE`, building the rows, `COUNT(*)` and `DROP TABLE`. The
   `docs/PERFORMANCE.md` tables were rerun. The async second batch still starts one batch's
   encoding time after the first, because encoding does not yield (#882). Memory conclusions are
-  unchanged; two connections cost 1.5-2.0 times one. Script and docs only by @yeongseon.
+  unchanged; two connections cost 1.5-2.0 times one. Script and docs only. Contributed by @yeongseon.
 
 - **Wide-value and two-connection prepared batches measured (#881)** — the new
   `scripts/measure_prepared_wide_rows.py` and the opt-in `slow`
@@ -1022,7 +1022,7 @@ This release tightens authentication-error reporting and network/connection beha
   On CUBRID 11.4 the client heap peak is about 3-4.6 times the request size for scalar values and
   about 9 times for sequences; two concurrent connections cost the sum of two batches, with no
   extra amplification. 16-128 MiB single values are accepted and a value too wide for its column
-  fails only its row. No runtime change; results in `docs/PERFORMANCE.md` by @yeongseon.
+  fails only its row. No runtime change; results in `docs/PERFORMANCE.md`. Contributed by @yeongseon.
 
 - **What `read_timeout` bounds when a reply arrives slowly, pinned and documented
   (#855)** — the new offline `tests/test_slow_stream_timeout.py` has the scripted
@@ -1042,7 +1042,7 @@ This release tightens authentication-error reporting and network/connection beha
   bound on each driver, and states that none is a wall-clock deadline for a
   statement or cancels it on the server; `docs/SUPPORT_MATRIX.md` and
   `docs/API_REFERENCE.md` say the same in brief. Tests and docs only; the driver
-  is unchanged by @yeongseon.
+  is unchanged. Contributed by @yeongseon.
 
 - **Large `executemany(..., prepared=True)` batches measured and their failure
   states pinned (#854)** — the new offline
@@ -1063,7 +1063,7 @@ This release tightens authentication-error reporting and network/connection beha
   rows took 8.7-12.5 s with a heap peak of 47.3 MiB, and 1,000,000 rows took about
   123 s with 473.5 MiB; every row was inserted. The results and the decision
   (no runtime change) are in `docs/PERFORMANCE.md`, and the command is in
-  `docs/DEVELOPMENT.md`. Test, script and docs only; the driver is unchanged by @yeongseon.
+  `docs/DEVELOPMENT.md`. Test, script and docs only; the driver is unchanged. Contributed by @yeongseon.
 
 ## [1.12.0] - 2026-10-12
 
