@@ -261,9 +261,7 @@ This maintenance release improves the safety of stored test-run metadata by mask
   `password`, `passwd`, `pwd`, `token`, `secret` or `api_key` key (`--password=x`,
   `--password x`, `CUBRID_PASSWORD=x`) are now saved as `***`; any other command text is
   unchanged. This is best-effort masking: keep real credentials off command lines. The
-  schema, statuses and exit codes are unchanged. Contributed by @yeongseon.
-
-* **reporting:** redact credentials in saved integration command metadata ([#1046](https://github.com/cubrid-lab/pycubrid/issues/1046)) ([80e9c07](https://github.com/cubrid-lab/pycubrid/commit/80e9c07caf8ccaabcbdc8caa0f0c4b03d197af0f)) by @yeongseon.
+  schema, statuses and exit codes are unchanged ([#1046](https://github.com/cubrid-lab/pycubrid/pull/1046), [80e9c07](https://github.com/cubrid-lab/pycubrid/commit/80e9c07caf8ccaabcbdc8caa0f0c4b03d197af0f)). Contributed by @yeongseon.
 
 ### Documentation
 
@@ -344,9 +342,7 @@ This is the next actually published release after v1.13.1. **v1.13.2 was never p
   the first holds its `flock` lock (POSIX only). Cleanup, after success, failure or SIGINT/SIGTERM, is now
   `docker compose -p <project> down -v` of that run-owned project, so each run starts from an
   empty database and leaves no volumes; the manual lab's containers and data are untouched.
-  Readiness, the lane audit and exit statuses are unchanged. Contributed by @yeongseon.
-
-* **test:** isolate make integration from the manual Docker Compose project ([#1027](https://github.com/cubrid-lab/pycubrid/issues/1027)) ([588cd8a](https://github.com/cubrid-lab/pycubrid/commit/588cd8affe771e1ca7b741b7022d84fa94e69a58)) by @yeongseon.
+  Readiness, the lane audit and exit statuses are unchanged ([#1027](https://github.com/cubrid-lab/pycubrid/pull/1027), [588cd8a](https://github.com/cubrid-lab/pycubrid/commit/588cd8affe771e1ca7b741b7022d84fa94e69a58)). Contributed by @yeongseon.
 
 ### Documentation
 
@@ -359,9 +355,8 @@ This is the next actually published release after v1.13.1. **v1.13.2 was never p
   `CHECK_CAS`, unknown outcomes without replay, client-side TLS, and CUBRID CAS (Common
   Application Server) versus Compare-And-Swap. `PROTOCOL.md` and `ARCHITECTURE.md` stay
   authoritative; the README, the site index, the connection guide and both reference
-  pages link to the overview. No driver behavior changed. Contributed by @yeongseon.
+  pages link to the overview. No driver behavior changed ([#1019](https://github.com/cubrid-lab/pycubrid/pull/1019), [dd70ef1](https://github.com/cubrid-lab/pycubrid/commit/dd70ef1f2d05aa7e9cf2d619eedd28a294e24b73)). Contributed by @yeongseon.
 
-* **advanced:** introduce CUBRID CAS architecture and protocol concepts ([#1019](https://github.com/cubrid-lab/pycubrid/issues/1019)) ([dd70ef1](https://github.com/cubrid-lab/pycubrid/commit/dd70ef1f2d05aa7e9cf2d619eedd28a294e24b73)) by @yeongseon.
 * **agents:** require repository-local issue authoring checks ([#1014](https://github.com/cubrid-lab/pycubrid/issues/1014)) ([03ca2f9](https://github.com/cubrid-lab/pycubrid/commit/03ca2f96de47865cd3f596755b3bda8ae1156bae)) by @yeongseon.
 * enforce repository-local issue drafting ([03ca2f9](https://github.com/cubrid-lab/pycubrid/commit/03ca2f96de47865cd3f596755b3bda8ae1156bae)) by @yeongseon.
 * **triage:** clarify PR overlap and execution precedence ([d2c9318](https://github.com/cubrid-lab/pycubrid/commit/d2c93180672105b46cf1d29797cc5808386a85d6)), refs [#1025](https://github.com/cubrid-lab/pycubrid/issues/1025) by @yeongseon.
@@ -435,7 +430,7 @@ This maintenance release corrects several database result/transaction behaviors 
   read-modify-write turned it into NULL. A `BIT`/`VARBIT` cell of size `0` now decodes as
   `b""`, also after a CALL or NULL-typed cell header, sync and async, as the official JDBC
   driver reads it. Size-0 cells of every other type still decode as `None`. The prepared
-  path still rejects `b""`, because the broker reads a zero-length bind as NULL. Contributed by @yeongseon and @paikend.
+  path still rejects `b""`, because the broker reads a zero-length bind as NULL ([#995](https://github.com/cubrid-lab/pycubrid/pull/995), [87ed36a](https://github.com/cubrid-lab/pycubrid/commit/87ed36ae0c7ebd1895791591794a20307e11fe9a)). Contributed by @yeongseon and @paikend.
 
 - **An empty `BIT VARYING` collection element is decoded as `b""`, not `None` (#998)** — with
   `decode_collections=True`, the element decoder read every element length `<= 0` as NULL,
@@ -444,7 +439,7 @@ This maintenance release corrects several database result/transaction behaviors 
   string as length `0`; a `BIT`/`VARBIT` element of length `0` now decodes as `b""`, sync
   and async, matching row cells (#994). Zero-length elements of every other type still
   decode as `None`, collection size and consumed-bytes validation is unchanged, and raw
-  collection bytes (`decode_collections=False`) are unchanged. Contributed by @yeongseon.
+  collection bytes (`decode_collections=False`) are unchanged ([#999](https://github.com/cubrid-lab/pycubrid/pull/999), [224b4be](https://github.com/cubrid-lab/pycubrid/commit/224b4be6bfe809a693bfcc440fb61ef5c9ba1feb)). Contributed by @yeongseon.
 
 - **A `?` inside a quoted identifier raises an explained `ProgrammingError` (#990)** —
   the CUBRID broker counts every `?` outside comments and single-quoted strings as a
@@ -454,7 +449,7 @@ This maintenance release corrects several database result/transaction behaviors 
   whose message names this cause; `errno`, `code` and `error_source` are unchanged, and
   `sqlstate` changes from `HY000` to `42000` with the new class. Bracket identifiers
   (`[a?b]`) are affected the same way. A server-indicator `-1007` is not affected. The
-  statement itself still fails. Contributed by @paikend.
+  statement itself still fails ([#991](https://github.com/cubrid-lab/pycubrid/pull/991), [bb07791](https://github.com/cubrid-lab/pycubrid/commit/bb0779125793404ab90ff8e818e7ff33d5ec52a3)). Contributed by @paikend.
 - **Subnormal floats and `-0.0` round-trip through the literal path (#988)** — `execute()`
   and the default `executemany()` rendered a `float` with `float.__repr__`. CUBRID rejects
   every subnormal literal (`5e-324` failed with -493 "exceeds limit of double"), and reads
@@ -463,7 +458,7 @@ This maintenance release corrects several database result/transaction behaviors 
   doubles, and `-0.0` as the DOUBLE literal `-0.0e0`. Every other `float` renders as
   before, so stored NUMERIC and string values do not change. `-0.0` into a string column
   now stores `-0` instead of `0.0`, and `SELECT ?` bound to `-0.0` now returns the
-  `float` `-0.0` instead of `Decimal('0.0')`. Contributed by @paikend.
+  `float` `-0.0` instead of `Decimal('0.0')` ([#989](https://github.com/cubrid-lab/pycubrid/pull/989), [2ed16bc](https://github.com/cubrid-lab/pycubrid/commit/2ed16bc1b117fc3837a39924d9d7925be08f3bf3)). Contributed by @paikend.
 
 - **Tasks waiting on async connection setup keep `error_source` (#952)** — when
   `AsyncConnection` setup failed with a `DatabaseError`, each task waiting on that setup
@@ -508,23 +503,16 @@ This maintenance release corrects several database result/transaction behaviors 
 
 * **agent-eval:** copy the held worktree by descriptor and validate prepared_epoch ([#986](https://github.com/cubrid-lab/pycubrid/issues/986)) ([81f327d](https://github.com/cubrid-lab/pycubrid/commit/81f327d683f868ac53af6103fe65e82f7eef29b9)) by @yeongseon.
 * **agent-eval:** create and read the runner start record without following links ([#987](https://github.com/cubrid-lab/pycubrid/issues/987)) ([14ebed1](https://github.com/cubrid-lab/pycubrid/commit/14ebed12a1137ea1949286bea724e2446c9e6bd2)) by @yeongseon.
-* **agent-review:** do not count empty reply-only Copilot records as review rounds ([#949](https://github.com/cubrid-lab/pycubrid/issues/949)) ([10fb72c](https://github.com/cubrid-lab/pycubrid/commit/10fb72c65a40e522cc1c2d4e287a3e815431bb29)), refs [#948](https://github.com/cubrid-lab/pycubrid/issues/948) by @yeongseon.
 * **aio:** keep error_source when copying a setup failure for waiting tasks ([#961](https://github.com/cubrid-lab/pycubrid/issues/961)) ([4cde43a](https://github.com/cubrid-lab/pycubrid/commit/4cde43afd2d84a4bdd4003ebcecdac01efc7f095)), refs [#952](https://github.com/cubrid-lab/pycubrid/issues/952) by @yeongseon.
-* **binding:** keep subnormal floats and -0.0 on the literal path ([#989](https://github.com/cubrid-lab/pycubrid/issues/989)) ([2ed16bc](https://github.com/cubrid-lab/pycubrid/commit/2ed16bc1b117fc3837a39924d9d7925be08f3bf3)), refs [#988](https://github.com/cubrid-lab/pycubrid/issues/988) by @paikend.
 * **context:** keep the original error when leaving a context after the session was retired ([#959](https://github.com/cubrid-lab/pycubrid/issues/959)) ([a535d9c](https://github.com/cubrid-lab/pycubrid/commit/a535d9cd5c9438289e03635532c6f7bf1afb14df)) by @yeongseon.
 * **docs:** close four parser gaps in the deterministic documentation check ([#940](https://github.com/cubrid-lab/pycubrid/issues/940)) ([703a1c2](https://github.com/cubrid-lab/pycubrid/commit/703a1c29ba4f76996a2574ade6a9fb6c89124203)) by @yeongseon.
 * **docs:** follow the configured site slugifier and toc id rules in the docs-check parser ([#976](https://github.com/cubrid-lab/pycubrid/issues/976)) ([a0f8260](https://github.com/cubrid-lab/pycubrid/commit/a0f826089d8275a881efffa59f7d77e43ba7664b)), refs [#975](https://github.com/cubrid-lab/pycubrid/issues/975) by @yeongseon.
 * **docs:** handle adjacent shell operators, decoded titles and comment backslashes in the docs check ([#947](https://github.com/cubrid-lab/pycubrid/issues/947)) ([ebb3170](https://github.com/cubrid-lab/pycubrid/commit/ebb3170b582ac5f59ac80ef3d655c3aba3b7bba9)) by @yeongseon.
 * **docs:** read arithmetic, empty and alternated case forms correctly in the docs-check shell scanner ([#978](https://github.com/cubrid-lab/pycubrid/issues/978)) ([0edf209](https://github.com/cubrid-lab/pycubrid/commit/0edf209c30456b6ff81457b0225d8d245576d237)) by @yeongseon.
 * **docs:** sync the docs-check parser with sqlalchemy-cubrid ([#954](https://github.com/cubrid-lab/pycubrid/issues/954)) ([4495ffb](https://github.com/cubrid-lab/pycubrid/commit/4495ffbdf5bd4ffbe6e294f5d73b4ccf5a940855)), refs [#953](https://github.com/cubrid-lab/pycubrid/issues/953) by @yeongseon.
-* **errors:** explain the CAS marker count for a ? in a quoted identifier ([#991](https://github.com/cubrid-lab/pycubrid/issues/991)) ([bb07791](https://github.com/cubrid-lab/pycubrid/commit/bb0779125793404ab90ff8e818e7ff33d5ec52a3)), refs [#990](https://github.com/cubrid-lab/pycubrid/issues/990) by @paikend.
 * **lob:** reject LOB handles bound to a replaced physical session ([#934](https://github.com/cubrid-lab/pycubrid/issues/934)) ([03d7f70](https://github.com/cubrid-lab/pycubrid/commit/03d7f70871ca28c00dd3627f76bfbc77fbf06b0e)) by @yeongseon.
 * **profile:** create a per-run scratch table and clean up only what the run owns ([#962](https://github.com/cubrid-lab/pycubrid/issues/962)) ([b01a663](https://github.com/cubrid-lab/pycubrid/commit/b01a66336f1e7d608397daa20fb9e73c1e7f8cf4)) by @yeongseon.
-* **protocol:** decode an empty BIT VARYING collection element as b"" instead of None ([#999](https://github.com/cubrid-lab/pycubrid/issues/999)) ([224b4be](https://github.com/cubrid-lab/pycubrid/commit/224b4be6bfe809a693bfcc440fb61ef5c9ba1feb)) by @yeongseon.
-* **protocol:** fetch an empty BIT VARYING value as b"" instead of None ([#995](https://github.com/cubrid-lab/pycubrid/issues/995)) ([87ed36a](https://github.com/cubrid-lab/pycubrid/commit/87ed36ae0c7ebd1895791591794a20307e11fe9a)) by @paikend.
-* **test:** keep the CUBRID 11.4 Docker test database in a named volume ([#1004](https://github.com/cubrid-lab/pycubrid/issues/1004)) ([ec2d9ed](https://github.com/cubrid-lab/pycubrid/commit/ec2d9ed1720519b9f3c058cacaf730fbc9ad0195)) by @yeongseon.
 * **test:** keep the first databases.txt backup in docker-fix-db-host ([#1003](https://github.com/cubrid-lab/pycubrid/issues/1003)) ([4843d47](https://github.com/cubrid-lab/pycubrid/commit/4843d47ccfb9c3d9f299f58ab42e86658f849900)), refs [#1000](https://github.com/cubrid-lab/pycubrid/issues/1000) by @yeongseon.
-* **test:** register the Docker test database for a stable host ([#1001](https://github.com/cubrid-lab/pycubrid/issues/1001)) ([48cbd78](https://github.com/cubrid-lab/pycubrid/commit/48cbd78e9e7d6971867a3c8bc3e9a23a7f2d2ba2)) by @yeongseon.
 
 ### Documentation
 
@@ -656,9 +644,9 @@ This maintenance release corrects several database result/transaction behaviors 
 
 ### CI
 
-- **The CUBRID 11.4 Docker test database is kept in a named volume (#1002)** — `docker-compose.yml` mounted its named volume only at `/var/lib/cubrid`, where images up to 11.3 keep their databases. `cubrid/cubrid:11.4` keeps them in `/home/cubrid/CUBRID/databases` (`CUBRID_DATABASES`, also its declared `VOLUME`), so with `CUBRID_VERSION=11.4` the database lived in an anonymous volume: `docker compose down` (also run at the end of every `make integration`) detached it, the next `up` started a new empty database, and each run left a dangling volume behind. A second named volume, `cubrid-databases`, now holds that path. Checked on CUBRID 10.2, 11.2 and 11.4: a table created before `docker compose down` is still there after `up`, `make docker-fix-db-host` works on 11.4, and `docker compose down -v` leaves no volume behind. Versions up to 11.3 still share `cubrid-data`; `docs/DEVELOPMENT.md` now says to run `make docker-down` before switching `CUBRID_VERSION`, since opening a database created by another CUBRID version is not verified. An 11.4 database kept in an earlier anonymous volume is not moved; it was already lost on the next `down` and `up`. Contributed by @yeongseon.
+- **The CUBRID 11.4 Docker test database is kept in a named volume (#1002)** — `docker-compose.yml` mounted its named volume only at `/var/lib/cubrid`, where images up to 11.3 keep their databases. `cubrid/cubrid:11.4` keeps them in `/home/cubrid/CUBRID/databases` (`CUBRID_DATABASES`, also its declared `VOLUME`), so with `CUBRID_VERSION=11.4` the database lived in an anonymous volume: `docker compose down` (also run at the end of every `make integration`) detached it, the next `up` started a new empty database, and each run left a dangling volume behind. A second named volume, `cubrid-databases`, now holds that path. Checked on CUBRID 10.2, 11.2 and 11.4: a table created before `docker compose down` is still there after `up`, `make docker-fix-db-host` works on 11.4, and `docker compose down -v` leaves no volume behind. Versions up to 11.3 still share `cubrid-data`; `docs/DEVELOPMENT.md` now says to run `make docker-down` before switching `CUBRID_VERSION`, since opening a database created by another CUBRID version is not verified. An 11.4 database kept in an earlier anonymous volume is not moved; it was already lost on the next `down` and `up` ([#1004](https://github.com/cubrid-lab/pycubrid/pull/1004), [ec2d9ed](https://github.com/cubrid-lab/pycubrid/commit/ec2d9ed1720519b9f3c058cacaf730fbc9ad0195)). Contributed by @yeongseon.
 
-- **The Docker test database keeps working after its container is recreated (#1000)** — the image registers the database in `databases.txt`, which 10.2 and 11.2 keep on the `cubrid-data` volume, for `CUBRID_DB_HOST`, or, when that is unset, for the creating container's hostname, its container ID. `docker-compose.yml` did not set it, and `docker compose down` (also run at the end of every `make integration`) keeps the volume, so the next container, with a new ID, could not resolve the recorded host: every connection failed with -353 and the next `make integration` retried 36 times before giving up. `docker-compose.yml` now sets `CUBRID_DB_HOST: localhost`, which a recreated container resolves; checked on CUBRID 10.2 and 11.2 across `down` and `up`, and with two full `make integration` runs on a repaired 11.2 volume. 11.4 keeps its databases outside that volume (see #1002 below). A volume created before this change keeps the old ID: `make docker-fix-db-host` rewrites only `testdb`'s host field to `localhost`, keeps the data and, on its first run, saves the previous file as `databases.txt.before-fix-db-host` (a later run keeps that copy), and `make docker-down` (`docker compose down -v`) deletes the volume and its data. `scripts/wait_for_cubrid.py` now receives `CUBRID_TEST_DOCKER_CONTAINER` from `make integration` and `make integration-tls`, and stops at the first -353 whose hosts all fail `getent hosts` inside that container, naming both fixes; a host that resolves, a failed lookup or no container keeps the existing retries. CI starts CUBRID as a service, not with Compose, and is unchanged; the driver is unchanged. Contributed by @yeongseon.
+- **The Docker test database keeps working after its container is recreated (#1000)** — the image registers the database in `databases.txt`, which 10.2 and 11.2 keep on the `cubrid-data` volume, for `CUBRID_DB_HOST`, or, when that is unset, for the creating container's hostname, its container ID. `docker-compose.yml` did not set it, and `docker compose down` (also run at the end of every `make integration`) keeps the volume, so the next container, with a new ID, could not resolve the recorded host: every connection failed with -353 and the next `make integration` retried 36 times before giving up. `docker-compose.yml` now sets `CUBRID_DB_HOST: localhost`, which a recreated container resolves; checked on CUBRID 10.2 and 11.2 across `down` and `up`, and with two full `make integration` runs on a repaired 11.2 volume. 11.4 keeps its databases outside that volume (see #1002 below). A volume created before this change keeps the old ID: `make docker-fix-db-host` rewrites only `testdb`'s host field to `localhost`, keeps the data and, on its first run, saves the previous file as `databases.txt.before-fix-db-host` (a later run keeps that copy), and `make docker-down` (`docker compose down -v`) deletes the volume and its data. `scripts/wait_for_cubrid.py` now receives `CUBRID_TEST_DOCKER_CONTAINER` from `make integration` and `make integration-tls`, and stops at the first -353 whose hosts all fail `getent hosts` inside that container, naming both fixes; a host that resolves, a failed lookup or no container keeps the existing retries. CI starts CUBRID as a service, not with Compose, and is unchanged; the driver is unchanged ([#1001](https://github.com/cubrid-lab/pycubrid/pull/1001), [48cbd78](https://github.com/cubrid-lab/pycubrid/commit/48cbd78e9e7d6971867a3c8bc3e9a23a7f2d2ba2)). Contributed by @yeongseon.
 
 - **The agent-evaluation runner's start record is created and read without following links (#985)** — `prepare` wrote its start record with `Path.write_text`, which follows a symlink at that path, and `collect` read it the same way. The record is now created with `O_CREAT|O_EXCL|O_NOFOLLOW` and mode `0600`; a stale or planted entry at its path is removed (a symlink itself, never its target) and the record created afresh. `collect` reads it only as a regular file of at most 4 KiB, without following links, and otherwise falls back to `attempt.json`, labelled as such. The state directory is created with, or reset to, exactly `0700` (so neither group or other access nor a missing owner write bit remains) and refused when it is a symlink or belongs to another user. `run.json`'s `over_max_minutes` may be `"unknown"` as well as `true` or `false`. Contributed by @yeongseon.
 
@@ -697,7 +685,7 @@ This maintenance release corrects several database result/transaction behaviors 
   as a summary-only round, which could put a PR past the two-round budget and reject valid
   evidence. A record that opens a thread still counts. Ported unchanged from
   cubrid-lab/cubrid-mcp-server#349, so the gate copies stay identical outside their
-  constants. Contributed by @yeongseon.
+  constants ([#949](https://github.com/cubrid-lab/pycubrid/pull/949), [10fb72c](https://github.com/cubrid-lab/pycubrid/commit/10fb72c65a40e522cc1c2d4e287a3e815431bb29)). Contributed by @yeongseon.
 - **The documentation check converges with sqlalchemy-cubrid's parser (#941)** —
   `scripts/_markdown.py` takes sqlalchemy-cubrid's reviewed parser
   (cubrid-lab/sqlalchemy-cubrid#922, cubrid-lab/sqlalchemy-cubrid#924,
@@ -980,10 +968,9 @@ This release tightens authentication-error reporting and network/connection beha
   English README and its Korean, Chinese, Hindi, German and Russian translations open with the
   pycubrid icon, centered and without a caption, and the documentation site uses it as its
   header logo and favicon. All of them load the SVG from one immutable
-  [cubrid-lab/brand](https://github.com/cubrid-lab/brand) commit. Contributed by @yeongseon.
+  [cubrid-lab/brand](https://github.com/cubrid-lab/brand) commit ([#920](https://github.com/cubrid-lab/pycubrid/pull/920), [05f1db3](https://github.com/cubrid-lab/pycubrid/commit/05f1db339de618113ee6305f5988dd71c47cf7db)). Contributed by @yeongseon.
 
 * **agents:** refresh the module map, test, docs and commit sections ([#877](https://github.com/cubrid-lab/pycubrid/issues/877)) ([6e05ce0](https://github.com/cubrid-lab/pycubrid/commit/6e05ce0fce91e92dde2c9e249dcf5eba9e8cac1f)) by @yeongseon.
-* **brand:** add shared Driver icon to README ([#920](https://github.com/cubrid-lab/pycubrid/issues/920)) ([05f1db3](https://github.com/cubrid-lab/pycubrid/commit/05f1db339de618113ee6305f5988dd71c47cf7db)) by @yeongseon.
 * **brand:** show the centered repository icon in the README and docs site ([#921](https://github.com/cubrid-lab/pycubrid/issues/921)) ([0719025](https://github.com/cubrid-lab/pycubrid/commit/0719025d48398a7b691c576c9501fa35ab06f13b)) by @yeongseon.
 * **development:** match the structure diagrams to the repository ([#880](https://github.com/cubrid-lab/pycubrid/issues/880)) ([f6a2734](https://github.com/cubrid-lab/pycubrid/commit/f6a2734655aca5506c4551f85387c50cc8fbec05)) by @yeongseon.
 * **i18n:** update the Python requirement in the German README ([#870](https://github.com/cubrid-lab/pycubrid/issues/870)) ([5a7638e](https://github.com/cubrid-lab/pycubrid/commit/5a7638e6634ef776632b57e4476e61713bb84a33)), refs [#702](https://github.com/cubrid-lab/pycubrid/issues/702) by @yeongseon.
