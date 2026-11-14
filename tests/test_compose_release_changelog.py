@@ -649,3 +649,30 @@ def test_bare_bullet_with_a_section_introduction_is_kept() -> None:
     )
     output = compose(BASE, generated, "1.9.0")
     assert "Intro prose." in output and "bare wording" in output
+
+
+def test_bare_bullet_with_fenced_example_is_not_removed() -> None:
+    # The dedup matcher strips fences for provenance comparison, but must not
+    # discard the *original* entry if it also contains a fenced code example.
+    bare = (
+        f"* preserve documented behavior {_commit(SHA_A)}\n\n"
+        "  ```python\n"
+        "  print('keep this example')\n"
+        "  ```"
+    )
+    output = _compose_generated(bare, _with_pr("define handoff", SHA_A))
+    assert "preserve documented behavior" in output
+    assert "print('keep this example')" in output
+    assert "define handoff" in output
+
+
+def test_two_distinct_bare_bullets_plus_one_pr_link_are_ambiguous() -> None:
+    # A single squash commit can describe multiple independent changes. In
+    # that case, the unique PR-linked entry does not identify which bare
+    # description (if either) is safe to remove.
+    first = f"* add change A {_commit(SHA_A)}"
+    second = f"* fix change B {_commit(SHA_A)}"
+    output = _compose_generated(first, second, _with_pr("define handoff", SHA_A))
+    assert "add change A" in output
+    assert "fix change B" in output
+    assert "define handoff" in output
