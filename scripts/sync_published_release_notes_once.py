@@ -205,19 +205,23 @@ def main() -> int:
     output_dir = Path(os.environ.get("RUNNER_TEMP", "/tmp")) / "pycubrid-release-sync-20261114"
     path = f"/repos/{REPOSITORY}"
     releases = api_json(path + "/releases?per_page=100", token)
-    latest = api_json(path + "/releases/latest", token)
-    if latest["tag_name"] != manifest["expected_latest_tag"]:
-        raise ValueError("Latest published Release changed; re-review required")
-    expected, pending = build_plan(manifest, changelog, releases)
+    # Save what GitHub returned BEFORE validating inventory or body hashes, so
+    # a rejected sync still leaves an auditable snapshot in Actions artifacts.
     backup = {
         "source_changelog_blob_sha": source_blob_sha(),
         "reviewed_changelog_blob_sha": manifest["source_changelog_blob_sha"],
         "source_history_sha256": manifest["source_history_sha256"],
         "release_count": len(releases),
-        "latest_tag": latest["tag_name"],
+        "latest_tag": None,
         "releases": releases,
     }
     save_json(output_dir / "prewrite_backup.json", backup)
+    latest = api_json(path + "/releases/latest", token)
+    backup["latest_tag"] = latest["tag_name"]
+    save_json(output_dir / "prewrite_backup.json", backup)
+    if latest["tag_name"] != manifest["expected_latest_tag"]:
+        raise ValueError("Latest published Release changed; re-review required")
+    expected, pending = build_plan(manifest, changelog, releases)
     report = {
         "mode": opts.mode,
         "source_changelog_blob_sha": source_blob_sha(),
@@ -294,5 +298,15 @@ if __name__ == "__main__":
     try:
         sys.exit(main())
     except (ValueError, RuntimeError, OSError, subprocess.CalledProcessError) as exc:
+        evidence = Path(os.environ.get("RUNNER_TEMP", "/tmp")) / "pycubrid-release-sync-20261114"
+        if (evidence / "prewrite_backup.json").exists():
+            report_path = evidence / "report.json"
+            try:
+                report = json.loads(report_path.read_text(encoding="utf-8")) if report_path.exists() else {}
+                report["result"] = "failed"
+                report["failure"] = str(exc)
+                save_json(report_path, report)
+            except (OSError, ValueError) as report_error:
+                print(f"Could not preserve failure report: {report_error}", file=sys.stderr)
         print(f"Release-note sync aborted: {exc}", file=sys.stderr)
         sys.exit(1)
