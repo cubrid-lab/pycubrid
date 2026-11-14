@@ -193,6 +193,7 @@ def test_apply_patches_only_pinned_body_and_preserves_a_recoverable_backup(
     monkeypatch.setenv("GITHUB_REPOSITORY", "cubrid-lab/pycubrid")
     monkeypatch.setenv("GITHUB_REF", "refs/heads/main")
     monkeypatch.setenv("GITHUB_EVENT_NAME", "workflow_dispatch")
+    monkeypatch.setenv("RELEASE_NOTES_APPLY_CONFIRMATION", "SYNC-11-RELEASE-NOTES")
     monkeypatch.setenv("RUNNER_TEMP", str(tmp_path))
     monkeypatch.setattr(sys, "argv", ["sync", "--mode", "apply"])
 
@@ -242,7 +243,8 @@ def test_apply_refuses_a_concurrent_edit_before_patch(
         "GITHUB_ACTIONS": "true",
         "GITHUB_REPOSITORY": "cubrid-lab/pycubrid",
         "GITHUB_REF": "refs/heads/main",
-        "GITHUB_EVENT_NAME": "push",
+        "GITHUB_EVENT_NAME": "workflow_dispatch",
+        "RELEASE_NOTES_APPLY_CONFIRMATION": "SYNC-11-RELEASE-NOTES",
         "RUNNER_TEMP": str(tmp_path),
     }.items():
         monkeypatch.setenv(key, value)
@@ -252,3 +254,40 @@ def test_apply_refuses_a_concurrent_edit_before_patch(
         sync.main()
     assert calls == ["GET"]
     assert (tmp_path / "pycubrid-release-sync-20261114/prewrite_backup.json").exists()
+
+
+@pytest.mark.parametrize(
+    ("event", "confirmation"),
+    [
+        ("push", "SYNC-11-RELEASE-NOTES"),
+        ("workflow_dispatch", ""),
+        ("workflow_dispatch", "not-confirmed"),
+    ],
+)
+def test_apply_rejects_push_or_unconfirmed_dispatch(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, event: str, confirmation: str
+) -> None:
+    manifest, _ = fixture()
+    manifest["source_history_sha256"] = sync.published_history_digest(SOURCE)
+    manifest["source_changelog_blob_sha"] = "a" * 40
+    manifest["expected_latest_tag"] = "v1.2.0"
+    manifest_file = tmp_path / "manifest.json"
+    manifest_file.write_text(json.dumps(manifest), encoding="utf-8")
+    changelog_file = tmp_path / "CHANGELOG.md"
+    changelog_file.write_text(SOURCE, encoding="utf-8")
+    monkeypatch.setattr(sync, "MANIFEST", manifest_file)
+    monkeypatch.setattr(sync, "CHANGELOG", changelog_file)
+    monkeypatch.setenv("GH_TOKEN", "test-token")
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "cubrid-lab/pycubrid")
+    monkeypatch.setenv("GITHUB_REF", "refs/heads/main")
+    monkeypatch.setenv("GITHUB_EVENT_NAME", event)
+    monkeypatch.setenv("RELEASE_NOTES_APPLY_CONFIRMATION", confirmation)
+    monkeypatch.setattr(sys, "argv", ["sync", "--mode", "apply"])
+
+    def fail_if_called(*args: object, **kwargs: object) -> None:
+        pytest.fail("Refused apply must not make an API request")
+
+    monkeypatch.setattr(sync, "api_json", fail_if_called)
+    with pytest.raises(ValueError, match="explicitly confirmed manual workflow"):
+        sync.main()
