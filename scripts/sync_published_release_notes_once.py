@@ -255,7 +255,7 @@ def main() -> int:
         raise ValueError("Latest Release changed unexpectedly")
     report["result"] = "35/35 verified"
     save_json(output_dir / "report.json", report)
-    print(f"Success: 35/35 published Release bodies match reviewed CHANGELOG.md")
+    print("Success: 35/35 published Release bodies match reviewed CHANGELOG.md")
     return 0
 
 
