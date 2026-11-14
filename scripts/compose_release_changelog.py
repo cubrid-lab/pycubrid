@@ -285,16 +285,25 @@ def _dedupe_generated(
     def commit_shas(prose: str) -> set[str]:
         return {m.group("full") for m in _OWN_COMMIT.finditer(prose)}
 
+    # Count *all* bullets naming a commit before deciding that a bare line is
+    # redundant. One PR-linked bullet plus two distinct bare descriptions is
+    # ambiguous; dropping either one could lose a separately documented change.
+    generated_commit_count = Counter(
+        sha for prose in generated_prose for sha in commit_shas(prose)
+    )
+
     def repeats_commit(entry: str) -> bool:
         # release-please can list one squash commit twice when its body carries a
         # second conventional-commit line: once with the PR reference, once bare.
-        # Drop only the bare one-line bullet, and only when exactly one other
-        # bullet in the release names the same single commit and carries a PR link.
+        # Drop only a truly single-line bare entry, and only when exactly one
+        # other generated entry in this release names the commit with a PR link.
+        # Examine the original entry, including fenced examples/continuations.
         prose = _unfenced_prose(entry)
         shas = commit_shas(prose)
         if (
             len(shas) != 1
-            or len(prose.strip().splitlines()) != 1
+            or len(entry.strip().splitlines()) != 1
+            or generated_commit_count[next(iter(shas))] != 2
             or _OWN_ISSUE.search(prose)
             or _OWN_PR.search(prose)
             or _PRIMARY_CHANGE.search(prose)
