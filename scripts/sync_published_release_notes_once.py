@@ -61,9 +61,9 @@ def canonical_notes(changelog: str, version: str) -> str:
 def published_history_digest(changelog: str) -> str:
     """Pin reviewed historical notes without blocking unrelated Unreleased edits."""
     versions = VERSION_HEADING.findall(changelog)
-    return digest("\n".join(
-        f"v{version}\n{canonical_notes(changelog, version)}" for version in versions
-    ))
+    return digest(
+        "\n".join(f"v{version}\n{canonical_notes(changelog, version)}" for version in versions)
+    )
 
 
 def source_blob_sha() -> str:
