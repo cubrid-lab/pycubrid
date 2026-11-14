@@ -1,8 +1,8 @@
 name: One-off historical pycubrid Release notes sync
 
-# Intentionally one-off. A reviewed merge of the three pinned files below
-# triggers the guarded 11-body publication. No schedule or general publisher.
-# Remove this workflow in a separate reviewed cleanup PR after 35/35 verification.
+# Merging this workflow audits existing Releases; it NEVER writes on push.
+# Apply is a separate, explicitly confirmed manual dispatch on protected main.
+# Delete this temporary workflow after the publication is independently verified.
 on:
   push:
     branches: [main]
@@ -13,12 +13,17 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: Audit only by default; apply the reviewed pinned sync explicitly
+        description: Audit (read-only), or explicitly apply the reviewed pinned sync
         type: choice
         options:
           - audit
           - apply
         default: audit
+      confirmation:
+        description: For apply, enter SYNC-11-RELEASE-NOTES after reviewing audit evidence
+        type: string
+        required: false
+        default: ""
 
 permissions: {}
 
@@ -27,12 +32,12 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  sync:
+  audit:
     if: github.repository == 'cubrid-lab/pycubrid' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
-      contents: write # Update existing GitHub Release descriptions only
+      contents: read
     steps:
       - name: Check out the exact reviewed commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -54,17 +59,55 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: python scripts/sync_published_release_notes_once.py --mode audit
 
-      - name: Apply only the 11 independently reviewed body changes
-        if: github.event_name == 'push' || inputs.mode == 'apply'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: python scripts/sync_published_release_notes_once.py --mode apply
-
-      - name: Preserve original descriptions and verification report
+      - name: Preserve read-only audit and original descriptions
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: historical-release-notes-sync-evidence
+          name: historical-release-notes-sync-audit
+          path: ${{ runner.temp }}/pycubrid-release-sync-20261114/
+          retention-days: 30
+          if-no-files-found: warn
+
+  apply:
+    # The ordinary push after merge never publishes. An explicitly approved
+    # workflow_dispatch on main is needed, after reading the audit evidence.
+    if: github.repository == 'cubrid-lab/pycubrid' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.mode == 'apply'
+    needs: [audit]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write # Only the manual apply job can PATCH existing Release bodies
+    steps:
+      - name: Require explicit historical Release publication confirmation
+        env:
+          CONFIRMATION: ${{ inputs.confirmation }}
+        run: |
+          if [ "$CONFIRMATION" != 'SYNC-11-RELEASE-NOTES' ]; then
+            echo '::error::Apply requires the exact SYNC-11-RELEASE-NOTES confirmation.'
+            exit 1
+          fi
+
+      - name: Check out the reviewed main commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: "3.12"
+
+      - name: Apply the 11 individually pinned Release body updates
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_NOTES_APPLY_CONFIRMATION: ${{ inputs.confirmation }}
+        run: python scripts/sync_published_release_notes_once.py --mode apply
+
+      - name: Preserve the original descriptions and write verification
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: historical-release-notes-sync-apply
           path: ${{ runner.temp }}/pycubrid-release-sync-20261114/
           retention-days: 30
           if-no-files-found: warn
