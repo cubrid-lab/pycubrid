@@ -13,6 +13,7 @@ from scripts.sync_published_release_notes_once import (
     canonical_notes,
     digest,
     immutable_metadata,
+    published_history_digest,
     source_blob_sha,
 )
 
@@ -134,8 +135,9 @@ def test_metadata_signature_ignores_update_timestamp_and_asset_downloads() -> No
 
 def test_all_pinned_sha256_values_match_the_actual_reviewed_changelog() -> None:
     manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
-    assert source_blob_sha() == manifest["source_changelog_blob_sha"]
+    assert len(source_blob_sha()) == 40
     source = CHANGELOG.read_text(encoding="utf-8")
+    assert published_history_digest(source) == manifest["source_history_sha256"]
     for tag, baseline in manifest["versions"].items():
         assert digest(canonical_notes(source, tag[1:])) == baseline["new_body_sha256"]
     assert len(manifest["versions"]) == 11
