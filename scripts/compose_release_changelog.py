@@ -290,6 +290,12 @@ def _dedupe_generated(
     # ambiguous; dropping either one could lose a separately documented change.
     generated_commit_count = Counter(sha for prose in generated_prose for sha in commit_shas(prose))
 
+    def generated_title_words(prose: str) -> set[str]:
+        # Generated change identities (PR and commit Markdown links) are not
+        # behavior wording. Strip their suffix before comparing titles, so
+        # the shared commit SHA cannot itself count as an overlap.
+        return _words(prose.split(" ([", 1)[0])
+
     def repeats_commit(entry: str) -> bool:
         # release-please can list one squash commit twice when its body carries a
         # second conventional-commit line: once with the PR reference, once bare.
@@ -315,7 +321,13 @@ def _dedupe_generated(
             for other in generated_prose
             if other != prose and commit_shas(other) == shas and _GENERATED_PR.search(other)
         ]
-        return len(keepers) == 1
+        # One SHA is provenance, not proof of identical user-visible behavior:
+        # a single squash commit can describe separate changes. Retain both
+        # when the generated titles do not share at least two meaningful words.
+        return (
+            len(keepers) == 1
+            and len(generated_title_words(prose) & generated_title_words(keepers[0])) >= 2
+        )
 
     def is_duplicate(entry: str) -> bool:
         prose = _unfenced_prose(entry)
