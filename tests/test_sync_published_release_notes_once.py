@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 import json
+import sys
+from pathlib import Path
 
 import pytest
+
+from scripts import sync_published_release_notes_once as sync
 
 from scripts.sync_published_release_notes_once import (
     CHANGELOG,
@@ -146,3 +150,105 @@ def test_all_pinned_sha256_values_match_the_actual_reviewed_changelog() -> None:
 def test_invalid_version_or_missing_notes_is_rejected() -> None:
     with pytest.raises(ValueError, match="exactly one"):
         canonical_notes(SOURCE, "9.9.9")
+
+
+def test_apply_patches_only_pinned_body_and_preserves_a_recoverable_backup(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    manifest, initial = fixture()
+    manifest["source_changelog_blob_sha"] = "a" * 40
+    manifest["source_history_sha256"] = sync.published_history_digest(SOURCE)
+    manifest["expected_latest_tag"] = "v1.2.0"
+    manifest_file = tmp_path / "manifest.json"
+    manifest_file.write_text(json.dumps(manifest), encoding="utf-8")
+    changelog_file = tmp_path / "CHANGELOG.md"
+    changelog_file.write_text(SOURCE, encoding="utf-8")
+    by_id = {item["id"]: item.copy() for item in initial}
+    patched: list[tuple[int, dict]] = []
+
+    def fake_api(path: str, token: str, method: str = "GET", payload: dict | None = None):
+        assert token == "test-token"
+        if path.endswith("/releases?per_page=100"):
+            return [item.copy() for item in by_id.values()]
+        if path.endswith("/releases/latest"):
+            return {"tag_name": "v1.2.0"}
+        release_id = int(path.rsplit("/", 1)[-1])
+        if method == "PATCH":
+            assert release_id == 12
+            assert payload == {
+                "body": canonical_notes(SOURCE, "1.2.0"),
+                "make_latest": "false",
+            }
+            patched.append((release_id, payload))
+            by_id[release_id]["body"] = payload["body"]
+            by_id[release_id]["updated_at"] = "2026-11-14T03:00:00Z"
+        return by_id[release_id].copy()
+
+    monkeypatch.setattr(sync, "api_json", fake_api)
+    monkeypatch.setattr(sync, "MANIFEST", manifest_file)
+    monkeypatch.setattr(sync, "CHANGELOG", changelog_file)
+    monkeypatch.setattr(sync, "source_blob_sha", lambda: "a" * 40)
+    monkeypatch.setenv("GH_TOKEN", "test-token")
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "cubrid-lab/pycubrid")
+    monkeypatch.setenv("GITHUB_REF", "refs/heads/main")
+    monkeypatch.setenv("GITHUB_EVENT_NAME", "workflow_dispatch")
+    monkeypatch.setenv("RUNNER_TEMP", str(tmp_path))
+    monkeypatch.setattr(sys, "argv", ["sync", "--mode", "apply"])
+
+    assert sync.main() == 0
+    assert len(patched) == 1
+    evidence = tmp_path / "pycubrid-release-sync-20261114"
+    backup = json.loads((evidence / "prewrite_backup.json").read_text())
+    report = json.loads((evidence / "report.json").read_text())
+    assert len(backup["releases"]) == 2
+    assert report["updated"] == ["v1.2.0"]
+    assert report["result"] == "35/35 verified"
+
+    # A subsequent application is safe and must not PATCH the already-synced body.
+    assert sync.main() == 0
+    assert len(patched) == 1
+
+
+def test_apply_refuses_a_concurrent_edit_before_patch(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    manifest, initial = fixture()
+    manifest["source_history_sha256"] = sync.published_history_digest(SOURCE)
+    manifest["source_changelog_blob_sha"] = "a" * 40
+    manifest["expected_latest_tag"] = "v1.2.0"
+    manifest_file = tmp_path / "manifest.json"
+    manifest_file.write_text(json.dumps(manifest), encoding="utf-8")
+    changelog_file = tmp_path / "CHANGELOG.md"
+    changelog_file.write_text(SOURCE, encoding="utf-8")
+    calls: list[str] = []
+
+    def fake_api(path: str, token: str, method: str = "GET", payload: dict | None = None):
+        if path.endswith("/releases?per_page=100"):
+            return [item.copy() for item in initial]
+        if path.endswith("/releases/latest"):
+            return {"tag_name": "v1.2.0"}
+        calls.append(method)
+        if method == "PATCH":
+            pytest.fail("Concurrent edit must prevent PATCH")
+        return {**initial[0], "body": "A concurrent editor changed the body."}
+
+    monkeypatch.setattr(sync, "api_json", fake_api)
+    monkeypatch.setattr(sync, "MANIFEST", manifest_file)
+    monkeypatch.setattr(sync, "CHANGELOG", changelog_file)
+    monkeypatch.setattr(sync, "source_blob_sha", lambda: "a" * 40)
+    for key, value in {
+        "GH_TOKEN": "test-token",
+        "GITHUB_ACTIONS": "true",
+        "GITHUB_REPOSITORY": "cubrid-lab/pycubrid",
+        "GITHUB_REF": "refs/heads/main",
+        "GITHUB_EVENT_NAME": "push",
+        "RUNNER_TEMP": str(tmp_path),
+    }.items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.setattr(sys, "argv", ["sync", "--mode", "apply"])
+
+    with pytest.raises(ValueError, match="Concurrent edit detected"):
+        sync.main()
+    assert calls == ["GET"]
+    assert (tmp_path / "pycubrid-release-sync-20261114/prewrite_backup.json").exists()
