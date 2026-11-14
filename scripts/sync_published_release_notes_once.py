@@ -3,8 +3,9 @@
 
 Only the 11 pinned historical Release bodies may be changed. Tags, assets,
 packages, publication dates and the latest Release must stay untouched.
-After the reviewed PR merges, the one-off workflow applies this script and
-uploads a pre-write snapshot plus a result report.
+After this PR merges, Actions runs a read-only audit. A separately approved,
+explicitly confirmed manual dispatch may apply body-only updates during an
+exclusive editing window; merging never writes published Release bodies.
 """
 
 from __future__ import annotations
