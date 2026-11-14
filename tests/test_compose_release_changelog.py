@@ -588,11 +588,11 @@ def test_bare_bullet_repeating_a_pr_bullet_commit_is_collapsed() -> None:
 
 
 def test_collapse_keeps_other_entries_and_list_tightness() -> None:
-    bare = f"* clarify handoff {_commit(SHA_A)}"
+    bare = f"* clarify issue handoff {_commit(SHA_A)}"
     other = f"* unrelated change {_commit(SHA_B)}"
-    output = _compose_generated(bare, other, _with_pr("define handoff", SHA_A))
-    assert "clarify handoff" not in output
-    assert f"{other}\n* define handoff" in output
+    output = _compose_generated(bare, other, _with_pr("define issue handoff", SHA_A))
+    assert "clarify issue handoff" not in output
+    assert f"{other}\n* define issue handoff" in output
 
 
 def test_same_commit_with_pr_references_on_both_bullets_is_kept() -> None:
@@ -633,11 +633,11 @@ def test_bare_bullet_is_collapsed_across_sections_of_one_release() -> None:
     # change wherever release-please files its two lines.
     generated = (
         "# Changelog\n\n## [1.9.0](https://example.com) (2026-10-03)\n\n"
-        f"### Documentation\n\n* bare wording {_commit(SHA_A)}\n\n"
-        f"### CI\n\n{_with_pr('define handoff', SHA_A)}\n"
+        f"### Documentation\n\n* clarify issue handoff {_commit(SHA_A)}\n\n"
+        f"### CI\n\n{_with_pr('define issue handoff', SHA_A)}\n"
     )
     output = compose(BASE, generated, "1.9.0")
-    assert "bare wording" not in output and "define handoff" in output
+    assert "clarify issue handoff" not in output and "define issue handoff" in output
     assert "### Documentation" not in output
 
 
@@ -676,3 +676,29 @@ def test_two_distinct_bare_bullets_plus_one_pr_link_are_ambiguous() -> None:
     assert "add change A" in output
     assert "fix change B" in output
     assert "define handoff" in output
+
+
+def test_distinct_changes_with_one_commit_do_not_disappear() -> None:
+    # A squash commit can describe two actual changes. A shared SHA and one
+    # PR-linked bullet are not enough to treat their descriptions as synonyms.
+    bare = f"* add transaction timeout validation {_commit(SHA_A)}"
+    linked = _with_pr("document package installation steps", SHA_A)
+    output = _compose_generated(bare, linked)
+    assert "add transaction timeout validation" in output
+    assert "document package installation steps" in output
+
+
+def test_shared_sha_link_text_is_not_meaningful_word_overlap() -> None:
+    bare = f"* upgrade connection pool defaults {_commit(SHA_A)}"
+    linked = _with_pr("correct CUBRID TLS negotiation", SHA_A)
+    output = _compose_generated(bare, linked)
+    assert "upgrade connection pool defaults" in output
+    assert "correct CUBRID TLS negotiation" in output
+
+
+def test_real_second_candidate_duplicate_remains_collapsible() -> None:
+    bare = f"* track issue work without project boards {_commit(SHA_B)}"
+    linked = _with_pr("use issues and pull requests without project boards", SHA_B, 1231)
+    output = _compose_generated(bare, linked)
+    assert "track issue work without project boards" not in output
+    assert "use issues and pull requests without project boards" in output
