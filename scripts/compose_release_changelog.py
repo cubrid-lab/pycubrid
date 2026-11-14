@@ -288,9 +288,7 @@ def _dedupe_generated(
     # Count *all* bullets naming a commit before deciding that a bare line is
     # redundant. One PR-linked bullet plus two distinct bare descriptions is
     # ambiguous; dropping either one could lose a separately documented change.
-    generated_commit_count = Counter(
-        sha for prose in generated_prose for sha in commit_shas(prose)
-    )
+    generated_commit_count = Counter(sha for prose in generated_prose for sha in commit_shas(prose))
 
     def repeats_commit(entry: str) -> bool:
         # release-please can list one squash commit twice when its body carries a
