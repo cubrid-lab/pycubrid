@@ -58,6 +58,8 @@ This maintenance update improves source builds, setup and migration guidance, an
 
 ### CI
 
+- **Release notes list a commit once** — release-please can print one squash commit twice when its message carries a second conventional-commit line: a bare bullet and a bullet with the pull request link, as happened for two documentation commits in the 1.17.1 candidate. The release composer now drops the bare bullet when exactly one other bullet in the same release names the same commit and carries a pull request link. A bullet with its own issue or pull request reference, with several commits, or whose duplicate is ambiguous is kept ([#1111](https://github.com/cubrid-lab/pycubrid/issues/1111)).
+
 - **Weekly cookbook check runs its AI-agent tests again** — The weekly Bug Hunt job that runs the CUBRID cookbook against the current driver looked for `tests/test_ai_agent.py`, which the cookbook moved to `templates/ai-agent/tests/test_live.py` on 2026-10-24. With the old path pytest collected nothing, so the job failed without testing the AI-agent recipes (seen in the 2026-11-12 runs). It now runs the moved file ([#1222](https://github.com/cubrid-lab/pycubrid/issues/1222)) by @yeongseon.
 
 - **Weekly mutation testing runs again** — The four mutation-testing shards of the weekly Bug Hunt had failed before testing any mutant since mid-October with `failed to collect stats`. The mutation sandbox now also copies `agent-evals/`, `docker-compose.yml`, `mkdocs.yml` and `.gitignore`, which offline tests read, and leaves out three more tests that inspect the driver's own functions, which mutmut's function wrappers change. Every other lane still runs those tests ([#1107](https://github.com/cubrid-lab/pycubrid/issues/1107)) by @yeongseon.

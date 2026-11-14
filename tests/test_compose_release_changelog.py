@@ -558,3 +558,147 @@ def test_removing_a_duplicate_keeps_the_remaining_list_tight() -> None:
     version = compose(base, generated, "1.9.0").split("## [1.9.0]", 1)[1]
     assert "warn against rewrapping" not in version
     assert "\n".join(kept) + "\n" in version
+
+
+# release-please lists a squash commit twice when its body carries a second
+# conventional-commit line: once bare, once with the pull request reference.
+SHA_A = "6c2cba8fe7c4742b96f38151a59a85077a156655"
+SHA_B = "1c32deca2089606fc8d5aab3b5b046894ed093a0"
+
+
+def _commit(sha: str) -> str:
+    return f"([{sha[:7]}]({REPO}/commit/{sha}))"
+
+
+def _with_pr(text: str, sha: str, number: int = 1230) -> str:
+    return f"* {text} ([#{number}]({REPO}/issues/{number})) {_commit(sha)}"
+
+
+def _compose_generated(*entries: str, section: str = "Documentation") -> str:
+    generated = f"# Changelog\n\n## [1.9.0](https://example.com) (2026-10-03)\n\n### {section}\n\n"
+    return compose(BASE, generated + "\n".join(entries) + "\n", "1.9.0")
+
+
+def test_bare_bullet_repeating_a_pr_bullet_commit_is_collapsed() -> None:
+    bare = f"* clarify issue handoff and work states {_commit(SHA_A)}"
+    output = _compose_generated(bare, _with_pr("define issue handoff states", SHA_A))
+    assert "clarify issue handoff" not in output
+    assert "define issue handoff states" in output
+    assert "### Documentation\n\n* define" in output
+
+
+def test_collapse_keeps_other_entries_and_list_tightness() -> None:
+    bare = f"* clarify issue handoff {_commit(SHA_A)}"
+    other = f"* unrelated change {_commit(SHA_B)}"
+    output = _compose_generated(bare, other, _with_pr("define issue handoff", SHA_A))
+    assert "clarify issue handoff" not in output
+    assert f"{other}\n* define issue handoff" in output
+
+
+def test_same_commit_with_pr_references_on_both_bullets_is_kept() -> None:
+    output = _compose_generated(
+        _with_pr("first wording", SHA_A, 1230), _with_pr("second wording", SHA_A, 1231)
+    )
+    assert "first wording" in output and "second wording" in output
+
+
+def test_two_bare_bullets_for_one_commit_are_kept() -> None:
+    output = _compose_generated(
+        f"* first wording {_commit(SHA_A)}", f"* second wording {_commit(SHA_A)}"
+    )
+    assert "first wording" in output and "second wording" in output
+
+
+def test_bare_bullet_with_a_different_commit_is_kept() -> None:
+    output = _compose_generated(
+        f"* bare wording {_commit(SHA_B)}", _with_pr("define handoff", SHA_A)
+    )
+    assert "bare wording" in output and "define handoff" in output
+
+
+def test_bare_bullet_with_an_issue_reference_is_kept() -> None:
+    bare = f"* bare wording {_commit(SHA_A)}, refs [#1130]({REPO}/issues/1130)"
+    output = _compose_generated(bare, _with_pr("define handoff", SHA_A))
+    assert "bare wording" in output and "define handoff" in output
+
+
+def test_bare_bullet_naming_two_commits_is_kept() -> None:
+    bare = f"* bare wording {_commit(SHA_A)} {_commit(SHA_B)}"
+    output = _compose_generated(bare, _with_pr("define handoff", SHA_A))
+    assert "bare wording" in output and "define handoff" in output
+
+
+def test_bare_bullet_is_collapsed_across_sections_of_one_release() -> None:
+    # The comparison covers the whole release, not one section: one commit is one
+    # change wherever release-please files its two lines.
+    generated = (
+        "# Changelog\n\n## [1.9.0](https://example.com) (2026-10-03)\n\n"
+        f"### Documentation\n\n* clarify issue handoff {_commit(SHA_A)}\n\n"
+        f"### CI\n\n{_with_pr('define issue handoff', SHA_A)}\n"
+    )
+    output = compose(BASE, generated, "1.9.0")
+    assert "clarify issue handoff" not in output and "define issue handoff" in output
+    assert "### Documentation" not in output
+
+
+def test_bare_bullet_with_a_section_introduction_is_kept() -> None:
+    generated = (
+        "# Changelog\n\n## [1.9.0](https://example.com) (2026-10-03)\n\n"
+        f"### Documentation\n\nIntro prose.\n\n* bare wording {_commit(SHA_A)}\n\n"
+        f"### CI\n\n{_with_pr('define handoff', SHA_A)}\n"
+    )
+    output = compose(BASE, generated, "1.9.0")
+    assert "Intro prose." in output and "bare wording" in output
+
+
+def test_bare_bullet_with_fenced_example_is_not_removed() -> None:
+    # The dedup matcher strips fences for provenance comparison, but must not
+    # discard the *original* entry if it also contains a fenced code example.
+    bare = (
+        f"* preserve documented behavior {_commit(SHA_A)}\n\n"
+        "  ```python\n"
+        "  print('keep this example')\n"
+        "  ```"
+    )
+    output = _compose_generated(bare, _with_pr("define handoff", SHA_A))
+    assert "preserve documented behavior" in output
+    assert "print('keep this example')" in output
+    assert "define handoff" in output
+
+
+def test_two_distinct_bare_bullets_plus_one_pr_link_are_ambiguous() -> None:
+    # A single squash commit can describe multiple independent changes. In
+    # that case, the unique PR-linked entry does not identify which bare
+    # description (if either) is safe to remove.
+    first = f"* add change A {_commit(SHA_A)}"
+    second = f"* fix change B {_commit(SHA_A)}"
+    output = _compose_generated(first, second, _with_pr("define handoff", SHA_A))
+    assert "add change A" in output
+    assert "fix change B" in output
+    assert "define handoff" in output
+
+
+def test_distinct_changes_with_one_commit_do_not_disappear() -> None:
+    # A squash commit can describe two actual changes. A shared SHA and one
+    # PR-linked bullet are not enough to treat their descriptions as synonyms.
+    bare = f"* add transaction timeout validation {_commit(SHA_A)}"
+    linked = _with_pr("document package installation steps", SHA_A)
+    output = _compose_generated(bare, linked)
+    assert "add transaction timeout validation" in output
+    assert "document package installation steps" in output
+
+
+def test_shared_sha_link_text_is_not_meaningful_word_overlap() -> None:
+    bare = f"* upgrade connection pool defaults {_commit(SHA_A)}"
+    linked = _with_pr("correct CUBRID TLS negotiation", SHA_A)
+    output = _compose_generated(bare, linked)
+    assert "upgrade connection pool defaults" in output
+    assert "correct CUBRID TLS negotiation" in output
+
+
+def test_real_second_candidate_duplicate_remains_collapsible() -> None:
+    bare = f"* track issue work without project boards {_commit(SHA_B)}"
+    linked = _with_pr("use issues and pull requests without project boards", SHA_B, 1231)
+    output = _compose_generated(bare, linked)
+    assert "track issue work without project boards" not in output
+    assert "use issues and pull requests without project boards" in output
