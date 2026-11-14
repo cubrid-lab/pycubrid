@@ -58,6 +58,14 @@ def canonical_notes(changelog: str, version: str) -> str:
     return notes
 
 
+def published_history_digest(changelog: str) -> str:
+    """Pin reviewed historical notes without blocking unrelated Unreleased edits."""
+    versions = VERSION_HEADING.findall(changelog)
+    return digest("\n".join(
+        f"v{version}\n{canonical_notes(changelog, version)}" for version in versions
+    ))
+
+
 def source_blob_sha() -> str:
     result = subprocess.run(
         ["git", "hash-object", "CHANGELOG.md"],
@@ -177,9 +185,11 @@ def main() -> int:
     opts = args.parse_args()
 
     manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
-    if source_blob_sha() != manifest["source_changelog_blob_sha"]:
-        raise ValueError("CHANGELOG.md changed since review; no updates allowed")
     changelog = CHANGELOG.read_text(encoding="utf-8")
+    # Unreleased notes may evolve while this protected PR awaits review.
+    # Every published section remains pinned and must still match this digest.
+    if published_history_digest(changelog) != manifest["source_history_sha256"]:
+        raise ValueError("Reviewed historical release notes changed; no updates allowed")
     token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN", "")
     if opts.mode == "apply":
         if not token:
@@ -200,7 +210,9 @@ def main() -> int:
         raise ValueError("Latest published Release changed; re-review required")
     expected, pending = build_plan(manifest, changelog, releases)
     backup = {
-        "source_changelog_blob_sha": manifest["source_changelog_blob_sha"],
+        "source_changelog_blob_sha": source_blob_sha(),
+        "reviewed_changelog_blob_sha": manifest["source_changelog_blob_sha"],
+        "source_history_sha256": manifest["source_history_sha256"],
         "release_count": len(releases),
         "latest_tag": latest["tag_name"],
         "releases": releases,
@@ -208,7 +220,8 @@ def main() -> int:
     save_json(output_dir / "prewrite_backup.json", backup)
     report = {
         "mode": opts.mode,
-        "source_changelog_blob_sha": manifest["source_changelog_blob_sha"],
+        "source_changelog_blob_sha": source_blob_sha(),
+        "source_history_sha256": manifest["source_history_sha256"],
         "pending_at_preflight": pending,
         "updated": [],
         "skipped": [],
