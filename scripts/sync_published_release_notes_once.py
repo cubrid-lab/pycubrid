@@ -198,9 +198,12 @@ def main() -> int:
             os.environ.get("GITHUB_ACTIONS") == "true"
             and os.environ.get("GITHUB_REPOSITORY") == REPOSITORY
             and os.environ.get("GITHUB_REF") == "refs/heads/main"
-            and os.environ.get("GITHUB_EVENT_NAME") in ("push", "workflow_dispatch")
+            and os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch"
+            and os.environ.get("RELEASE_NOTES_APPLY_CONFIRMATION") == "SYNC-11-RELEASE-NOTES"
         ):
-            raise ValueError("Apply requires the reviewed workflow on main")
+            raise ValueError(
+                "Apply requires an explicitly confirmed manual workflow dispatch on main"
+            )
 
     output_dir = Path(os.environ.get("RUNNER_TEMP", "/tmp")) / "pycubrid-release-sync-20261114"
     path = f"/repos/{REPOSITORY}"
