@@ -1,0 +1,141 @@
+{
+  "repository": "cubrid-lab/pycubrid",
+  "source_changelog_blob_sha": "5372615a9aca3977fd59dda5f72c2f74b018d8bc",
+  "expected_release_count": 35,
+  "expected_latest_tag": "v1.17.0",
+  "versions": {
+    "v1.16.0": {
+      "release_id": 434768499,
+      "updated_at": "2026-11-14T01:13:54Z",
+      "old_body_sha256": "cce0ddbfa2e0bc12c7a63bd6face3f0833cfce013a13d61f84e48c4a686fdfef",
+      "new_body_sha256": "c999364f960d2818d8a4199c7b3153b89a4336d3d401ae311dd602b9af98b868",
+      "published_at": "2026-11-05T04:02:47Z",
+      "created_at": "2026-11-05T04:02:26Z",
+      "release_name": "v1.16.0",
+      "target_commitish": "main",
+      "draft": false,
+      "prerelease": false
+    },
+    "v1.15.0": {
+      "release_id": 425195973,
+      "updated_at": "2026-11-14T01:13:52Z",
+      "old_body_sha256": "b8c19bfde122b26f2426f0369eab5414fbc8e94f91b8adcd3aa32fb4ad829c02",
+      "new_body_sha256": "fcdb7ce6f626b471b89d750dff5a502c0a7a8021c3b6d694f06cdd5ae9eaa4f1",
+      "published_at": "2026-10-27T08:33:28Z",
+      "created_at": "2026-10-27T08:33:08Z",
+      "release_name": "v1.15.0",
+      "target_commitish": "main",
+      "draft": false,
+      "prerelease": false
+    },
+    "v1.14.0": {
+      "release_id": 423262657,
+      "updated_at": "2026-11-14T01:13:50Z",
+      "old_body_sha256": "3199237580b09fe8d172455c2d7628c660e422a70f26e3785b752cf9fae106eb",
+      "new_body_sha256": "8bafbf0a3a0b4d454394ce6114a5c83a9640ae8c01f2878a2020a6df82f70e8c",
+      "published_at": "2026-10-25T08:45:28Z",
+      "created_at": "2026-10-25T08:45:00Z",
+      "release_name": "v1.14.0",
+      "target_commitish": "main",
+      "draft": false,
+      "prerelease": false
+    },
+    "v1.13.4": {
+      "release_id": 423073994,
+      "updated_at": "2026-11-14T01:13:47Z",
+      "old_body_sha256": "1d7e77bf55747b0430b836bee4ee77dbba85ca0079e14a87c2c5ef23b3f11716",
+      "new_body_sha256": "86fa3ac75e282ae0f230248423f69a4cea96677dc79babf4b3dae94a67b1e6c9",
+      "published_at": "2026-10-25T01:00:04Z",
+      "created_at": "2026-10-25T00:59:40Z",
+      "release_name": "v1.13.4",
+      "target_commitish": "main",
+      "draft": false,
+      "prerelease": false
+    },
+    "v1.13.3": {
+      "release_id": 422716193,
+      "updated_at": "2026-11-14T01:13:45Z",
+      "old_body_sha256": "328e9491c82d1f9065c25f48dc665054e1c02c13f3a6fd2229aa49f4d0dd87a6",
+      "new_body_sha256": "20eb52f20943af022e4efaa31ce1a7b1b61a8d5609ce7815bd023410586aeb35",
+      "published_at": "2026-10-24T12:23:49Z",
+      "created_at": "2026-10-24T12:23:30Z",
+      "release_name": "v1.13.3",
+      "target_commitish": "main",
+      "draft": false,
+      "prerelease": false
+    },
+    "v1.13.1": {
+      "release_id": 419569730,
+      "updated_at": "2026-11-14T01:13:43Z",
+      "old_body_sha256": "741c924e134e3a4aa3d53c3254764020f09317dcbf3fd5baf0d9bdbb7719cda8",
+      "new_body_sha256": "bcc71ae6dd99277df17861673846dd3f0c39a08067ae449414a4803e3b7e3747",
+      "published_at": "2026-10-21T13:06:57Z",
+      "created_at": "2026-10-21T13:06:34Z",
+      "release_name": "v1.13.1",
+      "target_commitish": "main",
+      "draft": false,
+      "prerelease": false
+    },
+    "v1.13.0": {
+      "release_id": 412687432,
+      "updated_at": "2026-11-14T01:13:41Z",
+      "old_body_sha256": "e8248c8f34979563381883dc7590c7898697bed63239fe8a4431a1cc77bea839",
+      "new_body_sha256": "13998c5554ebf995dfae298d394c0371daecaf375fa9223f9561d562b8fc64de",
+      "published_at": "2026-10-14T12:24:12Z",
+      "created_at": "2026-10-14T12:23:54Z",
+      "release_name": "v1.13.0",
+      "target_commitish": "main",
+      "draft": false,
+      "prerelease": false
+    },
+    "v1.12.0": {
+      "release_id": 410479200,
+      "updated_at": "2026-11-14T01:13:39Z",
+      "old_body_sha256": "856bcdb362a433e2a47029b5b64dcc5d998e6d06b6f204c9f587d84462f5a9bb",
+      "new_body_sha256": "ac8282de61eb9b58d7d8ec7f00e7998a1ccd6146da102ed27123f29382c396ce",
+      "published_at": "2026-10-12T10:22:42Z",
+      "created_at": "2026-10-12T10:22:19Z",
+      "release_name": "v1.12.0",
+      "target_commitish": "main",
+      "draft": false,
+      "prerelease": false
+    },
+    "v1.11.0": {
+      "release_id": 409972579,
+      "updated_at": "2026-11-14T01:13:37Z",
+      "old_body_sha256": "1b5dc476acfd46b61bffbf0dde9db0e83fca8ceb1d67b71627791828f45485cb",
+      "new_body_sha256": "5b3be9b78a4e291174c17554bfb5f1e69018004d5ef48ff5f6dd2a1c582ab811",
+      "published_at": "2026-10-11T22:56:45Z",
+      "created_at": "2026-10-11T22:56:22Z",
+      "release_name": "v1.11.0",
+      "target_commitish": "main",
+      "draft": false,
+      "prerelease": false
+    },
+    "v1.10.0": {
+      "release_id": 407422350,
+      "updated_at": "2026-11-14T01:13:35Z",
+      "old_body_sha256": "8c720f894a21e34958f5fe4d459f04d6623c060de6939bec92fd5cc87bd9fba1",
+      "new_body_sha256": "e2ea7c4e86487c08116e5093a170a407a85dab51b9e6f31a5f96c5a568578ef5",
+      "published_at": "2026-10-09T01:59:17Z",
+      "created_at": "2026-10-09T01:59:00Z",
+      "release_name": "v1.10.0",
+      "target_commitish": "main",
+      "draft": false,
+      "prerelease": false
+    },
+    "v1.9.0": {
+      "release_id": 403048597,
+      "updated_at": "2026-11-14T01:13:33Z",
+      "old_body_sha256": "eb9730c5f908b5874cae511db80c873d02661c8cac14f87dc57a3db429bdf8e0",
+      "new_body_sha256": "1cbdd72e920fe24e0c8abd12e3f2b9c5d942be3db910f52314aff750e3f64a91",
+      "published_at": "2026-10-04T14:07:33Z",
+      "created_at": "2026-10-04T14:07:17Z",
+      "release_name": "v1.9.0",
+      "target_commitish": "main",
+      "draft": false,
+      "prerelease": false
+    }
+  },
+  "source_history_sha256": "d451f6db34da7e7986bd3b6365f3eb8ec6eaf3bac2e5026d7f4a63eecabf1718"
+}
