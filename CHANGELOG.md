@@ -246,9 +246,7 @@ This maintenance release improves the safety of stored test-run metadata by mask
   `password`, `passwd`, `pwd`, `token`, `secret` or `api_key` key (`--password=x`,
   `--password x`, `CUBRID_PASSWORD=x`) are now saved as `***`; any other command text is
   unchanged. This is best-effort masking: keep real credentials off command lines. The
-  schema, statuses and exit codes are unchanged. Contributed by @yeongseon.
-
-* **reporting:** redact credentials in saved integration command metadata ([#1046](https://github.com/cubrid-lab/pycubrid/issues/1046)) ([80e9c07](https://github.com/cubrid-lab/pycubrid/commit/80e9c07caf8ccaabcbdc8caa0f0c4b03d197af0f)) by @yeongseon.
+  schema, statuses and exit codes are unchanged ([#1046](https://github.com/cubrid-lab/pycubrid/pull/1046), [80e9c07](https://github.com/cubrid-lab/pycubrid/commit/80e9c07caf8ccaabcbdc8caa0f0c4b03d197af0f)). Contributed by @yeongseon.
 
 ### Documentation
 
@@ -329,9 +327,7 @@ This is the next actually published release after v1.13.1. **v1.13.2 was never p
   the first holds its `flock` lock (POSIX only). Cleanup, after success, failure or SIGINT/SIGTERM, is now
   `docker compose -p <project> down -v` of that run-owned project, so each run starts from an
   empty database and leaves no volumes; the manual lab's containers and data are untouched.
-  Readiness, the lane audit and exit statuses are unchanged. Contributed by @yeongseon.
-
-* **test:** isolate make integration from the manual Docker Compose project ([#1027](https://github.com/cubrid-lab/pycubrid/issues/1027)) ([588cd8a](https://github.com/cubrid-lab/pycubrid/commit/588cd8affe771e1ca7b741b7022d84fa94e69a58)) by @yeongseon.
+  Readiness, the lane audit and exit statuses are unchanged ([#1027](https://github.com/cubrid-lab/pycubrid/pull/1027), [588cd8a](https://github.com/cubrid-lab/pycubrid/commit/588cd8affe771e1ca7b741b7022d84fa94e69a58)). Contributed by @yeongseon.
 
 ### Documentation
 
@@ -344,9 +340,8 @@ This is the next actually published release after v1.13.1. **v1.13.2 was never p
   `CHECK_CAS`, unknown outcomes without replay, client-side TLS, and CUBRID CAS (Common
   Application Server) versus Compare-And-Swap. `PROTOCOL.md` and `ARCHITECTURE.md` stay
   authoritative; the README, the site index, the connection guide and both reference
-  pages link to the overview. No driver behavior changed. Contributed by @yeongseon.
+  pages link to the overview. No driver behavior changed ([#1019](https://github.com/cubrid-lab/pycubrid/pull/1019), [dd70ef1](https://github.com/cubrid-lab/pycubrid/commit/dd70ef1f2d05aa7e9cf2d619eedd28a294e24b73)). Contributed by @yeongseon.
 
-* **advanced:** introduce CUBRID CAS architecture and protocol concepts ([#1019](https://github.com/cubrid-lab/pycubrid/issues/1019)) ([dd70ef1](https://github.com/cubrid-lab/pycubrid/commit/dd70ef1f2d05aa7e9cf2d619eedd28a294e24b73)) by @yeongseon.
 * **agents:** require repository-local issue authoring checks ([#1014](https://github.com/cubrid-lab/pycubrid/issues/1014)) ([03ca2f9](https://github.com/cubrid-lab/pycubrid/commit/03ca2f96de47865cd3f596755b3bda8ae1156bae)) by @yeongseon.
 * enforce repository-local issue drafting ([03ca2f9](https://github.com/cubrid-lab/pycubrid/commit/03ca2f96de47865cd3f596755b3bda8ae1156bae)) by @yeongseon.
 * **triage:** clarify PR overlap and execution precedence ([d2c9318](https://github.com/cubrid-lab/pycubrid/commit/d2c93180672105b46cf1d29797cc5808386a85d6)), refs [#1025](https://github.com/cubrid-lab/pycubrid/issues/1025) by @yeongseon.
@@ -420,7 +415,7 @@ This maintenance release corrects several database result/transaction behaviors 
   read-modify-write turned it into NULL. A `BIT`/`VARBIT` cell of size `0` now decodes as
   `b""`, also after a CALL or NULL-typed cell header, sync and async, as the official JDBC
   driver reads it. Size-0 cells of every other type still decode as `None`. The prepared
-  path still rejects `b""`, because the broker reads a zero-length bind as NULL. Contributed by @yeongseon and @paikend.
+  path still rejects `b""`, because the broker reads a zero-length bind as NULL ([#995](https://github.com/cubrid-lab/pycubrid/pull/995), [87ed36a](https://github.com/cubrid-lab/pycubrid/commit/87ed36ae0c7ebd1895791591794a20307e11fe9a)). Contributed by @yeongseon and @paikend.
 
 - **An empty `BIT VARYING` collection element is decoded as `b""`, not `None` (#998)** — with
   `decode_collections=True`, the element decoder read every element length `<= 0` as NULL,
@@ -429,7 +424,7 @@ This maintenance release corrects several database result/transaction behaviors 
   string as length `0`; a `BIT`/`VARBIT` element of length `0` now decodes as `b""`, sync
   and async, matching row cells (#994). Zero-length elements of every other type still
   decode as `None`, collection size and consumed-bytes validation is unchanged, and raw
-  collection bytes (`decode_collections=False`) are unchanged. Contributed by @yeongseon.
+  collection bytes (`decode_collections=False`) are unchanged ([#999](https://github.com/cubrid-lab/pycubrid/pull/999), [224b4be](https://github.com/cubrid-lab/pycubrid/commit/224b4be6bfe809a693bfcc440fb61ef5c9ba1feb)). Contributed by @yeongseon.
 
 - **A `?` inside a quoted identifier raises an explained `ProgrammingError` (#990)** —
   the CUBRID broker counts every `?` outside comments and single-quoted strings as a
@@ -439,7 +434,7 @@ This maintenance release corrects several database result/transaction behaviors 
   whose message names this cause; `errno`, `code` and `error_source` are unchanged, and
   `sqlstate` changes from `HY000` to `42000` with the new class. Bracket identifiers
   (`[a?b]`) are affected the same way. A server-indicator `-1007` is not affected. The
-  statement itself still fails. Contributed by @paikend.
+  statement itself still fails ([#991](https://github.com/cubrid-lab/pycubrid/pull/991), [bb07791](https://github.com/cubrid-lab/pycubrid/commit/bb0779125793404ab90ff8e818e7ff33d5ec52a3)). Contributed by @paikend.
 - **Subnormal floats and `-0.0` round-trip through the literal path (#988)** — `execute()`
   and the default `executemany()` rendered a `float` with `float.__repr__`. CUBRID rejects
   every subnormal literal (`5e-324` failed with -493 "exceeds limit of double"), and reads
@@ -448,7 +443,7 @@ This maintenance release corrects several database result/transaction behaviors 
   doubles, and `-0.0` as the DOUBLE literal `-0.0e0`. Every other `float` renders as
   before, so stored NUMERIC and string values do not change. `-0.0` into a string column
   now stores `-0` instead of `0.0`, and `SELECT ?` bound to `-0.0` now returns the
-  `float` `-0.0` instead of `Decimal('0.0')`. Contributed by @paikend.
+  `float` `-0.0` instead of `Decimal('0.0')` ([#989](https://github.com/cubrid-lab/pycubrid/pull/989), [2ed16bc](https://github.com/cubrid-lab/pycubrid/commit/2ed16bc1b117fc3837a39924d9d7925be08f3bf3)). Contributed by @paikend.
 
 - **Tasks waiting on async connection setup keep `error_source` (#952)** — when
   `AsyncConnection` setup failed with a `DatabaseError`, each task waiting on that setup
@@ -493,23 +488,16 @@ This maintenance release corrects several database result/transaction behaviors 
 
 * **agent-eval:** copy the held worktree by descriptor and validate prepared_epoch ([#986](https://github.com/cubrid-lab/pycubrid/issues/986)) ([81f327d](https://github.com/cubrid-lab/pycubrid/commit/81f327d683f868ac53af6103fe65e82f7eef29b9)) by @yeongseon.
 * **agent-eval:** create and read the runner start record without following links ([#987](https://github.com/cubrid-lab/pycubrid/issues/987)) ([14ebed1](https://github.com/cubrid-lab/pycubrid/commit/14ebed12a1137ea1949286bea724e2446c9e6bd2)) by @yeongseon.
-* **agent-review:** do not count empty reply-only Copilot records as review rounds ([#949](https://github.com/cubrid-lab/pycubrid/issues/949)) ([10fb72c](https://github.com/cubrid-lab/pycubrid/commit/10fb72c65a40e522cc1c2d4e287a3e815431bb29)), refs [#948](https://github.com/cubrid-lab/pycubrid/issues/948) by @yeongseon.
 * **aio:** keep error_source when copying a setup failure for waiting tasks ([#961](https://github.com/cubrid-lab/pycubrid/issues/961)) ([4cde43a](https://github.com/cubrid-lab/pycubrid/commit/4cde43afd2d84a4bdd4003ebcecdac01efc7f095)), refs [#952](https://github.com/cubrid-lab/pycubrid/issues/952) by @yeongseon.
-* **binding:** keep subnormal floats and -0.0 on the literal path ([#989](https://github.com/cubrid-lab/pycubrid/issues/989)) ([2ed16bc](https://github.com/cubrid-lab/pycubrid/commit/2ed16bc1b117fc3837a39924d9d7925be08f3bf3)), refs [#988](https://github.com/cubrid-lab/pycubrid/issues/988) by @paikend.
 * **context:** keep the original error when leaving a context after the session was retired ([#959](https://github.com/cubrid-lab/pycubrid/issues/959)) ([a535d9c](https://github.com/cubrid-lab/pycubrid/commit/a535d9cd5c9438289e03635532c6f7bf1afb14df)) by @yeongseon.
 * **docs:** close four parser gaps in the deterministic documentation check ([#940](https://github.com/cubrid-lab/pycubrid/issues/940)) ([703a1c2](https://github.com/cubrid-lab/pycubrid/commit/703a1c29ba4f76996a2574ade6a9fb6c89124203)) by @yeongseon.
 * **docs:** follow the configured site slugifier and toc id rules in the docs-check parser ([#976](https://github.com/cubrid-lab/pycubrid/issues/976)) ([a0f8260](https://github.com/cubrid-lab/pycubrid/commit/a0f826089d8275a881efffa59f7d77e43ba7664b)), refs [#975](https://github.com/cubrid-lab/pycubrid/issues/975) by @yeongseon.
 * **docs:** handle adjacent shell operators, decoded titles and comment backslashes in the docs check ([#947](https://github.com/cubrid-lab/pycubrid/issues/947)) ([ebb3170](https://github.com/cubrid-lab/pycubrid/commit/ebb3170b582ac5f59ac80ef3d655c3aba3b7bba9)) by @yeongseon.
 * **docs:** read arithmetic, empty and alternated case forms correctly in the docs-check shell scanner ([#978](https://github.com/cubrid-lab/pycubrid/issues/978)) ([0edf209](https://github.com/cubrid-lab/pycubrid/commit/0edf209c30456b6ff81457b0225d8d245576d237)) by @yeongseon.
 * **docs:** sync the docs-check parser with sqlalchemy-cubrid ([#954](https://github.com/cubrid-lab/pycubrid/issues/954)) ([4495ffb](https://github.com/cubrid-lab/pycubrid/commit/4495ffbdf5bd4ffbe6e294f5d73b4ccf5a940855)), refs [#953](https://github.com/cubrid-lab/pycubrid/issues/953) by @yeongseon.
-* **errors:** explain the CAS marker count for a ? in a quoted identifier ([#991](https://github.com/cubrid-lab/pycubrid/issues/991)) ([bb07791](https://github.com/cubrid-lab/pycubrid/commit/bb0779125793404ab90ff8e818e7ff33d5ec52a3)), refs [#990](https://github.com/cubrid-lab/pycubrid/issues/990) by @paikend.
 * **lob:** reject LOB handles bound to a replaced physical session ([#934](https://github.com/cubrid-lab/pycubrid/issues/934)) ([03d7f70](https://github.com/cubrid-lab/pycubrid/commit/03d7f70871ca28c00dd3627f76bfbc77fbf06b0e)) by @yeongseon.
 * **profile:** create a per-run scratch table and clean up only what the run owns ([#962](https://github.com/cubrid-lab/pycubrid/issues/962)) ([b01a663](https://github.com/cubrid-lab/pycubrid/commit/b01a66336f1e7d608397daa20fb9e73c1e7f8cf4)) by @yeongseon.
-* **protocol:** decode an empty BIT VARYING collection element as b"" instead of None ([#999](https://github.com/cubrid-lab/pycubrid/issues/999)) ([224b4be](https://github.com/cubrid-lab/pycubrid/commit/224b4be6bfe809a693bfcc440fb61ef5c9ba1feb)) by @yeongseon.
-* **protocol:** fetch an empty BIT VARYING value as b"" instead of None ([#995](https://github.com/cubrid-lab/pycubrid/issues/995)) ([87ed36a](https://github.com/cubrid-lab/pycubrid/commit/87ed36ae0c7ebd1895791591794a20307e11fe9a)) by @paikend.
-* **test:** keep the CUBRID 11.4 Docker test database in a named volume ([#1004](https://github.com/cubrid-lab/pycubrid/issues/1004)) ([ec2d9ed](https://github.com/cubrid-lab/pycubrid/commit/ec2d9ed1720519b9f3c058cacaf730fbc9ad0195)) by @yeongseon.
 * **test:** keep the first databases.txt backup in docker-fix-db-host ([#1003](https://github.com/cubrid-lab/pycubrid/issues/1003)) ([4843d47](https://github.com/cubrid-lab/pycubrid/commit/4843d47ccfb9c3d9f299f58ab42e86658f849900)), refs [#1000](https://github.com/cubrid-lab/pycubrid/issues/1000) by @yeongseon.
-* **test:** register the Docker test database for a stable host ([#1001](https://github.com/cubrid-lab/pycubrid/issues/1001)) ([48cbd78](https://github.com/cubrid-lab/pycubrid/commit/48cbd78e9e7d6971867a3c8bc3e9a23a7f2d2ba2)) by @yeongseon.
 
 ### Documentation
 
@@ -641,9 +629,9 @@ This maintenance release corrects several database result/transaction behaviors 
 
 ### CI
 
-- **The CUBRID 11.4 Docker test database is kept in a named volume (#1002)** — `docker-compose.yml` mounted its named volume only at `/var/lib/cubrid`, where images up to 11.3 keep their databases. `cubrid/cubrid:11.4` keeps them in `/home/cubrid/CUBRID/databases` (`CUBRID_DATABASES`, also its declared `VOLUME`), so with `CUBRID_VERSION=11.4` the database lived in an anonymous volume: `docker compose down` (also run at the end of every `make integration`) detached it, the next `up` started a new empty database, and each run left a dangling volume behind. A second named volume, `cubrid-databases`, now holds that path. Checked on CUBRID 10.2, 11.2 and 11.4: a table created before `docker compose down` is still there after `up`, `make docker-fix-db-host` works on 11.4, and `docker compose down -v` leaves no volume behind. Versions up to 11.3 still share `cubrid-data`; `docs/DEVELOPMENT.md` now says to run `make docker-down` before switching `CUBRID_VERSION`, since opening a database created by another CUBRID version is not verified. An 11.4 database kept in an earlier anonymous volume is not moved; it was already lost on the next `down` and `up`. Contributed by @yeongseon.
+- **The CUBRID 11.4 Docker test database is kept in a named volume (#1002)** — `docker-compose.yml` mounted its named volume only at `/var/lib/cubrid`, where images up to 11.3 keep their databases. `cubrid/cubrid:11.4` keeps them in `/home/cubrid/CUBRID/databases` (`CUBRID_DATABASES`, also its declared `VOLUME`), so with `CUBRID_VERSION=11.4` the database lived in an anonymous volume: `docker compose down` (also run at the end of every `make integration`) detached it, the next `up` started a new empty database, and each run left a dangling volume behind. A second named volume, `cubrid-databases`, now holds that path. Checked on CUBRID 10.2, 11.2 and 11.4: a table created before `docker compose down` is still there after `up`, `make docker-fix-db-host` works on 11.4, and `docker compose down -v` leaves no volume behind. Versions up to 11.3 still share `cubrid-data`; `docs/DEVELOPMENT.md` now says to run `make docker-down` before switching `CUBRID_VERSION`, since opening a database created by another CUBRID version is not verified. An 11.4 database kept in an earlier anonymous volume is not moved; it was already lost on the next `down` and `up` ([#1004](https://github.com/cubrid-lab/pycubrid/pull/1004), [ec2d9ed](https://github.com/cubrid-lab/pycubrid/commit/ec2d9ed1720519b9f3c058cacaf730fbc9ad0195)). Contributed by @yeongseon.
 
-- **The Docker test database keeps working after its container is recreated (#1000)** — the image registers the database in `databases.txt`, which 10.2 and 11.2 keep on the `cubrid-data` volume, for `CUBRID_DB_HOST`, or, when that is unset, for the creating container's hostname, its container ID. `docker-compose.yml` did not set it, and `docker compose down` (also run at the end of every `make integration`) keeps the volume, so the next container, with a new ID, could not resolve the recorded host: every connection failed with -353 and the next `make integration` retried 36 times before giving up. `docker-compose.yml` now sets `CUBRID_DB_HOST: localhost`, which a recreated container resolves; checked on CUBRID 10.2 and 11.2 across `down` and `up`, and with two full `make integration` runs on a repaired 11.2 volume. 11.4 keeps its databases outside that volume (see #1002 below). A volume created before this change keeps the old ID: `make docker-fix-db-host` rewrites only `testdb`'s host field to `localhost`, keeps the data and, on its first run, saves the previous file as `databases.txt.before-fix-db-host` (a later run keeps that copy), and `make docker-down` (`docker compose down -v`) deletes the volume and its data. `scripts/wait_for_cubrid.py` now receives `CUBRID_TEST_DOCKER_CONTAINER` from `make integration` and `make integration-tls`, and stops at the first -353 whose hosts all fail `getent hosts` inside that container, naming both fixes; a host that resolves, a failed lookup or no container keeps the existing retries. CI starts CUBRID as a service, not with Compose, and is unchanged; the driver is unchanged. Contributed by @yeongseon.
+- **The Docker test database keeps working after its container is recreated (#1000)** — the image registers the database in `databases.txt`, which 10.2 and 11.2 keep on the `cubrid-data` volume, for `CUBRID_DB_HOST`, or, when that is unset, for the creating container's hostname, its container ID. `docker-compose.yml` did not set it, and `docker compose down` (also run at the end of every `make integration`) keeps the volume, so the next container, with a new ID, could not resolve the recorded host: every connection failed with -353 and the next `make integration` retried 36 times before giving up. `docker-compose.yml` now sets `CUBRID_DB_HOST: localhost`, which a recreated container resolves; checked on CUBRID 10.2 and 11.2 across `down` and `up`, and with two full `make integration` runs on a repaired 11.2 volume. 11.4 keeps its databases outside that volume (see #1002 below). A volume created before this change keeps the old ID: `make docker-fix-db-host` rewrites only `testdb`'s host field to `localhost`, keeps the data and, on its first run, saves the previous file as `databases.txt.before-fix-db-host` (a later run keeps that copy), and `make docker-down` (`docker compose down -v`) deletes the volume and its data. `scripts/wait_for_cubrid.py` now receives `CUBRID_TEST_DOCKER_CONTAINER` from `make integration` and `make integration-tls`, and stops at the first -353 whose hosts all fail `getent hosts` inside that container, naming both fixes; a host that resolves, a failed lookup or no container keeps the existing retries. CI starts CUBRID as a service, not with Compose, and is unchanged; the driver is unchanged ([#1001](https://github.com/cubrid-lab/pycubrid/pull/1001), [48cbd78](https://github.com/cubrid-lab/pycubrid/commit/48cbd78e9e7d6971867a3c8bc3e9a23a7f2d2ba2)). Contributed by @yeongseon.
 
 - **The agent-evaluation runner's start record is created and read without following links (#985)** — `prepare` wrote its start record with `Path.write_text`, which follows a symlink at that path, and `collect` read it the same way. The record is now created with `O_CREAT|O_EXCL|O_NOFOLLOW` and mode `0600`; a stale or planted entry at its path is removed (a symlink itself, never its target) and the record created afresh. `collect` reads it only as a regular file of at most 4 KiB, without following links, and otherwise falls back to `attempt.json`, labelled as such. The state directory is created with, or reset to, exactly `0700` (so neither group or other access nor a missing owner write bit remains) and refused when it is a symlink or belongs to another user. `run.json`'s `over_max_minutes` may be `"unknown"` as well as `true` or `false`. Contributed by @yeongseon.
 
@@ -682,7 +670,7 @@ This maintenance release corrects several database result/transaction behaviors 
   as a summary-only round, which could put a PR past the two-round budget and reject valid
   evidence. A record that opens a thread still counts. Ported unchanged from
   cubrid-lab/cubrid-mcp-server#349, so the gate copies stay identical outside their
-  constants. Contributed by @yeongseon.
+  constants ([#949](https://github.com/cubrid-lab/pycubrid/pull/949), [10fb72c](https://github.com/cubrid-lab/pycubrid/commit/10fb72c65a40e522cc1c2d4e287a3e815431bb29)). Contributed by @yeongseon.
 - **The documentation check converges with sqlalchemy-cubrid's parser (#941)** —
   `scripts/_markdown.py` takes sqlalchemy-cubrid's reviewed parser
   (cubrid-lab/sqlalchemy-cubrid#922, cubrid-lab/sqlalchemy-cubrid#924,
@@ -965,10 +953,9 @@ This release tightens authentication-error reporting and network/connection beha
   English README and its Korean, Chinese, Hindi, German and Russian translations open with the
   pycubrid icon, centered and without a caption, and the documentation site uses it as its
   header logo and favicon. All of them load the SVG from one immutable
-  [cubrid-lab/brand](https://github.com/cubrid-lab/brand) commit. Contributed by @yeongseon.
+  [cubrid-lab/brand](https://github.com/cubrid-lab/brand) commit ([#920](https://github.com/cubrid-lab/pycubrid/pull/920), [05f1db3](https://github.com/cubrid-lab/pycubrid/commit/05f1db339de618113ee6305f5988dd71c47cf7db)). Contributed by @yeongseon.
 
 * **agents:** refresh the module map, test, docs and commit sections ([#877](https://github.com/cubrid-lab/pycubrid/issues/877)) ([6e05ce0](https://github.com/cubrid-lab/pycubrid/commit/6e05ce0fce91e92dde2c9e249dcf5eba9e8cac1f)) by @yeongseon.
-* **brand:** add shared Driver icon to README ([#920](https://github.com/cubrid-lab/pycubrid/issues/920)) ([05f1db3](https://github.com/cubrid-lab/pycubrid/commit/05f1db339de618113ee6305f5988dd71c47cf7db)) by @yeongseon.
 * **brand:** show the centered repository icon in the README and docs site ([#921](https://github.com/cubrid-lab/pycubrid/issues/921)) ([0719025](https://github.com/cubrid-lab/pycubrid/commit/0719025d48398a7b691c576c9501fa35ab06f13b)) by @yeongseon.
 * **development:** match the structure diagrams to the repository ([#880](https://github.com/cubrid-lab/pycubrid/issues/880)) ([f6a2734](https://github.com/cubrid-lab/pycubrid/commit/f6a2734655aca5506c4551f85387c50cc8fbec05)) by @yeongseon.
 * **i18n:** update the Python requirement in the German README ([#870](https://github.com/cubrid-lab/pycubrid/issues/870)) ([5a7638e](https://github.com/cubrid-lab/pycubrid/commit/5a7638e6634ef776632b57e4476e61713bb84a33)), refs [#702](https://github.com/cubrid-lab/pycubrid/issues/702) by @yeongseon.
@@ -1086,7 +1073,7 @@ This release adds an **opt-in prepared batch** for synchronous and asynchronous 
   autocommit on, the previous batch's handle is released on the next `PREPARE`,
   as on `PREPARE_AND_EXECUTE` (#488). The default `executemany()` is unchanged.
   See [API_REFERENCE.md](docs/API_REFERENCE.md) and
-  [PARAMETER_BINDING.md](docs/PARAMETER_BINDING.md) by @yeongseon.
+  [PARAMETER_BINDING.md](docs/PARAMETER_BINDING.md) ([#848](https://github.com/cubrid-lab/pycubrid/pull/848)) ([7f1747d](https://github.com/cubrid-lab/pycubrid/commit/7f1747d006bf5ac13d009ac191794d6c5cc066ca)) by @yeongseon.
 - **Failed `executemany()` batch rows are reported (#841)** — when rows of a DML
   batch fail, the server still runs the other rows, but the driver raised only the
   first error and lost which rows failed. The raised exception keeps its class,
@@ -1103,7 +1090,7 @@ This release adds an **opt-in prepared batch** for synchronous and asynchronous 
   count is negative or larger than the batch, that stops early without an
   interrupted (`ER_INTERRUPTED`) statement, or whose V3+ error row does not start
   with `DBMS_ERROR_INDICATOR` (-2), none of which CAS sends. See
-  [API_REFERENCE.md](docs/API_REFERENCE.md#partial-failure-which-rows-failed) by @yeongseon.
+  [API_REFERENCE.md](docs/API_REFERENCE.md#partial-failure-which-rows-failed) ([#852](https://github.com/cubrid-lab/pycubrid/pull/852)) ([b646cb6](https://github.com/cubrid-lab/pycubrid/commit/b646cb64873cf13c1eefc228559bb325dc549802)) by @yeongseon.
 - **Wider typed prepared parameters (#840)** — `pycubrid.compat.native`
   `cursor.bind_param()` now sends `bool` (INT 1/0, the literal path's value),
   64-bit `int` (BIGINT), `int` past 64 bits up to 38 digits and `Decimal`
@@ -1120,7 +1107,7 @@ This release adds an **opt-in prepared batch** for synchronous and asynchronous 
   [Prepared host-variable mapping](docs/PARAMETER_BINDING.md#prepared-host-variable-mapping).
   Round trips against the literal path pass on CUBRID 10.2, 11.0, 11.2 and
   11.4. The encoder is shared so the planned opt-in `EXECUTE_ARRAY` batch path
-  (#839) can reuse it. Contributed by @yeongseon.
+  (#839) can reuse it. ([#846](https://github.com/cubrid-lab/pycubrid/pull/846)) ([29fd19c](https://github.com/cubrid-lab/pycubrid/commit/29fd19cafc3af665c2f25664bca6caceff03b922)) Contributed by @yeongseon.
 - **`typing.Self` for context-manager and iterator returns (#689)** —
   `Connection.__enter__`, `Cursor.__enter__` / `__iter__`, `Lob.__enter__`,
   `AsyncConnection.__aenter__` and `AsyncCursor.__aenter__` / `__aiter__` are now
@@ -1128,12 +1115,7 @@ This release adds an **opt-in prepared batch** for synchronous and asynchronous 
   type in `with` / `async with` blocks and `for` / `async for` loops. A static
   contract module, `tests/typing_self_contract.py`, is part of `make typecheck` and
   fails mypy if any of these annotations regresses. Annotations only; no runtime
-  change. Contributed by @Jah-yee.
-
-* **cursor:** opt-in EXECUTE_ARRAY prepared batch for executemany() ([#848](https://github.com/cubrid-lab/pycubrid/issues/848)) ([7f1747d](https://github.com/cubrid-lab/pycubrid/commit/7f1747d006bf5ac13d009ac191794d6c5cc066ca)) by @yeongseon.
-* **cursor:** report which executemany() batch rows failed ([#852](https://github.com/cubrid-lab/pycubrid/issues/852)) ([b646cb6](https://github.com/cubrid-lab/pycubrid/commit/b646cb64873cf13c1eefc228559bb325dc549802)) by @yeongseon.
-* **protocol:** encode BIGINT, DOUBLE, NUMERIC, temporal and binary prepared parameters ([#846](https://github.com/cubrid-lab/pycubrid/issues/846)) ([29fd19c](https://github.com/cubrid-lab/pycubrid/commit/29fd19cafc3af665c2f25664bca6caceff03b922)) by @yeongseon.
-* **typing:** annotate context manager and iterator returns with typing.Self ([#773](https://github.com/cubrid-lab/pycubrid/issues/773)) ([a441d70](https://github.com/cubrid-lab/pycubrid/commit/a441d7092ab254b47aa4ae052d15238e669861de)) by @Jah-yee.
+  change. ([#773](https://github.com/cubrid-lab/pycubrid/pull/773)) ([a441d70](https://github.com/cubrid-lab/pycubrid/commit/a441d7092ab254b47aa4ae052d15238e669861de)) Contributed by @Jah-yee.
 
 ### Changed
 
@@ -1146,16 +1128,12 @@ This release adds an **opt-in prepared batch** for synchronous and asynchronous 
   five-parameter rows, client-side rendering went from 145 ms to 38.5 ms
   offline and the client CPU inside a live `executemany()` from about 195 ms to
   52-98 ms; the live wall time is dominated by the server. See
-  [PERFORMANCE.md](docs/PERFORMANCE.md#placeholder-tokenisation-cached-per-executemany-call) by @yeongseon.
+  [PERFORMANCE.md](docs/PERFORMANCE.md#placeholder-tokenisation-cached-per-executemany-call) ([#853](https://github.com/cubrid-lab/pycubrid/pull/853)) ([98b8263](https://github.com/cubrid-lab/pycubrid/commit/98b8263ba8d17f022e232524c06590d80601b7da)) by @yeongseon.
 - **CUBRIDdb wrapper integers past 32 bits (#840)** — the
   `pycubrid.compat.cubriddb` cursors pass `int` arguments to native
   `bind_param()`, so a value past signed 32-bit now binds BIGINT (or NUMERIC
   past 64 bits) instead of raising `DataError`. The wrapper still rejects
   `bool`, `float`, `bytes` and temporal scalars. Contributed by @yeongseon.
-
-### Performance
-
-* **cursor:** split the executemany() SQL on its placeholders once per call ([#853](https://github.com/cubrid-lab/pycubrid/issues/853)) ([98b8263](https://github.com/cubrid-lab/pycubrid/commit/98b8263ba8d17f022e232524c06590d80601b7da)) by @yeongseon.
 
 ### Documentation
 
@@ -1260,9 +1238,8 @@ This release introduces Python 3.15 support for standard GIL builds and expands 
   non-`None` `set_type` without a collection argument is now ignored instead
   of raising `NotSupportedError`. The scalar subset and ordinary cursors are
   unchanged. See
-  [Wrapper collection arguments](docs/API_REFERENCE.md#wrapper-collection-arguments) by @yeongseon.
+  [Wrapper collection arguments](docs/API_REFERENCE.md#wrapper-collection-arguments) ([#813](https://github.com/cubrid-lab/pycubrid/pull/813), [1accfaa](https://github.com/cubrid-lab/pycubrid/commit/1accfaa22945d3bd868f5940a68f085dae32a3ec)) by @yeongseon.
 
-* **compat:** accept collection parameters in wrapper execute and executemany ([#813](https://github.com/cubrid-lab/pycubrid/issues/813)) ([1accfaa](https://github.com/cubrid-lab/pycubrid/commit/1accfaa22945d3bd868f5940a68f085dae32a3ec)) by @yeongseon.
 * **python:** declare Python 3.15 support ([#831](https://github.com/cubrid-lab/pycubrid/issues/831)) ([0563613](https://github.com/cubrid-lab/pycubrid/commit/056361386e3cb41af0558bd7cd974eb07d75a0a1)) by @yeongseon.
 
 ### Fixed
@@ -1291,7 +1268,7 @@ This release introduces Python 3.15 support for standard GIL builds and expands 
   value, renders byte-identically, and a skipped spring-forward wall time is
   still sent with the region alone, which CUBRID rejects with an error.
   Verified on CUBRID 10.2 and 11.4 for `DATETIMETZ` and `TIMESTAMPTZ`, sync
-  and async. Contributed by @yeongseon.
+  and async ([#820](https://github.com/cubrid-lab/pycubrid/pull/820), [2228d66](https://github.com/cubrid-lab/pycubrid/commit/2228d663b6e2c9462c648b9dd941720219c464ae)). Contributed by @yeongseon.
 - **`scripts/collect_repro.py` classifies bracketed hosts the same way on every
   Python (#753)** — a `CUBRID_TEST_URL` whose bracketed host is not an IPv6
   literal (for example `[bad]` or `[127.0.0.1]`) is now recorded as
@@ -1299,7 +1276,7 @@ This release introduces Python 3.15 support for standard GIL builds and expands 
   3.11 patch releases such as 3.11.1 accepted the host and recorded a
   password-redacted URL instead. The password was redacted either way. Valid
   IPv6 literals such as `[::1]` still parse and keep their host and port. This
-  is a contributor tooling fix; the driver is unchanged. Contributed by @yeongseon.
+  is a contributor tooling fix; the driver is unchanged ([#776](https://github.com/cubrid-lab/pycubrid/pull/776), [164d0d5](https://github.com/cubrid-lab/pycubrid/commit/164d0d58819aea81281606708e3acfa07492c916)). Contributed by @yeongseon.
 - **`make mutation` stops with a message on Python 3.11 (#812)** — mutmut 3.8
   fails at stats collection on 3.11 with a `TypeError` inside its trampoline,
   before testing any mutant. The target now checks for Python 3.12+ first and
@@ -1307,10 +1284,6 @@ This release introduces Python 3.15 support for standard GIL builds and expands 
   use the same interpreter; `docs/DEVELOPMENT.md` (+ ko) documents the requirement. CI's weekly
   mutation job already uses 3.12. Contributor tooling only; the driver is
   unchanged. Contributed by @yeongseon.
-
-* **collect_repro:** redact passwords of CUBRID_TEST_URL values without "://" ([#778](https://github.com/cubrid-lab/pycubrid/issues/778)) ([dc0683f](https://github.com/cubrid-lab/pycubrid/commit/dc0683fd27ad1a7f0500b640baa0c74276c1030c)) by @yeongseon.
-* **collect_repro:** treat non-IPv6 bracketed hosts as unparseable ([#776](https://github.com/cubrid-lab/pycubrid/issues/776)) ([164d0d5](https://github.com/cubrid-lab/pycubrid/commit/164d0d58819aea81281606708e3acfa07492c916)) by @yeongseon.
-* **types:** bind the second occurrence of a repeated DST hour as itself ([#820](https://github.com/cubrid-lab/pycubrid/issues/820)) ([2228d66](https://github.com/cubrid-lab/pycubrid/commit/2228d663b6e2c9462c648b9dd941720219c464ae)) by @yeongseon.
 
 ### Security
 
@@ -1361,7 +1334,7 @@ This release introduces Python 3.15 support for standard GIL builds and expands 
   recognised, so its password is recorded unless `CUBRID_TEST_PASSWORD` also
   holds it. Valid `cubrid://user:pw@host:port/db` URLs of up to 2048 characters
   are still recorded as `cubrid://user:***@host:port/db`. This is a contributor
-  tooling fix; the driver is unchanged. Contributed by @yeongseon.
+  tooling fix; the driver is unchanged ([#778](https://github.com/cubrid-lab/pycubrid/pull/778), [dc0683f](https://github.com/cubrid-lab/pycubrid/commit/dc0683fd27ad1a7f0500b640baa0c74276c1030c)). Contributed by @yeongseon.
 
 ### Documentation
 
@@ -1387,12 +1360,12 @@ This release introduces Python 3.15 support for standard GIL builds and expands 
   the prerequisites in `CONTRIBUTING.md` and `docs/DEVELOPMENT.md`, with their Korean
   copies, still said Python 3.10+. They now say 3.11+, and the development guide's note
   points to `requires-python` instead of naming Python 3.10 syntax. The recorded past CI
-  matrix in the development guide is unchanged. Docs only. Contributed by @yeongseon.
+  matrix in the development guide is unchanged. Docs only ([#826](https://github.com/cubrid-lab/pycubrid/pull/826), [d727224](https://github.com/cubrid-lab/pycubrid/commit/d72722467c81cb690f002c921dc2e468110192fe)). Contributed by @yeongseon.
 - **Connection guide and PRD state the Python 3.11+ requirement (#701)** — the
   prerequisite row in `docs/CONNECTION.md` and the runtime row of the PRD dependency
   matrix, with their Korean copies, still said Python 3.10+ after 1.10.0 raised
   `requires-python` to `>=3.11`. They now say 3.11+. Recorded past measurements and
-  behavior that name Python 3.10 are unchanged. Docs only. Contributed by @yeongseon.
+  behavior that name Python 3.10 are unchanged. Docs only ([#825](https://github.com/cubrid-lab/pycubrid/pull/825), [4f6c3ff](https://github.com/cubrid-lab/pycubrid/commit/4f6c3ff69393e23689e19850f548d32ce19f15fa)). Contributed by @yeongseon.
 - **Private vulnerability reporting is the preferred security channel (#751)** — GitHub
   private vulnerability reporting is now enabled for the repository. `SECURITY.md` names it
   as the preferred private route and keeps the maintainer email as the fallback; `README.md`
@@ -1413,7 +1386,7 @@ This release introduces Python 3.15 support for standard GIL builds and expands 
   `integration-tls` job runs Python 3.11 and 3.14 (not 3.10 and 3.14) in
   `docs/DEVELOPMENT.md` and its Korean copy, and the PRD CI summary and
   "CI Matrix" table, which still listed Python 3.10, now describe the current
-  lanes. Documentation only; the driver and workflows are unchanged. Contributed by @yeongseon.
+  lanes. Documentation only; the driver and workflows are unchanged ([#803](https://github.com/cubrid-lab/pycubrid/pull/803), [d30bedb](https://github.com/cubrid-lab/pycubrid/commit/d30bedb55c74aa97b96a790f607d7c41967f06e3)). Contributed by @yeongseon.
 - **`AGENTS.md` drops stale planning context and volatile counts (#749)** — the
   old "Project Context — Performance Loop System" snapshot (R2/R3 phases, the
   Week 8 decision gate, the #14–#22 issue table and fixed PyMySQL ratios) is
@@ -1423,7 +1396,7 @@ This release introduces Python 3.15 support for standard GIL builds and expands 
   their canonical sources (`pycubrid/constants.py`, `pyproject.toml`,
   `docs/CI_POLICY.md`) instead of being copied. CAS protocol invariants,
   workflow, labelling, release and commit guidance are unchanged. Docs only;
-  the driver is unchanged. Contributed by @yeongseon.
+  the driver is unchanged ([#779](https://github.com/cubrid-lab/pycubrid/pull/779), [98acc87](https://github.com/cubrid-lab/pycubrid/commit/98acc8707dea72576c2394a3cd87487fe0e23871)). Contributed by @yeongseon.
 - **Performance guide covers pycubrid on CUBRID only (#795)** — `docs/PERFORMANCE.md`
   and its Korean translation no longer compare pycubrid on CUBRID with PyMySQL on
   MySQL: the comparison table, the conclusions drawn from it and the pointers that
@@ -1439,18 +1412,13 @@ This release introduces Python 3.15 support for standard GIL builds and expands 
   and its memory cost are documented. `AGENTS.md` now states driver-focused
   performance goals (release-to-release regression, overhead against the official
   `CUBRIDdb` driver on the same server), and the Performance issue template no
-  longer asks for a PyMySQL ratio. Docs only; the driver is unchanged. Contributed by @yeongseon.
+  longer asks for a PyMySQL ratio. Docs only; the driver is unchanged ([#802](https://github.com/cubrid-lab/pycubrid/pull/802), [7cc4b20](https://github.com/cubrid-lab/pycubrid/commit/7cc4b20f5e0997d71da0568e35c3901358f45c1e)). Contributed by @yeongseon.
 
-* **agents:** move stale planning context out of AGENTS.md ([#779](https://github.com/cubrid-lab/pycubrid/issues/779)) ([98acc87](https://github.com/cubrid-lab/pycubrid/commit/98acc8707dea72576c2394a3cd87487fe0e23871)) by @yeongseon.
 * **aio:** correct Python version notes in TLS docstrings ([#824](https://github.com/cubrid-lab/pycubrid/issues/824)) ([b20a1b6](https://github.com/cubrid-lab/pycubrid/commit/b20a1b63a4f4e23527b44504924510a980cecefd)) by @Vieta100-omo (first contribution 🎉).
 * **dev:** point the development guide to the current CI cost evidence ([#808](https://github.com/cubrid-lab/pycubrid/issues/808)) ([7d43169](https://github.com/cubrid-lab/pycubrid/commit/7d43169ee2beba9ecad700829a119460254389c3)), closes [#750](https://github.com/cubrid-lab/pycubrid/issues/750) by @yeongseon.
 * explain the executemany() gap against CUBRIDdb in the performance guide ([#838](https://github.com/cubrid-lab/pycubrid/issues/838)) ([f8d906d](https://github.com/cubrid-lab/pycubrid/commit/f8d906df0eb0ad0099e1e0342bf702937ae7ec2c)) by @yeongseon.
 * name private vulnerability reporting as the preferred security channel ([#816](https://github.com/cubrid-lab/pycubrid/issues/816)) ([fe49031](https://github.com/cubrid-lab/pycubrid/commit/fe4903168c903c5680c44be3010bccd1a137da29)), closes [#751](https://github.com/cubrid-lab/pycubrid/issues/751) by @yeongseon.
-* **performance:** focus the guide on pycubrid on CUBRID and mark historical numbers ([#802](https://github.com/cubrid-lab/pycubrid/issues/802)) ([7cc4b20](https://github.com/cubrid-lab/pycubrid/commit/7cc4b20f5e0997d71da0568e35c3901358f45c1e)), closes [#795](https://github.com/cubrid-lab/pycubrid/issues/795) by @yeongseon.
 * publish the current performance baseline ([#823](https://github.com/cubrid-lab/pycubrid/issues/823)) ([35770b1](https://github.com/cubrid-lab/pycubrid/commit/35770b10346f4bae644e2af61da9b2550a39760a)) by @yeongseon.
-* **python:** state the Python 3.11+ requirement in the connection guide and PRD ([#825](https://github.com/cubrid-lab/pycubrid/issues/825)) ([4f6c3ff](https://github.com/cubrid-lab/pycubrid/commit/4f6c3ff69393e23689e19850f548d32ce19f15fa)) by @yeongseon.
-* **python:** state the Python 3.11+ requirement in the contributor and development guides ([#826](https://github.com/cubrid-lab/pycubrid/issues/826)) ([d727224](https://github.com/cubrid-lab/pycubrid/commit/d72722467c81cb690f002c921dc2e468110192fe)), closes [#700](https://github.com/cubrid-lab/pycubrid/issues/700) by @yeongseon.
-* **readme:** describe the full compatibility matrix as 4 × 4 on dispatch and release ([#803](https://github.com/cubrid-lab/pycubrid/issues/803)) ([d30bedb](https://github.com/cubrid-lab/pycubrid/commit/d30bedb55c74aa97b96a790f607d7c41967f06e3)) by @yeongseon.
 * record the prepared batch evaluation for executemany() in the performance guide ([#843](https://github.com/cubrid-lab/pycubrid/issues/843)) ([6b28f5b](https://github.com/cubrid-lab/pycubrid/commit/6b28f5b943628bac0ddb2a7ac1508feebe40ef08)) by @yeongseon.
 * **release:** list timed-out runs as rerunnable in the blocked-preparation recovery ([#800](https://github.com/cubrid-lab/pycubrid/issues/800)) ([2ff0d39](https://github.com/cubrid-lab/pycubrid/commit/2ff0d390c7241842a868d648971395c79f0ed7c3)) by @yeongseon.
 * **release:** skip the green-publisher step for an abandoned release ([#806](https://github.com/cubrid-lab/pycubrid/issues/806)) ([f66e8de](https://github.com/cubrid-lab/pycubrid/commit/f66e8de1675e8f5dfa53d7e55d877f5d4e15d034)), closes [#801](https://github.com/cubrid-lab/pycubrid/issues/801) by @yeongseon.
@@ -1708,13 +1676,7 @@ This release requires **Python 3.11 or later**. Python 3.10 applications remain 
   of life on 2026-10-01 and its retirement was announced in 1.9.0. On Python 3.10
   `pip` keeps installing 1.9.x, the last line that supports it; only the latest
   release line receives fixes, so 1.9.x gets no further releases. Upgrade Python,
-  recreate your virtual environment and validate your application before upgrading.
-
-### Added
-
-**Additional commit references (generated at release time):**
-
-* **python:** require Python 3.11 or later ([#708](https://github.com/cubrid-lab/pycubrid/issues/708)) ([5b3d9ec](https://github.com/cubrid-lab/pycubrid/commit/5b3d9ecfe8632c5194d1201e9540e4fdf8b8d98e)), closes [#684](https://github.com/cubrid-lab/pycubrid/issues/684) by @yeongseon.
+  recreate your virtual environment and validate your application before upgrading. ([#708](https://github.com/cubrid-lab/pycubrid/pull/708)) ([5b3d9ec](https://github.com/cubrid-lab/pycubrid/commit/5b3d9ecfe8632c5194d1201e9540e4fdf8b8d98e)) by @yeongseon.
 
 ### Changed
 
@@ -1744,7 +1706,7 @@ This release requires **Python 3.11 or later**. Python 3.10 applications remain 
   `wait_for()` meaning: the fresh, not-yet-started operation is cancelled before
   it runs, so `connect_timeout=0` fails before the TCP connect is attempted and
   `read_timeout=0` fails before any handshake bytes are sent, both with
-  `OperationalError`. Contributed by @yeongseon.
+  `OperationalError`. ([#754](https://github.com/cubrid-lab/pycubrid/pull/754)) ([1a44790](https://github.com/cubrid-lab/pycubrid/commit/1a44790cd5e3a6c37357fa42783ef86533106fab)) Contributed by @yeongseon.
 - **Ruff and mypy target Python 3.11 (#688)** — `target-version = "py311"` and
   `python_version = "3.11"` in `pyproject.toml`, matching the minimum supported
   version. The rule selection is unchanged and no source needed a fix. Contributed by @yeongseon.
@@ -1755,12 +1717,6 @@ This release requires **Python 3.11 or later**. Python 3.10 applications remain 
   classifier is gone. CI no longer tests 3.10: the oldest integration pair is
   Python 3.11 × CUBRID 10.2, the full matrix covers Python 3.11–3.14 and the TLS
   lanes run on 3.11 and 3.14. No driver behavior changes on Python 3.11 or newer. Contributed by @yeongseon.
-
-### Fixed
-
-**Additional commit references (generated at release time):**
-
-* **aio:** restore asyncio.wait_for for driver deadlines on Python 3.11.0–3.11.2 ([#754](https://github.com/cubrid-lab/pycubrid/issues/754)) ([1a44790](https://github.com/cubrid-lab/pycubrid/commit/1a44790cd5e3a6c37357fa42783ef86533106fab)) by @yeongseon.
 
 ### Documentation
 
@@ -1782,19 +1738,19 @@ This release requires **Python 3.11 or later**. Python 3.10 applications remain 
   Windows-only `tzdata` runtime dependency stays explicit.
   `tests/test_third_party_licenses.py` fails when a declared dependency is missing,
   a recorded version falls outside its declared range, or a row's category
-  disagrees with the generator. No runtime change. Contributed by @yeongseon.
+  disagrees with the generator. No runtime change. ([#771](https://github.com/cubrid-lab/pycubrid/pull/771)) ([aacb5b5](https://github.com/cubrid-lab/pycubrid/commit/aacb5b588be7a15f4126a76a20f77334828fd5a4)) Contributed by @yeongseon.
 - **The README and quickstart state Python 3.11 or later (#699)** — the
   requirement lines, the supported range (3.11–3.14) and the FAQ answer in
   `README.md` and `docs/README.ko.md`, and the prerequisites in
   `docs/quickstart.md` and `docs/ko/quickstart.md`. The Python 3.10 retirement
-  notice in both READMEs now describes the requirement as in effect from 1.10.0. Contributed by @yeongseon.
+  notice in both READMEs now describes the requirement as in effect from 1.10.0. ([#739](https://github.com/cubrid-lab/pycubrid/pull/739)) ([27e35be](https://github.com/cubrid-lab/pycubrid/commit/27e35be9eee6518c1c673e51195fa25954dd5da4)) Contributed by @yeongseon.
 - **Python 3.10 async TLS probe guidance is removed (#686)** — the preflight
   probe is gone (#685), so the README, `SECURITY.md`, the connection, protocol,
   development, example, API, PRD and support-matrix pages and their Korean
   counterparts no longer describe it or the Python 3.10 `start_tls()` hang it
   worked around. The troubleshooting section "Async TLS Handshake Hangs on
   Python 3.10" is deleted, with the links to it in the translated READMEs; the
-  sync driver's Python 3.10 `wrap_socket()` reset note goes with it. Contributed by @yeongseon.
+  sync driver's Python 3.10 `wrap_socket()` reset note goes with it. ([#737](https://github.com/cubrid-lab/pycubrid/pull/737)) ([4df5db0](https://github.com/cubrid-lab/pycubrid/commit/4df5db0331c2072440d22b0b08ed20323ecaec93)) Contributed by @yeongseon.
 - **In-page links work on the documentation site (#728)** — the site used the
   default heading slugifier, which drops non-ASCII characters, so Korean
   headings got ids such as `_2` and every Korean table of contents entry was
@@ -1802,7 +1758,7 @@ This release requires **Python 3.11 or later**. Python 3.10 applications remain 
   (198 broken anchors). `mkdocs.yml` now uses the Unicode-aware slugifier from
   `pymdown-extensions`, the two anchors that were still wrong are fixed, and
   `validation.links.anchors: warn` makes the strict build fail on a new broken
-  anchor. Contributed by @yeongseon.
+  anchor. ([#729](https://github.com/cubrid-lab/pycubrid/pull/729)) ([c2a4f1d](https://github.com/cubrid-lab/pycubrid/commit/c2a4f1db875c65a3c497daf6427711d643401dec)) Contributed by @yeongseon.
 - **Korean pages reviewed against the English wording (#726)** — the structure
   check cannot see a missing or outdated sentence. A sentence-level review of
   seven Korean guides corrected 72 passages: `API_REFERENCE` (21, including the
@@ -1813,61 +1769,50 @@ This release requires **Python 3.11 or later**. Python 3.10 applications remain 
   `CONNECTION` (2). The translations of `PRD` and `PREPARED_BINDING_DESIGN`
   added in this release were reviewed the same way (1 and 15 corrections,
   mostly literal renderings that read ambiguously). The banner on every Korean
-  page now says CI checks the structure. English is unchanged. Contributed by @yeongseon.
+  page now says CI checks the structure. English is unchanged. ([#727](https://github.com/cubrid-lab/pycubrid/pull/727)) ([ed6e7d9](https://github.com/cubrid-lab/pycubrid/commit/ed6e7d934e2931ebd286761e5b9a69e327ce9db9)) Contributed by @yeongseon.
 - **PRD no longer quotes figures that every release makes false (#724)** —
   `docs/PRD.md` said version 1.8.0, "770 offline tests / 811 total", "97.29%
   coverage", "10 modules", "6 guide files" and "release workflow on tag". The
   version, test and coverage figures now link to PyPI, the test tree and
   Codecov, the per-file test counts are dropped, and the release row describes
   the release-PR flow. The documentation home page states SQLAlchemy 2.0–2.1 for
-  sqlalchemy-cubrid, as that project does. English and Korean. Contributed by @yeongseon.
+  sqlalchemy-cubrid, as that project does. English and Korean. ([#725](https://github.com/cubrid-lab/pycubrid/pull/725)) ([8a3304b](https://github.com/cubrid-lab/pycubrid/commit/8a3304bc7acebeb4368e24d3275940e6ef3839ed)) Contributed by @yeongseon.
 - **PRD and the typed CAS binding design are available in Korean (#715)** —
   `docs/ko/PRD.md` and `docs/ko/PREPARED_BINDING_DESIGN.md` are added, both PRD
   pages join the site navigation, and the Korean home page and CI policy carry
   the same translation header as the other Korean pages. With these, every
   document under `docs/` has a Korean counterpart and the structure check has no
-  exception left. Contributed by @yeongseon.
+  exception left. ([#722](https://github.com/cubrid-lab/pycubrid/pull/722)) ([328720d](https://github.com/cubrid-lab/pycubrid/commit/328720d4044d53db8288f95f74f8f9e5894b6a36)) Contributed by @yeongseon.
 - **Korean documentation home page and one Korean navigation section (#714)** —
   `docs/ko/index.md` is the Korean landing page, linked from the English home
   page and back. The Korean guides were spread over three navigation groups;
   they are now one "한국어" section with the same grouping as the English
-  navigation, and every Korean page is reachable from it. Contributed by @yeongseon.
+  navigation, and every Korean page is reachable from it. ([#720](https://github.com/cubrid-lab/pycubrid/pull/720)) ([73e4ea7](https://github.com/cubrid-lab/pycubrid/commit/73e4ea756a1efda3d09e43e22b6ff13aa585174a)) Contributed by @yeongseon.
 - **Korean support matrix and CI policy match the English documents (#713)** —
   `docs/ko/SUPPORT_MATRIX.md` gains the CI matrix table, the "Server Behavior
   Differences Between CUBRID Versions" table and the unknown-option row, and
   loses a Korean-only closing section; `docs/ko/CI_POLICY.md` is a full
   translation instead of a summary. Both CI policy pages are in the site
   navigation. The full-integration count in the support matrix is corrected to
-  16 (four Python versions × four CUBRID versions) in both languages. Contributed by @yeongseon.
+  16 (four Python versions × four CUBRID versions) in both languages. ([#719](https://github.com/cubrid-lab/pycubrid/pull/719)) ([66e2c5e](https://github.com/cubrid-lab/pycubrid/commit/66e2c5e346c3f270bff3cfc0c0b2797648bccc2a)) Contributed by @yeongseon.
 - **Korean connection, development and troubleshooting guides are in sync again
   (#712)** — four sections existed only in English: unknown connection options
   (`docs/ko/CONNECTION.md`), "Connection Option Has No Effect"
   (`docs/ko/TROUBLESHOOTING.md`), and the backslash-escape-mode pin and mutation
   testing (`docs/ko/DEVELOPMENT.md`). They are translated; the English text is
-  unchanged. Contributed by @yeongseon.
+  unchanged. ([#718](https://github.com/cubrid-lab/pycubrid/pull/718)) ([16a0665](https://github.com/cubrid-lab/pycubrid/commit/16a06659597ea9a93b899291a480d0a2e1050d8b)) Contributed by @yeongseon.
 - **`get_error_description()` is documented, and the Korean API reference is
   complete again (#711)** — `docs/API_REFERENCE.md` covered every public name
   except `pycubrid.get_error_description`; it now has its own section in English
   and Korean. The Korean reference also gains the sections it was missing:
   unknown connection options, `UnknownConnectionOptionWarning`, the native
   prepared example and the wrapper cursor's `next()` alias (also added to the
-  English text). No behavior change. Contributed by @yeongseon.
+  English text). No behavior change. ([#717](https://github.com/cubrid-lab/pycubrid/pull/717)) ([221339e](https://github.com/cubrid-lab/pycubrid/commit/221339eec34912ec0a0adec665673a25541fccdf)) Contributed by @yeongseon.
 
 **Additional commit references (generated at release time):**
 
 * **agents:** align contributor ownership and good-first-issue guardrails ([#752](https://github.com/cubrid-lab/pycubrid/issues/752)) ([fb3da8c](https://github.com/cubrid-lab/pycubrid/commit/fb3da8c94b86cf1ad576989f84c6ba465b9e0894)), closes [#743](https://github.com/cubrid-lab/pycubrid/issues/743) by @yeongseon.
-* **api:** document get_error_description and close the Korean API reference gaps ([#717](https://github.com/cubrid-lab/pycubrid/issues/717)) ([221339e](https://github.com/cubrid-lab/pycubrid/commit/221339eec34912ec0a0adec665673a25541fccdf)), closes [#711](https://github.com/cubrid-lab/pycubrid/issues/711) by @yeongseon.
 * **ci:** correct what enable-cache auto does on the release path ([#764](https://github.com/cubrid-lab/pycubrid/issues/764)) ([e0e475b](https://github.com/cubrid-lab/pycubrid/commit/e0e475b62741f22a3d6deeed56c7e8ba1cbf3007)), closes [#759](https://github.com/cubrid-lab/pycubrid/issues/759) by @yeongseon.
-* **i18n:** add the Korean documentation home page ([#720](https://github.com/cubrid-lab/pycubrid/issues/720)) ([73e4ea7](https://github.com/cubrid-lab/pycubrid/commit/73e4ea756a1efda3d09e43e22b6ff13aa585174a)), closes [#714](https://github.com/cubrid-lab/pycubrid/issues/714) by @yeongseon.
-* **i18n:** correct Korean sections that fell behind the English wording ([#727](https://github.com/cubrid-lab/pycubrid/issues/727)) ([ed6e7d9](https://github.com/cubrid-lab/pycubrid/commit/ed6e7d934e2931ebd286761e5b9a69e327ce9db9)), closes [#726](https://github.com/cubrid-lab/pycubrid/issues/726) by @yeongseon.
-* **i18n:** synchronize the Korean CONNECTION, DEVELOPMENT and TROUBLESHOOTING guides ([#718](https://github.com/cubrid-lab/pycubrid/issues/718)) ([16a0665](https://github.com/cubrid-lab/pycubrid/commit/16a06659597ea9a93b899291a480d0a2e1050d8b)), closes [#712](https://github.com/cubrid-lab/pycubrid/issues/712) by @yeongseon.
-* **i18n:** synchronize the Korean SUPPORT_MATRIX and translate CI_POLICY in full ([#719](https://github.com/cubrid-lab/pycubrid/issues/719)) ([66e2c5e](https://github.com/cubrid-lab/pycubrid/commit/66e2c5e346c3f270bff3cfc0c0b2797648bccc2a)), closes [#713](https://github.com/cubrid-lab/pycubrid/issues/713) by @yeongseon.
-* **i18n:** translate PRD and PREPARED_BINDING_DESIGN into Korean ([#722](https://github.com/cubrid-lab/pycubrid/issues/722)) ([328720d](https://github.com/cubrid-lab/pycubrid/commit/328720d4044d53db8288f95f74f8f9e5894b6a36)), closes [#715](https://github.com/cubrid-lab/pycubrid/issues/715) by @yeongseon.
-* **licenses:** make the third-party license inventory reproducible and accurate ([#771](https://github.com/cubrid-lab/pycubrid/issues/771)) ([aacb5b5](https://github.com/cubrid-lab/pycubrid/commit/aacb5b588be7a15f4126a76a20f77334828fd5a4)) by @yeongseon.
-* **prd:** replace stale version, test and coverage figures with links ([#725](https://github.com/cubrid-lab/pycubrid/issues/725)) ([8a3304b](https://github.com/cubrid-lab/pycubrid/commit/8a3304bc7acebeb4368e24d3275940e6ef3839ed)), closes [#724](https://github.com/cubrid-lab/pycubrid/issues/724) by @yeongseon.
-* **python:** state Python 3.11 or later in the README and quickstart ([#739](https://github.com/cubrid-lab/pycubrid/issues/739)) ([27e35be](https://github.com/cubrid-lab/pycubrid/commit/27e35be9eee6518c1c673e51195fa25954dd5da4)), closes [#699](https://github.com/cubrid-lab/pycubrid/issues/699) by @yeongseon.
-* **site:** generate heading anchors that match the links in the documents ([#729](https://github.com/cubrid-lab/pycubrid/issues/729)) ([c2a4f1d](https://github.com/cubrid-lab/pycubrid/commit/c2a4f1db875c65a3c497daf6427711d643401dec)), closes [#728](https://github.com/cubrid-lab/pycubrid/issues/728) by @yeongseon.
-* **tls:** remove Python 3.10 preflight probe guidance ([#737](https://github.com/cubrid-lab/pycubrid/issues/737)) ([4df5db0](https://github.com/cubrid-lab/pycubrid/commit/4df5db0331c2072440d22b0b08ed20323ecaec93)), closes [#686](https://github.com/cubrid-lab/pycubrid/issues/686) by @yeongseon.
 
 ### Tests
 
@@ -1943,7 +1888,7 @@ Behavior changes you may notice (details in the entries below):
 - **Runnable README Quick Start examples (#327)** — add short parameterized CRUD,
   commit/rollback and `ProgrammingError` examples with shared scratch-table setup
   and cleanup, mirrored in all five maintained translations and verified on
-  CUBRID 11.4. No driver behavior, API, dependency or support change. Contributed by @yeongseon.
+  CUBRID 11.4. No driver behavior, API, dependency or support change ([#677](https://github.com/cubrid-lab/pycubrid/pull/677), [518aa8b](https://github.com/cubrid-lab/pycubrid/commit/518aa8be4e2209b05e1a0c0faf68f9f3b7853df0)). Contributed by @yeongseon.
 - **Python 3.15 preview preparation** — add a manual-only Ubuntu/standard-GIL
   offline and wheel/sdist installation lane at an immutable commit. Python 3.15
   is not yet officially supported; final-runtime and live CUBRID evidence are
@@ -1955,19 +1900,19 @@ Behavior changes you may notice (details in the entries below):
   the exact live physical owner without retry/reconnect, use effective mode and
   respect private schema/result cleanup guards. Client identities are not a
   matching-ID or version-format promise. Ordinary/async APIs and defaults remain
-  unchanged; this additive subset does not certify full native error/recovery parity. Contributed by @yeongseon.
+  unchanged; this additive subset does not certify full native error/recovery parity ([#667](https://github.com/cubrid-lab/pycubrid/pull/667), [9fbbc05](https://github.com/cubrid-lab/pycubrid/commit/9fbbc05b494e52197907bea138b36a3380ff6421)). Contributed by @yeongseon.
 - **Real terminal walkthroughs (#320)** — replace the illustrative README GIF
   with a recorded sync/async query run and add a Quick Start CRUD/context-manager
   video. Editable VHS tapes, asserted demo code and source-wheel provenance
   distinguish local-build evidence from a PyPI release or full compatibility
-  certificate. No driver API, dependency, support or publication change. Contributed by @yeongseon.
+  certificate. No driver API, dependency, support or publication change ([#665](https://github.com/cubrid-lab/pycubrid/pull/665), [a44e250](https://github.com/cubrid-lab/pycubrid/commit/a44e2502568a9492017a4655402eefd10bf07b0a)). Contributed by @yeongseon.
 - **Wrapper transaction delegates (#662)** — the opt-in sync CUBRIDdb-style
   connection gains zero-argument `commit()` and `rollback()`, forwarding once to
   its native owner with `None` returns and unchanged error propagation. Existing
   successful-boundary result rules apply; rollback can invalidate fetching while
   wrapper rowcount/description snapshots remain. Manual mode is explicit, and
   defaults, ordinary/async APIs, recovery logic and thread-sharing promises are
-  unchanged. Contributed by @yeongseon.
+  unchanged ([#664](https://github.com/cubrid-lab/pycubrid/pull/664), [44aafb9](https://github.com/cubrid-lab/pycubrid/commit/44aafb9ed7cf413eb558d0a3709c88fcbb19e38c)). Contributed by @yeongseon.
 - **Native LOB file transfer (#443)** — sync native holders gain positional
   `imports(file, type="B")` and `export(file)` for raw BLOB/CLOB bytes in
   bounded chunks, preserving byte position. Import stages a replacement until
@@ -1978,7 +1923,7 @@ Behavior changes you may notice (details in the entries below):
   cover successful stored-column transfers; empty output is candidate-only
   evidence, not official empty-export parity. No general filesystem, unsafe
   C-failure or whole-driver parity is claimed. Ordinary/async/wrapper APIs,
-  dependencies, defaults and release publication are unchanged. Contributed by @yeongseon.
+  dependencies, defaults and release publication are unchanged ([#653](https://github.com/cubrid-lab/pycubrid/pull/653), [5d40a0f](https://github.com/cubrid-lab/pycubrid/commit/5d40a0f8bfc1f51ff43ab4b1c8bd3b119783a999)). Contributed by @yeongseon.
 - **Native cursor positioning (#444)** — sync native cursors gain
   `data_seek`, `row_seek` and `row_tell` with the official safe dual counters,
   relative-boundary clamp/error behavior and one retained response page. Cache
@@ -2000,7 +1945,7 @@ Behavior changes you may notice (details in the entries below):
   message-only args as a classified native difference. Owned 10.2/11.4 and pinned
   official comparisons cover this subset, including collection/JSON types and
   Unicode metadata, not non-UTF-8 or complete driver parity. Ordinary/async APIs,
-  dependencies and release publication are unchanged. Contributed by @yeongseon.
+  dependencies and release publication are unchanged ([#642](https://github.com/cubrid-lab/pycubrid/pull/642), [ee62e28](https://github.com/cubrid-lab/pycubrid/commit/ee62e28a5f316e779da20cfe575a1cd0ed2dda30)). Contributed by @yeongseon.
 - **Discoverable Korean performance guide (#313)** — the Korean README now
   links to the existing `docs/ko/PERFORMANCE.md` translation, with working
   section anchors and a benchmark table identical to the English source.
@@ -2105,7 +2050,7 @@ Behavior changes you may notice (details in the entries below):
   cap), NULL and mixed columns, repeated execution, cross-connection binds
   and reconnect. Fourteen new official differential claims (eleven match, three
   classified deviations) pass
-  on CUBRID 10.2 and 11.4. LOB write/read/seek and files remain #442/#443. Contributed by @yeongseon.
+  on CUBRID 10.2 and 11.4. LOB write/read/seek and files remain #442/#443 ([#616](https://github.com/cubrid-lab/pycubrid/pull/616), [068325e](https://github.com/cubrid-lab/pycubrid/commit/068325e75abb068a6b9d4f9bc841038cb7743a1e)). Contributed by @yeongseon.
 - **Native collection binding (#440)** — `pycubrid.compat.native` binds
   SET, MULTISET and SEQUENCE parameter values with the official names:
   `connection.set()` (or `native.set(conn)`), `set.imports(data, type, /, *,
@@ -2126,7 +2071,7 @@ Behavior changes you may notice (details in the entries below):
   claims (seven match, seven classified deviations, including the error
   classes) pass on CUBRID 10.2 and 11.4. The wrapper
   `execute(..., set_type)`/`executemany` collection shapes are not provided
-  (#610) by @yeongseon.
+  (#610) ([#607](https://github.com/cubrid-lab/pycubrid/pull/607), [c316c39](https://github.com/cubrid-lab/pycubrid/commit/c316c39a3c7ef993c541b93114380dc10ed778dc)) by @yeongseon.
 - **`charset` connection option (#86)** — `pycubrid.connect()`,
   `pycubrid.aio.connect()`, `pycubrid.compat.native.connect()` and
   `cubriddb.Connection(charset=...)` (previously `"utf8"` only) accept
@@ -2159,7 +2104,7 @@ Behavior changes you may notice (details in the entries below):
   codec and `errors="replace"`. `charset=None` means the default, and a CUBRID
   locale such as `"ko_KR.euckr"` is accepted. `get_schema_info()` checks its arguments before sending, so an
   unencodable table or column pattern no longer closes the connection. A new `integration-charset` CI job runs the live round trips
-  against CUBRID 11.4 created with `CUBRID_LOCALE=ko_KR.euckr`. Contributed by @yeongseon.
+  against CUBRID 11.4 created with `CUBRID_LOCALE=ko_KR.euckr` ([#510](https://github.com/cubrid-lab/pycubrid/pull/510), [3874252](https://github.com/cubrid-lab/pycubrid/commit/387425245e70c63e6b5d99265d5e8cbca61affb0)). Contributed by @yeongseon.
 - **Official-driver differential gate (#446)** — official behavior that
   pycubrid claims is now listed in `tests/fixtures/official_differential_claims.json`.
   Each claim is a `match`, or a `deviation` with a reason, an issue and both
@@ -2216,7 +2161,7 @@ Behavior changes you may notice (details in the entries below):
   only its keys and silently drop the values — and `Sequence` additionally
   rejects a `set`/`frozenset` argument (`TypeError`), since its iteration
   order is not guaranteed and would make `Sequence`'s element order
-  nondeterministic; `Set` and `Multiset` still accept a `set`/`frozenset`. Contributed by @yeongseon.
+  nondeterministic; `Set` and `Multiset` still accept a `set`/`frozenset` ([#568](https://github.com/cubrid-lab/pycubrid/pull/568), [17cc5dc](https://github.com/cubrid-lab/pycubrid/commit/17cc5dca98ee33ad052ce5ba8d04bfe6b9826812)) ([#580](https://github.com/cubrid-lab/pycubrid/pull/580), [882b704](https://github.com/cubrid-lab/pycubrid/commit/882b704165ac7d1b614c2831995a8071c3b654ac)). Contributed by @yeongseon.
 - **Internal: typed collection binding wire contract (#482)** — not
   user-visible. Prepared FC3 requests can carry an immutable
   SET/SEQUENCE/MULTISET value of INT or STRING elements (NULL elements, empty
@@ -2224,7 +2169,7 @@ Behavior changes you may notice (details in the entries below):
   nested and unsupported elements before any bytes are built. There is no public collection API yet (#440); ordinary sync/async
   execution and the public API are unchanged. Live 10.2/11.4 evidence: the
   broker rejects the MULTISET kind (error -454), and a SET value stored into a
-  MULTISET column drops duplicates while a SEQUENCE value keeps them. Contributed by @yeongseon.
+  MULTISET column drops duplicates while a SEQUENCE value keeps them ([#569](https://github.com/cubrid-lab/pycubrid/pull/569), [bf53d2c](https://github.com/cubrid-lab/pycubrid/commit/bf53d2ca45290533ad8d6b47cbb54c4a9ba533c5)). Contributed by @yeongseon.
 - **Internal: LOB-handle binding wire contract (#441)** — not user-visible.
   Prepared FC3 requests can carry an immutable BLOB/CLOB handle binding whose
   bytes equal the official driver's `bind_lob()` request (checked against a
@@ -2237,19 +2182,10 @@ Behavior changes you may notice (details in the entries below):
 
 **Additional generated commit references:**
 
-* add charset connection option ([#510](https://github.com/cubrid-lab/pycubrid/issues/510)) ([3874252](https://github.com/cubrid-lab/pycubrid/commit/387425245e70c63e6b5d99265d5e8cbca61affb0)) by @yeongseon.
-* **compat:** add fixed-session connection utilities ([#667](https://github.com/cubrid-lab/pycubrid/issues/667)) ([9fbbc05](https://github.com/cubrid-lab/pycubrid/commit/9fbbc05b494e52197907bea138b36a3380ff6421)), closes [#666](https://github.com/cubrid-lab/pycubrid/issues/666) by @yeongseon.
 * **compat:** add native cursor seek and tell ([ff8eee7](https://github.com/cubrid-lab/pycubrid/commit/ff8eee7fd4c8c403b48000747293bf55af3bb3c3)), closes [#444](https://github.com/cubrid-lab/pycubrid/issues/444) [#444](https://github.com/cubrid-lab/pycubrid/issues/444) by @yeongseon.
-* **compat:** bind collections with official native set API ([#607](https://github.com/cubrid-lab/pycubrid/issues/607)) ([c316c39](https://github.com/cubrid-lab/pycubrid/commit/c316c39a3c7ef993c541b93114380dc10ed778dc)) by @yeongseon.
-* **compat:** expose cached result_info without moving rows ([#642](https://github.com/cubrid-lab/pycubrid/issues/642)) ([ee62e28](https://github.com/cubrid-lab/pycubrid/commit/ee62e28a5f316e779da20cfe575a1cd0ed2dda30)) by @yeongseon.
-* **compat:** expose wrapper transaction boundaries ([#664](https://github.com/cubrid-lab/pycubrid/issues/664)) ([44aafb9](https://github.com/cubrid-lab/pycubrid/commit/44aafb9ed7cf413eb558d0a3709c88fcbb19e38c)), closes [#662](https://github.com/cubrid-lab/pycubrid/issues/662) by @yeongseon.
-* **compat:** fetch and bind LOB handles with official native API ([#616](https://github.com/cubrid-lab/pycubrid/issues/616)) ([068325e](https://github.com/cubrid-lab/pycubrid/commit/068325e75abb068a6b9d4f9bc841038cb7743a1e)) by @yeongseon.
 * **compat:** preserve official wrapper rows on supported scalars ([2215d0a](https://github.com/cubrid-lab/pycubrid/commit/2215d0a739252a25e93a399a9e3fc84a96501f48)) by @yeongseon.
 * **compat:** separate cached native settings from effective setters ([7a22678](https://github.com/cubrid-lab/pycubrid/commit/7a226783103136fa518f5a479622799b2bea8b4d)) by @yeongseon.
 * **compat:** separate native LOB streams from ordinary offset APIs ([bebef4d](https://github.com/cubrid-lab/pycubrid/commit/bebef4d3b9abdc65feef62d770d014e8ececff4c)) by @yeongseon.
-* **driver:** add typed Set, Multiset and Sequence parameters for ordinary cursors ([#568](https://github.com/cubrid-lab/pycubrid/issues/568)) ([17cc5dc](https://github.com/cubrid-lab/pycubrid/commit/17cc5dca98ee33ad052ce5ba8d04bfe6b9826812)) by @yeongseon.
-* preserve native LOB file workflows on failure ([#653](https://github.com/cubrid-lab/pycubrid/issues/653)) ([5d40a0f](https://github.com/cubrid-lab/pycubrid/commit/5d40a0f8bfc1f51ff43ab4b1c8bd3b119783a999)), closes [#443](https://github.com/cubrid-lab/pycubrid/issues/443) by @yeongseon.
-* **protocol:** add the internal typed collection binding wire contract ([#569](https://github.com/cubrid-lab/pycubrid/issues/569)) ([bf53d2c](https://github.com/cubrid-lab/pycubrid/commit/bf53d2ca45290533ad8d6b47cbb54c4a9ba533c5)) by @yeongseon.
 
 ### Changed
 
@@ -2289,7 +2225,7 @@ Behavior changes you may notice (details in the entries below):
   differential run of the old and new parser over 10,490 seed, truncated and
   byte-mutated FETCH replies gave identical rows and identical exception types
   and messages. Without `--benchmark-enable`, the benchmark runs only as a
-  correctness check. Contributed by @yeongseon.
+  correctness check ([#602](https://github.com/cubrid-lab/pycubrid/pull/602), [cfecfba](https://github.com/cubrid-lab/pycubrid/commit/cfecfba3cc1251b38465669427352579691e3b17)). Contributed by @yeongseon.
 - **Internal: explicit per-reply session verification and one escape-mode policy (#525)** —
   refactor with no behavior change in either driver. Whether an OUT_TRAN reply
   still needed a `CHECK_CAS` probe was decided by comparing CAS_INFO object
@@ -2397,9 +2333,9 @@ Behavior changes you may notice (details in the entries below):
   request. Positive sizes and omitted/`None` defaults keep their behavior;
   existing zero/negative integer no-ops and the separate compatibility wrapper
   are preserved. This type tightening is classified MINOR, since booleans
-  and nonpositive floats previously completed without error. Contributed by @yeongseon.
+  and nonpositive floats previously completed without error ([#679](https://github.com/cubrid-lab/pycubrid/pull/679), [8dd1198](https://github.com/cubrid-lab/pycubrid/commit/8dd11989167594f36774da824224064073883240)). Contributed by @yeongseon.
 - Preserve existing Docker volumes during automatic integration/TLS cleanup, including readiness and test failures (#501) by @yeongseon, co-authored by @HarshRajSinghania.
-- **Connection timeouts are validated before socket creation (#367)** — sync and async connections reject negative, NaN, and infinite `connect_timeout`/`read_timeout` values during common initialization, preventing invalid timeout values from leaking a newly opened socket; `None`, zero, and finite positive values retain their existing semantics. Contributed by @yeongseon, co-authored by @blackmore-technology-group.
+- **Connection timeouts are validated before socket creation (#367)** — sync and async connections reject negative, NaN, and infinite `connect_timeout`/`read_timeout` values during common initialization, preventing invalid timeout values from leaking a newly opened socket; `None`, zero, and finite positive values retain their existing semantics ([#646](https://github.com/cubrid-lab/pycubrid/pull/646), [7577e4d](https://github.com/cubrid-lab/pycubrid/commit/7577e4d5c33911ee7c7ca7707fbd37e2ad9e04d4)). Contributed by @yeongseon, co-authored by @blackmore-technology-group.
 - **TLS preflight fatal alerts and timeout context (#592)** — the Python 3.10
   async certificate probe sends queued fatal alert bytes best effort within
   its existing deadline, then re-raises the original TLS error even if alert
@@ -2473,7 +2409,7 @@ Behavior changes you may notice (details in the entries below):
   the empty-write shortcut's return value, and the `DataError` raised for an
   in-range `int` too large to serialize (e.g. `offset=2**63`) are unchanged.
   The regression suite's closed-LOB-precedes-invalid-arguments ordering test
-  is adapted from heyadhithya's PR #458. Contributed by @yeongseon and @HarshRajSinghania, co-authored by @heyadhithya.
+  is adapted from heyadhithya's PR #458 ([#516](https://github.com/cubrid-lab/pycubrid/pull/516), [dad392e](https://github.com/cubrid-lab/pycubrid/commit/dad392e8396ae82c7db962671c1c714b3dfe2dd5)). Contributed by @yeongseon and @HarshRajSinghania, co-authored by @heyadhithya.
 - **Missing-timezone test fixtures isolate cached wheel resources (#605)** —
   Offline and integration helpers hide cached `tzdata.*` modules as well as
   system timezone paths, then restore the original modules and exact caller
@@ -2485,7 +2421,7 @@ Behavior changes you may notice (details in the entries below):
   exact decoder consumption. The first complete `DataError` is saved while
   subsequent members still run their decoders; later structural damage retires
   the sync/async session. Complete collections keep the first error and cause.
-  NULL-only, opaque/disabled decoding and unsupported nested layouts are unchanged. Contributed by @yeongseon.
+  NULL-only, opaque/disabled decoding and unsupported nested layouts are unchanged ([#597](https://github.com/cubrid-lab/pycubrid/pull/597), [1a93ecf](https://github.com/cubrid-lab/pycubrid/commit/1a93ecf6b69012dd8a3a85be9d16a65898d5ec60)). Contributed by @yeongseon.
 - **Pooling-off autocommit replies retire freed handle ownership (#584)** —
   Direct CUBRID CAS reuses handle IDs after an automatic transaction end.
   Sync and async drivers now invalidate cursor/schema ownership on the actual
@@ -2495,7 +2431,7 @@ Behavior changes you may notice (details in the entries below):
   fail explicitly rather than closing or fetching another cursor's reused ID.
   Final ordinary autocommit FETCH and error replies follow the same rule.
   Physical-session generation, pooling-on/manual/schema behavior and liveness
-  probes are preserved; arbitrary OUT_TRAN echoes and batch replies are excluded. Contributed by @yeongseon.
+  probes are preserved; arbitrary OUT_TRAN echoes and batch replies are excluded ([#598](https://github.com/cubrid-lab/pycubrid/pull/598), [1251165](https://github.com/cubrid-lab/pycubrid/commit/125116574a7eeb05c942bcc24563be28eef9ee2b)). Contributed by @yeongseon.
 - **Metadata text errors cannot hide damaged FC41/FC3 tails (#591)** —
   Undecodable metadata retains column types for validation of remaining
   counts, fields and inline rows before the original `DataError` is raised.
@@ -2504,7 +2440,7 @@ Behavior changes you may notice (details in the entries below):
   cells after an unrepresentable row value, including collection and LOB
   validation. Negative collection element counts and partial inline-fetch
   headers are rejected; absent optional headers and undeclared trailing bytes
-  retain their contracts. Bounds re-walks use checked reader marks. Contributed by @yeongseon.
+  retain their contracts. Bounds re-walks use checked reader marks ([#596](https://github.com/cubrid-lab/pycubrid/pull/596), [62f5866](https://github.com/cubrid-lab/pycubrid/commit/62f5866898818faa9146249712bc40a0fef80f4f)). Contributed by @yeongseon.
 - **Column metadata finishes its framing check before `DataError`; FC41 count gaps closed (#581)** —
   column metadata text that is not valid in the connection codec raised
   `DataError` at once in FC2, FC3 (refreshed columns) and FC41 replies, so
@@ -2516,7 +2452,7 @@ Behavior changes you may notice (details in the entries below):
   now rejects a negative bind count, `total_tuple_count` or inline tuple count
   (previously ignored, passed through, or read as zero rows) and a column count
   the reply cannot hold, as FC2 already did; FC3 rejects a negative inline
-  tuple count. Sync and async behave the same. Contributed by @yeongseon.
+  tuple count. Sync and async behave the same ([#588](https://github.com/cubrid-lab/pycubrid/pull/588), [d19a981](https://github.com/cubrid-lab/pycubrid/commit/d19a9819067262d64f3c0e2f09a009edd7a5fc71)). Contributed by @yeongseon.
 - **Sync TLS handshake is bounded without `read_timeout`; the Python 3.10 TLS preflight probe closes its socket (#535)** —
   `pycubrid.connect(..., ssl=...)` without `read_timeout` waited forever when the
   broker (or a proxy in front of it) stalled during the TLS handshake. The
@@ -2535,7 +2471,7 @@ Behavior changes you may notice (details in the entries below):
   sending the final handshake flight propagate instead of being suppressed.
   Best-effort close_notify cannot extend that deadline (#593). The
   same CPython 3.10 `ssl` behavior can still affect the sync driver's
-  `wrap_socket()` upgrade on 3.10; `docs/CONNECTION.md` (+ Korean) documents it. Contributed by @yeongseon.
+  `wrap_socket()` upgrade on 3.10; `docs/CONNECTION.md` (+ Korean) documents it ([#586](https://github.com/cubrid-lab/pycubrid/pull/586), [3af12ae](https://github.com/cubrid-lab/pycubrid/commit/3af12ae7d97ea6e1c5e30e616babc0f54fc7ddd0)). Contributed by @yeongseon.
 - **Transport failures retire cursor handles; async timeout errors name their cause (#556)** —
   an uncertain transport failure closed the connection but left cursors
   holding the dead session's query handle ids: the sync socket-error and
@@ -2572,7 +2508,7 @@ Behavior changes you may notice (details in the entries below):
   response from broker')` on the sync and async connections and closes the
   connection, like other framing damage (#383, #533). A normal server does not
   send such replies. Zero-length metadata, valid FC2/FC3/FC41 replies and the
-  session-keeping `DataError` for a complete reply (#492, #512) are unchanged. Contributed by @yeongseon.
+  session-keeping `DataError` for a complete reply (#492, #512) are unchanged ([#574](https://github.com/cubrid-lab/pycubrid/pull/574), [a341cec](https://github.com/cubrid-lab/pycubrid/commit/a341cec58f36d33b8ae75734b3854619c7287911)). Contributed by @yeongseon.
 - **Async setup failure no longer leaks into waiting tasks (#554)** — while
   `AsyncConnection.connect()` configured a new session, other tasks waiting on
   the setup gate re-raised the setup owner's exception instance, so cancelling
@@ -2586,7 +2522,7 @@ Behavior changes you may notice (details in the entries below):
   task; retry operation")`. The setup owner still raises its own exception
   (including `CancelledError`), a waiter's own cancellation is unchanged, and
   the failed session is still discarded before the gate opens. This covers
-  `connect()`, including the reconnect of `ping(reconnect=True)`. Contributed by @yeongseon.
+  `connect()`, including the reconnect of `ping(reconnect=True)` ([#578](https://github.com/cubrid-lab/pycubrid/pull/578), [7f5fe22](https://github.com/cubrid-lab/pycubrid/commit/7f5fe229000ebec13bc14427f0dfe277acfb5b09)). Contributed by @yeongseon.
 - **Invalid JSON text in a complete reply raises `DataError` (#543)** — a
   `JSON` column value that is not valid JSON, decoded with
   `json_deserializer=json.loads`, raised `json.JSONDecodeError` — a
@@ -2606,7 +2542,7 @@ Behavior changes you may notice (details in the entries below):
   stays fail-closed as for invalid UTF-8 and zero dates: it raises
   `OperationalError` and retires the session. A caller-supplied
   `json_deserializer` is not wrapped: only the built-in `json.loads` path is
-  reclassified. Contributed by @yeongseon.
+  reclassified ([#571](https://github.com/cubrid-lab/pycubrid/pull/571), [c1a5de5](https://github.com/cubrid-lab/pycubrid/commit/c1a5de55db5a5ecca164bb6826e55726dd56f8aa)). Contributed by @yeongseon.
 - **The autocommit setter keeps `SET_DB_PARAMETER` and `COMMIT` on one CAS session (#551)** —
   in both drivers, `conn.autocommit = v` / `await conn.set_autocommit(v)` sent
   `COMMIT` with implicit reconnect after an OUT_TRAN `SET_DB_PARAMETER` reply,
@@ -2621,7 +2557,7 @@ Behavior changes you may notice (details in the entries below):
   `OperationalError` is raised with the cause chained; a rejected
   `SET_DB_PARAMETER` still raises its native error and keeps the session.
   Found by the offline sync/async replay parity suite (#521), whose strict
-  `xfail` scenario now passes. Contributed by @yeongseon.
+  `xfail` scenario now passes ([#552](https://github.com/cubrid-lab/pycubrid/pull/552), [7ac5a3e](https://github.com/cubrid-lab/pycubrid/commit/7ac5a3e528efb97516f638d607e5f3547fc3d69b)). Contributed by @yeongseon.
 - **Sync `Connection.connect()` after `close()` restores an explicit `autocommit` (#520)** —
   reopening a closed sync connection did not re-send `SET_DB_PARAMETER`
   (`AUTO_COMMIT`), so the new CAS session kept the broker default while
@@ -2684,7 +2620,7 @@ Behavior changes you may notice (details in the entries below):
   malformed reply (`OperationalError('malformed response from broker')`, the
   connection closes), and the re-walk before `DataError` (#523) reads the same
   header. Verified live on CUBRID 10.2 and 11.4. Documented in
-  `docs/API_REFERENCE.md` and `docs/PROTOCOL.md` (+ Korean) by @yeongseon.
+  `docs/API_REFERENCE.md` and `docs/PROTOCOL.md` (+ Korean) ([#549](https://github.com/cubrid-lab/pycubrid/pull/549), [e329a11](https://github.com/cubrid-lab/pycubrid/commit/e329a117c153d891e85b53a1cfd24580ca38766e)) by @yeongseon.
 - **Row cells whose value does not use exactly their declared size are rejected (#523)** —
   the readers for fixed-width values (`SHORT`, `INT`, `BIGINT`, `FLOAT`,
   `DOUBLE`, `MONETARY`, `DATE`, `TIME`, `DATETIME`, `TIMESTAMP`, `OBJECT`, and
@@ -2752,7 +2688,7 @@ Behavior changes you may notice (details in the entries below):
   removes the container, and accepts `CUBRID_TEST_PORT=<port>` (also used by
   `docker-compose.yml`) to avoid a busy port 33000. `make integration-tls` also
   waits for readiness instead of sleeping, audits its JUnit report and always
-  removes the container. Contributed by @yeongseon.
+  removes the container ([#541](https://github.com/cubrid-lab/pycubrid/pull/541), [68851c9](https://github.com/cubrid-lab/pycubrid/commit/68851c9aa9b125496250f7fff2ae6c4a3821f2b5)). Contributed by @yeongseon.
 - **Rows fetched before a failing page are no longer lost (#507)** — when a
   later FETCH page raised a data-level `DataError` (invalid text #492, an
   unresolved zone #413, a zero date #512), `fetchall()` and `fetchmany()`
@@ -2769,9 +2705,9 @@ Behavior changes you may notice (details in the entries below):
   server. The connection stays usable and the cursor keeps its handle, sync
   and async alike. Documented in `docs/API_REFERENCE.md`, `docs/TYPES.md` and
   `docs/TROUBLESHOOTING.md` (+ Korean); live-tested against CUBRID 11.4 with a
-  zero `DATE` several FETCH pages into the result. Contributed by @yeongseon.
+  zero `DATE` several FETCH pages into the result ([#536](https://github.com/cubrid-lab/pycubrid/pull/536), [ef815f8](https://github.com/cubrid-lab/pycubrid/commit/ef815f853b5167daae016416c05701b4a420332e)). Contributed by @yeongseon.
 - **`pycubrid.aio` no longer logs an asyncio warning whenever a TLS broker closes the connection (#514)** — after the in-place `loop.start_tls()` upgrade the stream protocol still believed it was on a plaintext transport, so every TLS peer close (broker restart, CAS recycle, idle timeout, dropped session before a reconnect) made asyncio log `WARNING returning true from eof_received() has no effect when using ssl`. The upgrade now marks the stream protocol as running over TLS, as `StreamWriter.start_tls()` does on Python 3.11+. Log output only; connection state, errors and the sync driver are unchanged. Contributed by @yeongseon.
-- **`pycubrid.aio.connect(..., ssl=...)` no longer hangs forever when the TLS handshake is interrupted (#513)** — if the broker stalled or reset the connection before the TLS handshake completed, `read_timeout` (or the 10-second `ssl_handshake_timeout`) fired as intended, but connect cleanup then awaited `StreamWriter.wait_closed()` on a stream that asyncio never marks closed (its `SSLProtocol` drops `connection_lost` while still handshaking), so the call never returned on Python 3.11+. The failed upgrade now notifies the stream protocol itself after aborting the transport, and connect raises `OperationalError` within `read_timeout` and closes the socket. The sync driver was not affected. `docs/CONNECTION.md` and `docs/TROUBLESHOOTING.md` (+ Korean) now state which timeout bounds the TLS handshake (`read_timeout`; `connect_timeout` covers only the TCP connect) by @yeongseon.
+- **`pycubrid.aio.connect(..., ssl=...)` no longer hangs forever when the TLS handshake is interrupted (#513)** — if the broker stalled or reset the connection before the TLS handshake completed, `read_timeout` (or the 10-second `ssl_handshake_timeout`) fired as intended, but connect cleanup then awaited `StreamWriter.wait_closed()` on a stream that asyncio never marks closed (its `SSLProtocol` drops `connection_lost` while still handshaking), so the call never returned on Python 3.11+. The failed upgrade now notifies the stream protocol itself after aborting the transport, and connect raises `OperationalError` within `read_timeout` and closes the socket. The sync driver was not affected. `docs/CONNECTION.md` and `docs/TROUBLESHOOTING.md` (+ Korean) now state which timeout bounds the TLS handshake (`read_timeout`; `connect_timeout` covers only the TCP connect) ([#534](https://github.com/cubrid-lab/pycubrid/pull/534), [bd878fe](https://github.com/cubrid-lab/pycubrid/commit/bd878fe1af7b4e0eb5e76e47c9da3407d5394944)) by @yeongseon.
 - **Reads past the end of a broker reply are rejected (#383)** — a length
   field that ran past the end of a reply was cut short by a Python slice and
   returned as if complete: a `BIT`/`VARBIT` cell declaring 8 bytes but carrying
@@ -2787,7 +2723,7 @@ Behavior changes you may notice (details in the entries below):
   complete replies (#492, #512). A `LOB_READ` count below the requested length
   is still a valid short read (#362), and bytes after the last value a reply
   declares are still ignored. Documented in `docs/PROTOCOL.md` and
-  `docs/TROUBLESHOOTING.md` (+ Korean) by @yeongseon.
+  `docs/TROUBLESHOOTING.md` (+ Korean) ([#533](https://github.com/cubrid-lab/pycubrid/pull/533), [4605671](https://github.com/cubrid-lab/pycubrid/commit/4605671725dce24c895996770ed29d51bb1adb25)) by @yeongseon.
 - **Zero `DATE`/`DATETIME`/`TIMESTAMP` values no longer close the connection
   (#512)** — CUBRID accepts zero values such as `DATE'0000-00-00'`,
   `DATETIME'0000-00-00 00:00:00'` and zero `TIMESTAMP`, `TIMESTAMPTZ`,
@@ -2811,7 +2747,7 @@ Behavior changes you may notice (details in the entries below):
   `docs/TYPES.md` and `docs/TROUBLESHOOTING.md` (+ Korean) document SQL
   workarounds (`NULLIF(d, DATE'0000-00-00')`, `CASE`, `TO_CHAR`). Found by
   the CUBRID 10.2-11.4 version differential (#351); the behavior was the same
-  on 10.2, 11.0, 11.2 and 11.4. Contributed by @yeongseon.
+  on 10.2, 11.0, 11.2 and 11.4 ([#532](https://github.com/cubrid-lab/pycubrid/pull/532), [5357f66](https://github.com/cubrid-lab/pycubrid/commit/5357f660a39ef048e4d90f06d38e91a47b742bc8)). Contributed by @yeongseon.
 - **Security: `str`, `bytes`, date and time parameters are rendered without
   calling overridable methods (#528)** — `format_parameter()` escaped `str`
   parameters with `value.replace(...)` and `"\x00" in value`, rendered
@@ -2837,7 +2773,7 @@ Behavior changes you may notice (details in the entries below):
   `ProgrammingError`, because that module copies their value through
   attributes a subclass can forge. Output for plain `str`, `bytes`,
   `bytearray`, `date`, `datetime` and `time` values is byte-identical except
-  for the year padding below, and sync and async cursors share the change. Contributed by @yeongseon.
+  for the year padding below, and sync and async cursors share the change ([#529](https://github.com/cubrid-lab/pycubrid/pull/529), [dde9a07](https://github.com/cubrid-lab/pycubrid/commit/dde9a071f44ae275a5db486dea8ecf1521889761)). Contributed by @yeongseon.
 - **Years below 1000 are zero-padded in `DATE`/`DATETIME`/`DATETIMETZ`
   literals (#519)** — the year was rendered with `strftime("%Y")`, which does
   not pad on Linux, and CUBRID reads `DATE'99-01-02'` as 1999-01-02, so
@@ -2856,7 +2792,7 @@ Behavior changes you may notice (details in the entries below):
   `NaN`/`Infinity` and 38-digit checks and `format(..., "f")`), so `Color.RED`
   is sent as `1` and `Perm.R | Perm.W` as `6`. Output for plain `int`, `float`
   and `Decimal` values is unchanged, `bool` still renders as `1`/`0`, and
-  sync and async cursors share the change. Contributed by @yeongseon.
+  sync and async cursors share the change ([#527](https://github.com/cubrid-lab/pycubrid/pull/527), [0577cd8](https://github.com/cubrid-lab/pycubrid/commit/0577cd82e1de3858b3694b0105f3f13c622082f9)). Contributed by @yeongseon.
 - `decimal.Decimal` parameters are now rendered in plain fixed-point notation
   instead of `str(value)`, which switched to E notation (`Decimal("1E-7")` was
   sent as `1E-7`). CUBRID parses an E-notation literal as `DOUBLE`, so such
@@ -2925,8 +2861,6 @@ Behavior changes you may notice (details in the entries below):
 
 **Additional generated commit references:**
 
-* **aio:** bound async TLS connect when the handshake stalls or is reset ([#534](https://github.com/cubrid-lab/pycubrid/issues/534)) ([bd878fe](https://github.com/cubrid-lab/pycubrid/commit/bd878fe1af7b4e0eb5e76e47c9da3407d5394944)) by @yeongseon.
-* **async:** isolate setup cancellation from waiting operations ([#578](https://github.com/cubrid-lab/pycubrid/issues/578)) ([7f5fe22](https://github.com/cubrid-lab/pycubrid/commit/7f5fe229000ebec13bc14427f0dfe277acfb5b09)) by @yeongseon.
 * **binding:** keep invalid timezone failures within DB-API errors ([4fcd9c8](https://github.com/cubrid-lab/pycubrid/commit/4fcd9c82be27e56fcdf1ab8d992c56d1d8b0c994)) by @yeongseon.
 * **changelog:** reject duplicate release subsections ([#648](https://github.com/cubrid-lab/pycubrid/issues/648)) ([3c57bb9](https://github.com/cubrid-lab/pycubrid/commit/3c57bb9ffab347f5c57e27d080d4a9b205c64083)) by @yeongseon, co-authored by @chenzeyan54-commits.
 * **ci:** report a skipped cookbook verification as failed in the release summary ([#548](https://github.com/cubrid-lab/pycubrid/issues/548)) ([45f3374](https://github.com/cubrid-lab/pycubrid/commit/45f3374b4cfa9d191316c935b3801e827aa94b1b)) by @yeongseon.
@@ -2935,46 +2869,26 @@ Behavior changes you may notice (details in the entries below):
 * **compat:** refresh failed plans only on the next explicit execution ([e39e00e](https://github.com/cubrid-lab/pycubrid/commit/e39e00e8e61b2c04f3e8250a7b82cde1a3f6a82a)) by @yeongseon.
 * **connection:** preserve deferred handle ownership across interrupts ([1686920](https://github.com/cubrid-lab/pycubrid/commit/16869201ca04a8b9e0b4ee5e73cb996bb38c0625)) by @yeongseon.
 * **connection:** retire cursor handles on transport failures and clarify timeout errors ([3d72216](https://github.com/cubrid-lab/pycubrid/commit/3d72216ff807f9a1fe6d7292cf754f44359b2626)), closes [#556](https://github.com/cubrid-lab/pycubrid/issues/556) by @yeongseon.
-* **cursor:** retire pooling-off handles at transaction replies ([#598](https://github.com/cubrid-lab/pycubrid/issues/598)) ([1251165](https://github.com/cubrid-lab/pycubrid/commit/125116574a7eeb05c942bcc24563be28eef9ee2b)), closes [#584](https://github.com/cubrid-lab/pycubrid/issues/584) by @yeongseon.
 * DBAPIType should not treat bool values as integer type ([#479](https://github.com/cubrid-lab/pycubrid/issues/479)) ([4efe599](https://github.com/cubrid-lab/pycubrid/commit/4efe599d29965e606e3ce77682c162be9830fcd7)), closes [#369](https://github.com/cubrid-lab/pycubrid/issues/369) [#369](https://github.com/cubrid-lab/pycubrid/issues/369) by @Mr-Neutr0n (first contribution 🎉).
 * decode nonempty NULL-only collection results ([c588055](https://github.com/cubrid-lab/pycubrid/commit/c588055f9bbe31ae6872430bd75aede26060cbec)) by @yeongseon.
 * decode nonempty NULL-only collection results ([e379116](https://github.com/cubrid-lab/pycubrid/commit/e379116e618791b8a65a060c108139954ff3fea9)), closes [#483](https://github.com/cubrid-lab/pycubrid/issues/483) by @yeongseon.
-* **driver:** keep already fetched rows when a later fetch page raises DataError ([#536](https://github.com/cubrid-lab/pycubrid/issues/536)) ([ef815f8](https://github.com/cubrid-lab/pycubrid/commit/ef815f853b5167daae016416c05701b4a420332e)) by @yeongseon.
-* **driver:** keep the autocommit setter's requests on one CAS session ([#552](https://github.com/cubrid-lab/pycubrid/issues/552)) ([7ac5a3e](https://github.com/cubrid-lab/pycubrid/commit/7ac5a3e528efb97516f638d607e5f3547fc3d69b)) by @yeongseon.
 * **driver:** render Decimal parameters in plain notation so CUBRID keeps them NUMERIC ([#526](https://github.com/cubrid-lab/pycubrid/issues/526)) ([a7a3563](https://github.com/cubrid-lab/pycubrid/commit/a7a3563e4ee2fecc06c9208ecbe42392f575749f)) by @yeongseon.
-* **driver:** render int, float and Decimal subclasses by value instead of str() ([#527](https://github.com/cubrid-lab/pycubrid/issues/527)) ([0577cd8](https://github.com/cubrid-lab/pycubrid/commit/0577cd82e1de3858b3694b0105f3f13c622082f9)), closes [#518](https://github.com/cubrid-lab/pycubrid/issues/518) by @yeongseon.
-* **driver:** render str, bytes, date and time parameters without calling overridable methods ([#529](https://github.com/cubrid-lab/pycubrid/issues/529)) ([dde9a07](https://github.com/cubrid-lab/pycubrid/commit/dde9a071f44ae275a5db486dea8ecf1521889761)) by @yeongseon.
 * **integration:** preserve volumes during automatic Docker cleanup ([#647](https://github.com/cubrid-lab/pycubrid/issues/647)) ([f3b2e69](https://github.com/cubrid-lab/pycubrid/commit/f3b2e6983e62ae3d5d72149188d3357de96e5445)) by @yeongseon, co-authored by @HarshRajSinghania.
 * keep the session when a complete broker reply carries invalid UTF-8 ([734fb29](https://github.com/cubrid-lab/pycubrid/commit/734fb294276927fa50c6887e99871a82a2c8eebc)) by @yeongseon.
 * **lob:** keep the handle size current and add internal LOB-handle binding ([#615](https://github.com/cubrid-lab/pycubrid/issues/615)) ([35d4e2c](https://github.com/cubrid-lab/pycubrid/commit/35d4e2cbedbea85bbdac0d76d047572e5cffb6ff)) by @yeongseon.
 * **protocol:** avoid blaming following tokens for reserved identifiers ([5fde41f](https://github.com/cubrid-lab/pycubrid/commit/5fde41f37dd030f7c6098f3a7a8d70a9ecbc5f4a)) by @yeongseon.
-* **protocol:** decode CALL and NULL-typed cells with the two-byte type header ([#549](https://github.com/cubrid-lab/pycubrid/issues/549)) ([e329a11](https://github.com/cubrid-lab/pycubrid/commit/e329a117c153d891e85b53a1cfd24580ca38766e)) by @yeongseon.
-* **protocol:** finish framing validation before raising DataError and close remaining FC41 count gaps ([#588](https://github.com/cubrid-lab/pycubrid/issues/588)) ([d19a981](https://github.com/cubrid-lab/pycubrid/commit/d19a9819067262d64f3c0e2f09a009edd7a5fc71)), closes [#581](https://github.com/cubrid-lab/pycubrid/issues/581) by @yeongseon.
-* **protocol:** keep collection errors from hiding malformed elements ([#597](https://github.com/cubrid-lab/pycubrid/issues/597)) ([1a93ecf](https://github.com/cubrid-lab/pycubrid/commit/1a93ecf6b69012dd8a3a85be9d16a65898d5ec60)), closes [#591](https://github.com/cubrid-lab/pycubrid/issues/591) [#595](https://github.com/cubrid-lab/pycubrid/issues/595) by @yeongseon.
-* **protocol:** raise DataError for invalid JSON in a complete reply ([#571](https://github.com/cubrid-lab/pycubrid/issues/571)) ([c1a5de5](https://github.com/cubrid-lab/pycubrid/commit/c1a5de55db5a5ecca164bb6826e55726dd56f8aa)) by @yeongseon.
-* **protocol:** raise DataError for zero DATE and DATETIME values instead of closing the connection ([#532](https://github.com/cubrid-lab/pycubrid/issues/532)) ([5357f66](https://github.com/cubrid-lab/pycubrid/commit/5357f660a39ef048e4d90f06d38e91a47b742bc8)) by @yeongseon.
-* **protocol:** reject byte reads past the end of a broker reply ([#533](https://github.com/cubrid-lab/pycubrid/issues/533)) ([4605671](https://github.com/cubrid-lab/pycubrid/commit/4605671725dce24c895996770ed29d51bb1adb25)) by @yeongseon.
-* **protocol:** reject negative FC41 metadata lengths and column counts ([#574](https://github.com/cubrid-lab/pycubrid/issues/574)) ([a341cec](https://github.com/cubrid-lab/pycubrid/commit/a341cec58f36d33b8ae75734b3854619c7287911)), closes [#555](https://github.com/cubrid-lab/pycubrid/issues/555) by @yeongseon.
-* **protocol:** validate reply tails before metadata DataError ([#596](https://github.com/cubrid-lab/pycubrid/issues/596)) ([62f5866](https://github.com/cubrid-lab/pycubrid/commit/62f5866898818faa9146249712bc40a0fef80f4f)), closes [#591](https://github.com/cubrid-lab/pycubrid/issues/591) by @yeongseon.
 * raise DataError for unresolvable TZ zones and honor DST abbreviations ([180dd56](https://github.com/cubrid-lab/pycubrid/commit/180dd56b1b48c9fb6649285b109d8d7dbfaa752b)) by @yeongseon.
 * raise DataError for unresolvable TZ zones and honor DST abbreviations ([209b201](https://github.com/cubrid-lab/pycubrid/commit/209b20154591783e80dbb5c758ef4629dfc3367d)), closes [#413](https://github.com/cubrid-lab/pycubrid/issues/413) by @yeongseon.
-* reject malformed fetch sizes before rows or pages are consumed ([#679](https://github.com/cubrid-lab/pycubrid/issues/679)) ([8dd1198](https://github.com/cubrid-lab/pycubrid/commit/8dd11989167594f36774da824224064073883240)), closes [#371](https://github.com/cubrid-lab/pycubrid/issues/371) by @yeongseon.
 * reject malformed qualified callproc names ([#515](https://github.com/cubrid-lab/pycubrid/issues/515)) ([601a879](https://github.com/cubrid-lab/pycubrid/commit/601a879f52b951ccdc366d95fde47b3d2d84b75a)), closes [#372](https://github.com/cubrid-lab/pycubrid/issues/372) [#372](https://github.com/cubrid-lab/pycubrid/issues/372) by @yotam1001 (first contribution 🎉).
-* **test:** fail instead of skip when a configured CUBRID endpoint is unreachable ([#541](https://github.com/cubrid-lab/pycubrid/issues/541)) ([68851c9](https://github.com/cubrid-lab/pycubrid/commit/68851c9aa9b125496250f7fff2ae6c4a3821f2b5)) by @yeongseon.
 * tighten TZ fold selection and reject out-of-range offsets ([98d8150](https://github.com/cubrid-lab/pycubrid/commit/98d8150403a525dc27f7d6003d8f5944984cdadc)) by @yeongseon.
-* **timeouts:** validate configuration before transport acquisition ([#646](https://github.com/cubrid-lab/pycubrid/issues/646)) ([7577e4d](https://github.com/cubrid-lab/pycubrid/commit/7577e4d5c33911ee7c7ca7707fbd37e2ad9e04d4)) by @yeongseon, co-authored by @blackmore-technology-group.
-* **tls:** bound sync TLS handshakes without read_timeout and close sockets on the Python 3.10 pre-connect path ([#586](https://github.com/cubrid-lab/pycubrid/issues/586)) ([3af12ae](https://github.com/cubrid-lab/pycubrid/commit/3af12ae7d97ea6e1c5e30e616babc0f54fc7ddd0)) by @yeongseon.
 * **tls:** preserve probe failures while notifying TLS peers ([fa7b22a](https://github.com/cubrid-lab/pycubrid/commit/fa7b22ad4707510830d8cccb1518c3a875d1c330)) by @yeongseon.
 * **tls:** preserve the total verification probe deadline ([#594](https://github.com/cubrid-lab/pycubrid/issues/594)) ([7dddab3](https://github.com/cubrid-lab/pycubrid/commit/7dddab31c22f8bb8b837c30d6e942d483abe5f10)), closes [#593](https://github.com/cubrid-lab/pycubrid/issues/593) by @yeongseon.
-* **types:** make typed collection parameters truly immutable, copyable and picklable ([#580](https://github.com/cubrid-lab/pycubrid/issues/580)) ([882b704](https://github.com/cubrid-lab/pycubrid/commit/882b704165ac7d1b614c2831995a8071c3b654ac)) by @yeongseon.
-* validate LOB offset and length types before serialization ([#516](https://github.com/cubrid-lab/pycubrid/issues/516)) ([dad392e](https://github.com/cubrid-lab/pycubrid/commit/dad392e8396ae82c7db962671c1c714b3dfe2dd5)) by @HarshRajSinghania.
 * validate size of empty NULL-type collections ([775f38c](https://github.com/cubrid-lab/pycubrid/commit/775f38c1d2b2422617ae8546ce11b3ccd445bc7f)) by @yeongseon.
 
 ### Performance
 
 **Additional generated commit references:**
 
-* **protocol:** benchmark fetch parsing and trim per-cell overhead ([#602](https://github.com/cubrid-lab/pycubrid/issues/602)) ([cfecfba](https://github.com/cubrid-lab/pycubrid/commit/cfecfba3cc1251b38465669427352579691e3b17)), closes [#559](https://github.com/cubrid-lab/pycubrid/issues/559) by @yeongseon.
 * release unclosed cursor handles in autocommit mode with a deferred close queue ([fe222fb](https://github.com/cubrid-lab/pycubrid/commit/fe222fb51ebb6fccf69f4d88941a1ecff9d82479)), closes [#488](https://github.com/cubrid-lab/pycubrid/issues/488) by @yeongseon.
 
 ### Documentation
@@ -2982,13 +2896,13 @@ Behavior changes you may notice (details in the entries below):
 - **Reviewed backlog priorities (#566)** — reconcile the dated roadmap index with
   current release, verification and compatibility work. Preserve contributor
   ownership and distinguish upstream reporting from release preparation; no
-  driver behavior, supported-version or publication-policy change. Contributed by @yeongseon.
+  driver behavior, supported-version or publication-policy change ([#680](https://github.com/cubrid-lab/pycubrid/pull/680), [4a9c598](https://github.com/cubrid-lab/pycubrid/commit/4a9c598555f2d3daa42e0055d64c9dbcf43d1e24)). Contributed by @yeongseon.
 - **CAS session-loss contract and upstream follow-up (#614)** — retain
   `OperationalError` for an incomplete CAS reply and document session retirement,
   explicit recovery without statement replay, and the differential harness's
   isolation/exclusion evidence. CUBRID's collection/NUMERIC `IF` SIGSEGV remains
   unfixed; upstream reporting is tracked separately in #675. No driver behavior,
-  public API or supported-version change. Contributed by @yeongseon.
+  public API or supported-version change ([#676](https://github.com/cubrid-lab/pycubrid/pull/676), [14f7398](https://github.com/cubrid-lab/pycubrid/commit/14f739866040c1bb9efc47d7426b50661007f3bd)). Contributed by @yeongseon.
 - **`TIME` binding precision is stated in the type reference** — `docs/TYPES.md`
   (English and Korean) now says that a bound `datetime.time` loses its
   microseconds and `tzinfo` silently, as `docs/PARAMETER_BINDING.md` already
@@ -2997,41 +2911,33 @@ Behavior changes you may notice (details in the entries below):
 - **Korean contribution guide (#329)** — translate the current contribution
   procedures and preserve command examples, English GitHub artifacts,
   contributor/maintainer responsibilities and release boundaries. Add discovery
-  from the Korean README and existing docs navigation; English policy is unchanged. Contributed by @yeongseon.
+  from the Korean README and existing docs navigation; English policy is unchanged ([#663](https://github.com/cubrid-lab/pycubrid/pull/663), [ac89eb3](https://github.com/cubrid-lab/pycubrid/commit/ac89eb36fefd8c2b6a61b0b3cb11ed6dc9615440)). Contributed by @yeongseon.
 - **Renewed CAS error-code evaluation (#505)** — document numeric-code-first
   dispatch, inner-code `-1`-only text fallback and raw `code`/`errno` preservation.
   Retain the flag-zero compatibility contract despite the bounded four-build
   renewed-code producer proof; numeric-only normalization is unsafe because
   legacy CAS and engine numbers overlap. Negotiation, consumer migration,
-  handshake/API behavior and the separate holdable feature remain unchanged. Contributed by @yeongseon.
+  handshake/API behavior and the separate holdable feature remain unchanged ([#656](https://github.com/cubrid-lab/pycubrid/pull/656), [eed27ab](https://github.com/cubrid-lab/pycubrid/commit/eed27abf8f4d350b84baaa6d7562812d90fc0aff)). Contributed by @yeongseon.
 - **Current verification guidance (#415)** — replace volatile current version,
   module and test/coverage counts with existing source, measured coverage and
   CI policy references in the README/translations, agent and development guides,
   roadmap, support matrix and canonical LLM index. Full coverage retains the
   95% floor; routine PR smoke is not a coverage or full-matrix claim. Historical
-  release/transport milestones and support/security/release policies are unchanged. Contributed by @yeongseon.
+  release/transport milestones and support/security/release policies are unchanged ([#654](https://github.com/cubrid-lab/pycubrid/pull/654), [127c6a1](https://github.com/cubrid-lab/pycubrid/commit/127c6a1f5bcf67eeefbcd6623a577887745b304e)). Contributed by @yeongseon.
 
 - Align SECURITY.md with latest-minor support and current Python 3.10 TLS preflight guidance while retaining disclosure instructions (#422) by @yeongseon, co-authored by @chenzeyan54-commits.
 - **`llms.txt` no longer advertises prepared statements, and the two entry points are single-sourced (#414)** — the root `llms.txt` claimed prepared statements and a `Cursor.prepare()` method, which ordinary cursors do not have, listed an incomplete exception hierarchy, hardcoded test and coverage counts and linked to the retired `cubrid-cookbook/python` paths, while `docs/llms.txt` was a separately maintained, differing index. `docs/llms.txt` is now the only maintained index, checked against the code: driver-side literal binding and its documented limits, the opt-in sync-only `pycubrid.compat.native` prepared subset, sync and async (`pycubrid.aio`) feature parity, the full PEP 249 exception list and `cubrid-cookbook-python` links. `scripts/generate_llms_full.py` copies it byte-for-byte to the root `llms.txt`, and the CI `lint` job now fails when either `docs/llms-full.txt` or `llms.txt` is stale. `docs/SUPPORT_MATRIX.md` and `docs/TROUBLESHOOTING.md` (+ Korean) no longer describe `cursor.execute(sql, params)` as server-side `PREPARE_AND_EXECUTE` binding (the section is renamed "Parameterized Query Issues"), and the support matrix notes that `nextset()` raises `NotSupportedError`; the Korean, German, Hindi, Russian and Chinese READMEs now describe driver-side binding like the English README. `CONTRIBUTING.md` documents the workflow. Contributed by @yeongseon.
 
 **Additional generated commit references:**
 
-* anchor current verification claims to maintained sources ([#654](https://github.com/cubrid-lab/pycubrid/issues/654)) ([127c6a1](https://github.com/cubrid-lab/pycubrid/commit/127c6a1f5bcf67eeefbcd6623a577887745b304e)), closes [#415](https://github.com/cubrid-lab/pycubrid/issues/415) by @yeongseon.
 * CHANGELOG, RELEASE_POLICY, PROTOCOL (EN+KO), regenerated llms-full. ([a341cec](https://github.com/cubrid-lab/pycubrid/commit/a341cec58f36d33b8ae75734b3854619c7287911)) by @yeongseon.
 * **contributing:** keep issue specifications current and assign owners ([ea32de4](https://github.com/cubrid-lab/pycubrid/commit/ea32de472b1319182af73826af52ecdd3917be99)) by @yeongseon.
-* **demo:** replace simulated walkthroughs with verified recordings ([#665](https://github.com/cubrid-lab/pycubrid/issues/665)) ([a44e250](https://github.com/cubrid-lab/pycubrid/commit/a44e2502568a9492017a4655402eefd10bf07b0a)), closes [#320](https://github.com/cubrid-lab/pycubrid/issues/320) by @yeongseon.
-* keep the release backlog review grounded in current issue scopes ([#680](https://github.com/cubrid-lab/pycubrid/issues/680)) ([4a9c598](https://github.com/cubrid-lab/pycubrid/commit/4a9c598555f2d3daa42e0055d64c9dbcf43d1e24)), closes [#566](https://github.com/cubrid-lab/pycubrid/issues/566) by @yeongseon.
-* let the mitigated differential lane ship without claiming an upstream fix ([#676](https://github.com/cubrid-lab/pycubrid/issues/676)) ([14f7398](https://github.com/cubrid-lab/pycubrid/commit/14f739866040c1bb9efc47d7426b50661007f3bd)), closes [#614](https://github.com/cubrid-lab/pycubrid/issues/614) by @yeongseon.
-* make current contributor procedures accessible in Korean ([ac89eb3](https://github.com/cubrid-lab/pycubrid/commit/ac89eb36fefd8c2b6a61b0b3cb11ed6dc9615440)), closes [#329](https://github.com/cubrid-lab/pycubrid/issues/329) by @yeongseon.
-* make the quick start usable without missing table columns ([#677](https://github.com/cubrid-lab/pycubrid/issues/677)) ([518aa8b](https://github.com/cubrid-lab/pycubrid/commit/518aa8be4e2209b05e1a0c0faf68f9f3b7853df0)), closes [#327](https://github.com/cubrid-lab/pycubrid/issues/327) [#327](https://github.com/cubrid-lab/pycubrid/issues/327) by @yeongseon.
 * narrow the plan-reuse wording and catch deleted llms artifacts in CI ([48aeefc](https://github.com/cubrid-lab/pycubrid/commit/48aeefc4ea049d7a764ca8cdd01e5cdb1cf7dc06)) by @yeongseon.
 * note that LTZ values follow the session time zone kept across commit ([2f47b69](https://github.com/cubrid-lab/pycubrid/commit/2f47b699ddae5274b4a3e2557cb1b263fca7b274)) by @yeongseon.
 * note that LTZ values follow the session time zone kept across commit ([d4b370a](https://github.com/cubrid-lab/pycubrid/commit/d4b370aed70563ab898a701b970d307d18d114a9)) by @yeongseon.
 * **performance:** make the Korean guide discoverable and navigable ([5b394b7](https://github.com/cubrid-lab/pycubrid/commit/5b394b70fd178fc529d2482e45faa91ac20f0384)) by @yeongseon.
 * pin cookbook smoke-test fallback to the exact release ([dd621c4](https://github.com/cubrid-lab/pycubrid/commit/dd621c427b883b7b987563049ce8d398f35ee2ed)) by @yeongseon.
 * pin cookbook smoke-test fallback to the exact release ([330682c](https://github.com/cubrid-lab/pycubrid/commit/330682c6d1c18900a0a81dd6a3133dc90bfe7d4a)) by @yeongseon.
-* **protocol:** retain raw errno after renewed-code evaluation ([#656](https://github.com/cubrid-lab/pycubrid/issues/656)) ([eed27ab](https://github.com/cubrid-lab/pycubrid/commit/eed27abf8f4d350b84baaa6d7562812d90fc0aff)), closes [#505](https://github.com/cubrid-lab/pycubrid/issues/505) by @yeongseon.
-* provide Korean contributor procedures ([#663](https://github.com/cubrid-lab/pycubrid/issues/663)) ([ac89eb3](https://github.com/cubrid-lab/pycubrid/commit/ac89eb36fefd8c2b6a61b0b3cb11ed6dc9615440)) by @yeongseon.
 * **python:** announce Python 3.10 support retirement ([#658](https://github.com/cubrid-lab/pycubrid/issues/658)) ([ba58b80](https://github.com/cubrid-lab/pycubrid/commit/ba58b80f5cc7af26f664f06a4b5c5e78bade827b)) by @yeongseon.
 * **release:** add 1.9.0 upgrade notes and mark new compat names provisional ([#671](https://github.com/cubrid-lab/pycubrid/issues/671)) ([7fba209](https://github.com/cubrid-lab/pycubrid/commit/7fba209adb241e7873bbc2671299eb516d73a21e)), closes [#396](https://github.com/cubrid-lab/pycubrid/issues/396) by @yeongseon.
 * **release:** document release-please review and recovery ([fc922fe](https://github.com/cubrid-lab/pycubrid/commit/fc922fe1ebee46696124c12d2b5dad6a68ca64ef)) by @yeongseon.
