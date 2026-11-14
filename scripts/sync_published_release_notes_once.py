@@ -91,14 +91,23 @@ def api_json(path: str, token: str, method: str = "GET", payload: dict | None = 
 
 def immutable_metadata(release: dict) -> dict:
     """Only metadata whose values must survive a body-only edit."""
-    fields = ("id", "tag_name", "name", "draft", "prerelease",
-              "created_at", "published_at", "target_commitish")
+    fields = (
+        "id",
+        "tag_name",
+        "name",
+        "draft",
+        "prerelease",
+        "created_at",
+        "published_at",
+        "target_commitish",
+    )
     metadata = {field: release.get(field) for field in fields}
     metadata["assets"] = sorted(
         (
-            {key: asset.get(key) for key in (
-                "id", "name", "size", "digest", "created_at", "updated_at"
-            )}
+            {
+                key: asset.get(key)
+                for key in ("id", "name", "size", "digest", "created_at", "updated_at")
+            }
             for asset in release.get("assets", [])
         ),
         key=lambda asset: asset["id"],
@@ -132,11 +141,15 @@ def build_plan(manifest: dict, changelog: str, releases: list[dict]) -> tuple[di
         if baseline:
             if digest(body) != baseline["new_body_sha256"]:
                 raise ValueError(f"Reviewed source content changed for {tag}")
-            for field, key in (("id", "release_id"), ("name", "release_name"),
-                               ("created_at", "created_at"),
-                               ("published_at", "published_at"),
-                               ("target_commitish", "target_commitish"),
-                               ("draft", "draft"), ("prerelease", "prerelease")):
+            for field, key in (
+                ("id", "release_id"),
+                ("name", "release_name"),
+                ("created_at", "created_at"),
+                ("published_at", "published_at"),
+                ("target_commitish", "target_commitish"),
+                ("draft", "draft"),
+                ("prerelease", "prerelease"),
+            ):
                 if release.get(field) != baseline[key]:
                     raise ValueError(f"Published release metadata changed for {tag}: {field}")
         if release.get("body") == body:
@@ -226,10 +239,15 @@ def main() -> int:
         ):
             raise ValueError(f"Concurrent edit detected before PATCH for {tag}")
         # Explicitly keep historical releases from becoming the Latest Release.
-        api_json(release_path, token, "PATCH", {
-            "body": expected[tag],
-            "make_latest": "false",
-        })
+        api_json(
+            release_path,
+            token,
+            "PATCH",
+            {
+                "body": expected[tag],
+                "make_latest": "false",
+            },
+        )
         after = api_json(release_path, token)
         if after.get("body") != expected[tag]:
             raise ValueError(f"Public body verification failed after PATCH for {tag}")
