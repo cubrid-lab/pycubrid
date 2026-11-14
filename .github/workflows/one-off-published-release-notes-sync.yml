@@ -46,7 +46,7 @@ jobs:
 
       - name: Test pinned source and fail-closed preflight
         run: |
-          python -m pip install pytest==9.2.0
+          python -m pip install pytest==9.2.0 hypothesis==6.170.9
           python -m pytest -q tests/test_sync_published_release_notes_once.py
 
       - name: Save original release snapshot and audit pinned changes
