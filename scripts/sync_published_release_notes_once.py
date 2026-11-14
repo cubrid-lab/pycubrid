@@ -302,7 +302,11 @@ if __name__ == "__main__":
         if (evidence / "prewrite_backup.json").exists():
             report_path = evidence / "report.json"
             try:
-                report = json.loads(report_path.read_text(encoding="utf-8")) if report_path.exists() else {}
+                report = (
+                    json.loads(report_path.read_text(encoding="utf-8"))
+                    if report_path.exists()
+                    else {}
+                )
                 report["result"] = "failed"
                 report["failure"] = str(exc)
                 save_json(report_path, report)
