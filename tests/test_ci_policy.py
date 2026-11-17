@@ -1072,3 +1072,16 @@ def test_runtime_code_is_code_minus_exactly_the_release_tooling_list() -> None:
     assert runtime.startswith(code[:-1] + ",") and runtime.endswith("}")
     extra = runtime[len(code) : -1].split(",")
     assert extra == filters["release_tooling"]
+
+
+def test_dependabot_auto_merge_guard_does_not_rest_on_the_actor_alone() -> None:
+    # pull_request_target hands the job a write token: the PR author must be
+    # Dependabot too, and the write permissions belong to the job only.
+    workflow = yaml.safe_load((ROOT / ".github/workflows/dependabot-auto-merge.yml").read_text())
+    assert workflow["permissions"] == {}
+    job = workflow["jobs"]["auto-merge"]
+    assert " ".join(job["if"].split()) == (
+        "github.actor == 'dependabot[bot]' && "
+        "github.event.pull_request.user.login == 'dependabot[bot]'"
+    )
+    assert job["permissions"] == {"contents": "write", "pull-requests": "write"}
