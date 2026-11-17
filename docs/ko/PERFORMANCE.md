@@ -78,7 +78,11 @@ flowchart TD
 | `scripts/bench_regression.py` | 두 pytest-benchmark JSON 파일 간 중앙값 변화 | 아니요 |
 | `scripts/profile_*.py` | connect, execute, fetch의 cProfile | 예 |
 
-더 큰 워크로드와 드라이버 비교용 하니스는 [cubrid-benchmark](https://github.com/cubrid-lab/cubrid-benchmark)에 있습니다.
+이 도구들은 드라이버 회귀를 찾고 진단하는 데 씁니다. 비교 벤치마크, 즉 더 큰 워크로드,
+릴리스 간·드라이버 간 비교와 그 원시 결과는 [cubrid-benchmark](https://github.com/cubrid-lab/cubrid-benchmark)가
+담당합니다. 그 저장소의 정기 실행은 PyPI에 릴리스된 `pycubrid`를 설치합니다. 이 저장소의 주간
+[추세 보고](#성능-회귀)는 릴리스되지 않은 `main`을 측정합니다. 새 기준 실행은 `cubrid-benchmark`
+실험으로 기록하며, 이 저장소에는 원시 벤치마크 결과를 두지 않습니다.
 
 ---
 
@@ -599,9 +603,10 @@ localhost에서 10,000행:
 `test_bench_execute_parameterized_loop_100`은 일반 PREPARE_AND_EXECUTE 요청 100개를 보냅니다.
 서버 측 prepared statement 재사용도, `executemany(..., prepared=True)`도 아닙니다.
 
-이 리비전의 CUBRID 11.4와 10.2 기준 실행은 원시 pytest-benchmark JSON 및 환경과 함께
-[`benchmarks/2026-10-14-micro-explicit-keys-v2`](https://github.com/cubrid-lab/pycubrid/tree/main/benchmarks/2026-10-14-micro-explicit-keys-v2)에
-있습니다.
+이 리비전의 2026-10-14 CUBRID 11.4·10.2 기준 실행은 원시 pytest-benchmark JSON 및 환경과 함께
+더 이상 `main`에 없습니다. [커밋 `88d2c5b`의 `benchmarks/2026-10-14-micro-explicit-keys-v2`](https://github.com/cubrid-lab/pycubrid/tree/88d2c5b1b12495f2edd135811867be57a8ea8f47/benchmarks/2026-10-14-micro-explicit-keys-v2)에
+변경 없이 남아 있습니다. 그 시간은 해당 호스트에만 해당하므로, 같은 워크로드 리비전을 같은 호스트와
+서버에서 실행한 결과와만 비교하세요.
 
 \#922 이전 결과는 과거 기록이며 비교할 수 없습니다. 당시 벤치마크 이름은
 `test_bench_single_insert`, `test_bench_single_select`, `test_bench_single_update`,

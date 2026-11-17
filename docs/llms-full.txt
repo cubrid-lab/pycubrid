@@ -7342,8 +7342,12 @@ Tools in this repository:
 | `scripts/bench_regression.py` | Median change between two pytest-benchmark JSON files | No |
 | `scripts/profile_*.py` | cProfile of connect, execute and fetch | Yes |
 
-Larger workloads and the harness for comparing drivers live in
-[cubrid-benchmark](https://github.com/cubrid-lab/cubrid-benchmark).
+These tools find and diagnose a driver regression. [cubrid-benchmark](https://github.com/cubrid-lab/cubrid-benchmark)
+owns comparative benchmarks: larger workloads, release-to-release and driver-to-driver
+comparisons, and their raw results. Its scheduled runs install `pycubrid` releases from PyPI.
+The weekly [trend report](#performance-regression) here measures unreleased `main`. Record new
+reference runs as `cubrid-benchmark` experiments; this repository does not keep raw benchmark
+results.
 
 ---
 
@@ -7985,9 +7989,11 @@ Investigate when:
 `test_bench_execute_parameterized_loop_100` sends 100 ordinary PREPARE_AND_EXECUTE requests. It
 is not server-side prepared-statement reuse and not `executemany(..., prepared=True)`.
 
-The reference run of this revision on CUBRID 11.4 and 10.2, with its raw pytest-benchmark JSON
-and environment, is in
-[`benchmarks/2026-10-14-micro-explicit-keys-v2`](https://github.com/cubrid-lab/pycubrid/tree/main/benchmarks/2026-10-14-micro-explicit-keys-v2).
+The 2026-10-14 reference run of this revision on CUBRID 11.4 and 10.2, with its raw
+pytest-benchmark JSON and environment, is no longer on `main`. It is kept, unchanged, at
+[`benchmarks/2026-10-14-micro-explicit-keys-v2` in commit `88d2c5b`](https://github.com/cubrid-lab/pycubrid/tree/88d2c5b1b12495f2edd135811867be57a8ea8f47/benchmarks/2026-10-14-micro-explicit-keys-v2). Its timings
+apply to that host only: compare a run only with a run of the same workload revision on the same
+host and server.
 
 Results from before #922 are historical and are not comparable. Their benchmarks were named
 `test_bench_single_insert`, `test_bench_single_select`, `test_bench_single_update`,
