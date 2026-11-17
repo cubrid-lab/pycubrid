@@ -1,59 +1,57 @@
 {
-  "recorded_at_utc": "2026-10-03",
+  "recorded_at_utc": "2026-11-17",
   "scope": "Real short sync/async query and extended CRUD/context-manager scenarios only",
-  "source_commit": "26b2cfc9adadb666fd80abfd4201052693485f82",
+  "source_commit": "5e58585cd4c70d1e28d5b91cfa75feeb33092f3d",
   "script_sha256": "0c5e34b059f07b879521e6f23e9b4bfa78595af256594ee2515f5fe9d1afe43c",
   "tapes": {
-    "demos/pycubrid-demo.tape": "9f7487641b89fd794daf9f74a7b644d41502079e8cfcf784c5f3eb9032bd757c",
-    "demos/pycubrid-demo-video.tape": "9cb16417402611f78b1ceeb36983fe2edcaafc070f4aedf15b6187f46c28f333"
+    "demos/pycubrid-demo.tape": "9d860e94ed9b3a27223b83659ac41081904359688e6acf781bca6cf476412693",
+    "demos/pycubrid-demo-video.tape": "4857c067c6b52a176e4b30fbf638294a62ceaa0ac00c8bc8dc88da8efef47c12"
   },
   "package": {
-    "version": "1.8.0",
-    "origin": "Local wheel built from the clean detached source commit; NOT a PyPI release",
-    "wheel": "pycubrid-1.8.0-py3-none-any.whl",
-    "wheel_sha256": "7ce043cbbc1914435fd07149e76e06d4e7924d02049c46ee9b4b457dfaec9ef5",
+    "version": "1.17.0",
+    "origin": "Published PyPI release, installed on screen with pip install pycubrid==1.17.0 from https://pypi.org/simple",
+    "wheel": "pycubrid-1.17.0-py3-none-any.whl",
+    "wheel_sha256": "6c1ab2bbebd975bb1f18dd201738d6a764307a865e1a45299c28fd0aa88e9b6f",
+    "wheel_uploaded_utc": "2026-11-05T16:03:39Z",
     "python": "3.12.13",
-    "build": "1.6.1",
-    "setuptools": "84.0.0",
-    "wheel_tool": "0.48.0",
-    "pip": "26.2.1",
-    "no_index": true,
+    "pip": "25.0.1",
+    "index_url": "https://pypi.org/simple",
+    "pip_cache_disabled": true,
     "isolated_venv_per_recording": true,
-    "installed_import_inside_venv": true,
-    "installed_wheel_members_verified_byte_exact": 21
+    "venv_empty_before_install": true,
+    "installed_import_inside_venv": true
   },
   "server": {
     "observed_version": "11.4.6.1963",
     "image": "sha256:1248b77ad39888df9e064655937188ab99fe056ed7e35b57d06155a015dc1791",
     "ownership": "Fresh labelled disposable recording broker and database volume",
     "endpoint": "127.0.0.1:33595/testdb",
-    "fixture": "codex_demo_320",
+    "fixture": "demo_1105_crud",
     "fixture_absent_after_recordings": true
   },
   "tools": {
     "vhs": "0.12.1 (24fa225)",
     "vhs_binary_sha256": "57d4e77287eb8028eaa2edfd17d5d4c9c87fe853b50eb2e660003d4a4006b0c9",
     "vhs_release_archive_sha256": "eb33787a5b1cebf91fe0b18bd231e2d71d36c1ff4babd99ddac1a6ab411efd10",
-    "archive_integrity": "Matched official release checksums; Sigstore signature not verified locally",
-    "ffmpeg": "4.4.2-0ubuntu0.22.04.1",
-    "vhs_0_12_0_failure": "Canceled encoder context produced no file despite exit 0; official 0.12.1 fix used in an isolated tool directory"
+    "archive_integrity": "Matched official release checksums.txt; Sigstore signature not verified locally",
+    "ffmpeg": "4.4.2-0ubuntu0.22.04.1"
   },
   "media": {
     "docs/demo.gif": {
-      "sha256": "c52770bd2932321190a56715b0bb9952698a46a4d358e061a15d0ff1f83fb65c",
-      "bytes": 67372,
+      "sha256": "9d9d3cb2872624b56e3d11638629299f9304dfd4f34d8c0c6e9d4c51ac36fbac",
+      "bytes": 54202,
       "width": 900,
       "height": 520,
-      "duration_seconds": 9.52,
-      "frames": 238
+      "duration_seconds": 8.52,
+      "frames": 213
     },
     "docs/assets/videos/pycubrid-demo.mp4": {
-      "sha256": "98932c1df9f6314335c635a79a68133bd7c3672d9de3f22d58e366c9ec1841fe",
-      "bytes": 238292,
+      "sha256": "67779f12c9614b6a7838b117c4ab821ee68f5526a24b66751f9d8352a80597fc",
+      "bytes": 205826,
       "width": 1000,
       "height": 650,
-      "duration_seconds": 38.12,
-      "frames": 953,
+      "duration_seconds": 34.6,
+      "frames": 865,
       "codec": "h264",
       "pixel_format": "yuv420p",
       "encoded_fps": 25
@@ -66,6 +64,6 @@
     "vhs_video_exit_and_nonempty_file_check": 0,
     "full_media_decode": "Both files decoded without errors",
     "visual_review": "Timeline contact sheets and full-size result frames checked for actual output, legibility and no credentials; final independent review recorded in PR",
-    "limitations": "No full-driver compatibility, benchmark, PyPI-release, external-upload or publication claim"
+    "limitations": "No full-driver compatibility, benchmark, external-upload or publication claim"
   }
 }

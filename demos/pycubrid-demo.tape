@@ -1,6 +1,6 @@
 # Run from the frozen repository root; outputs remain staging-only.
-# Root supplies VIRTUAL_ENV, PIP_FIND_LINKS and the nonsecret DEMO_* endpoint.
-# Only one verified local source wheel may be present in PIP_FIND_LINKS.
+# Root supplies an empty VIRTUAL_ENV and the nonsecret DEMO_* endpoint.
+# The visible install downloads the pinned release from PyPI.
 Require pip
 Require python
 Output .demo-artifacts/demo.gif
@@ -13,20 +13,19 @@ Set Framerate 12
 Set PlaybackSpeed 1
 Set TypingSpeed 20ms
 Set WaitTimeout 10s
-Env PIP_NO_INDEX "1"
 Env PIP_DISABLE_PIP_VERSION_CHECK "1"
+Env PIP_PROGRESS_BAR "off"
+Env PIP_INDEX_URL "https://pypi.org/simple"
+Env PIP_NO_CACHE_DIR "1"
 
 # Restore the supplied venv after a shell login profile might reset PATH.
 Hide
-Type `test -n "$VIRTUAL_ENV" && test -x "$VIRTUAL_ENV/bin/python" && test -n "$PIP_FIND_LINKS" || exit 1; export PATH="$VIRTUAL_ENV/bin:$PATH"; clear`
+Type `test -n "$VIRTUAL_ENV" && test -x "$VIRTUAL_ENV/bin/python" || exit 1; export PATH="$VIRTUAL_ENV/bin:$PATH"; clear`
 Enter
 Sleep 200ms
 Show
 
-Type "echo 'Local source wheel; no PyPI release'"
-Enter
-Sleep 400ms
-Type "pip install pycubrid"
+Type "pip install pycubrid==1.17.0"
 Enter
 Wait+Screen /Successfully installed pycubrid/
 Sleep 300ms
