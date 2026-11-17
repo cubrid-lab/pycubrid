@@ -265,8 +265,8 @@ away. More cases are in [Troubleshooting](TROUBLESHOOTING.md#connection-issues).
 </video>
 
 [Download the sync/async CRUD walkthrough](assets/videos/pycubrid-demo.mp4).
-The recording uses a local source-built wheel, not a published PyPI release,
-and an isolated CUBRID server. It verifies query values, parameterized CRUD,
+The recording installs the published pycubrid 1.17.0 release from PyPI into an
+empty virtual environment and uses an isolated CUBRID 11.4 server. It verifies query values, parameterized CRUD,
 context-manager commit observed on another connection, async queries and cleanup.
 See the [editable sources and recording provenance](https://github.com/cubrid-lab/pycubrid/tree/main/demos).
 This is a recorded example, not a full compatibility or performance certificate.

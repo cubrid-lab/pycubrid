@@ -167,7 +167,7 @@ CUBRID 11.4 실습 환경에서 각 실수에 대해 pycubrid 1.13.0이 실제�
 </video>
 
 [동기·비동기 CRUD 실행 영상 다운로드](../assets/videos/pycubrid-demo.mp4).
-영상은 PyPI 배포본이 아닌 로컬 소스 빌드 wheel과 격리된 CUBRID 서버를 사용합니다.
+영상은 빈 가상 환경에 PyPI에 배포된 pycubrid 1.17.0을 설치하고, 격리된 CUBRID 11.4 서버를 사용합니다.
 쿼리 결과, 파라미터 CRUD, 별도 연결에서 확인한 컨텍스트 매니저의 커밋,
 비동기 쿼리와 자원 정리를 검증합니다.
 [편집 가능한 소스와 녹화 근거](https://github.com/cubrid-lab/pycubrid/tree/main/demos)를 참고하세요.
