@@ -721,7 +721,7 @@ This maintenance release corrects several database result/transaction behaviors 
 
 ## [1.13.0] - 2026-10-14
 
-This release tightens authentication-error reporting and network/connection behavior while expanding validation and documented compatibility boundaries. **Authentication failures are now `OperationalError` with SQLSTATE `28000`**, so code matching exact exception classes or treating all operational errors as transient should inspect the documented error details below.
+This release fixes a bug where a negative number bound right after a minus sign could turn the rest of a statement into a comment and update every row (see Security), reports CUBRID error codes by their real meaning, and adds `DatabaseError.error_source`. **Authentication failures are now `OperationalError` with SQLSTATE `28000`, and error `-4` is now an interrupted statement (`HY008`)**, so code that matches exact exception classes or SQLSTATEs, or retries every operational error as transient, should read the Upgrade notes. `fetchmany()` with a size of 0 or less now emits a `DeprecationWarning`.
 
 ### Upgrade notes
 
@@ -729,101 +729,91 @@ This release tightens authentication-error reporting and network/connection beha
   password (`-171`) or an unknown user (`-165`) used to raise plain `DatabaseError` with
   `HY000`. `except DatabaseError` still catches them, because `OperationalError` is a subclass.
   Code that tested `type(exc) is DatabaseError` or `sqlstate == "HY000"` for these codes, or that
-  treats every `OperationalError` from `connect()` as a transient connection failure worth
-  retrying, should check `errno` or `sqlstate == "28000"`. `errno` is unchanged. Contributed by @yeongseon.
+  retries every `OperationalError` from `connect()` as a transient failure, should check `errno`
+  (unchanged) or `sqlstate == "28000"`. Contributed by @yeongseon.
 
-- **Native error code meanings now follow CUBRID `error_code.h` (#895)** — code that
-  matched `sqlstate == "08S01"` or `description='Communication error'` for errno `-4`
-  now sees `HY008` and `'Interrupted'`: `-4` is an interrupted statement, and the connection
-  stays open. The server may have aborted the interrupted transaction (after
-  `cubrid killtran` the next statement reports `-111`), so roll back before reusing it. Errors with codes `-5` to `-12`, `-394`, `-21001` or `-21003` no longer
-  carry a description and are raised as `DatabaseError` with SQLSTATE `HY000`. Before,
-  `-6`, `-11` and `-12` were `OperationalError`, `-7` and `-8` `DataError` and `-394`
-  `ProgrammingError`, each for a client-side meaning the server never sends under that
-  number. `-14` (`ER_IO_WRITE`) is now `OperationalError`. See Fixed. Contributed by @yeongseon.
+- **Native error code meanings now follow CUBRID `error_code.h` (#895)** — errno `-4` is now an
+  interrupted statement with SQLSTATE `HY008` and description `'Interrupted'`, no longer `08S01`
+  and `'Communication error'`. The connection stays open, but the server may have aborted the
+  interrupted transaction (after `cubrid killtran` the next statement reports `-111`), so roll
+  back before reusing it. Codes `-5` to `-12`, `-394`, `-21001` and `-21003` no longer carry a
+  description and raise `DatabaseError` with `HY000`; before, `-6`, `-11` and `-12` were
+  `OperationalError`, `-7` and `-8` `DataError` and `-394` `ProgrammingError`, each for a
+  client-side meaning the server never sends under that number. `-14` (`ER_IO_WRITE`) is now
+  `OperationalError`. See Fixed. Contributed by @yeongseon.
 
 ### Added
 
 - **`DatabaseError.error_source` tells CAS errors from server errors (#903)** — a new
-  read-only attribute, sync and async: `"cas"` when the broker reported the error with
-  `CAS_ERROR_INDICATOR` (the CAS itself, for example `get_schema_info()` with an invalid
-  schema type), `"server"` with `DBMS_ERROR_INDICATOR` (the database server, including every
-  failed batch row), and `None` for errors the driver raises itself. Error numbers are
-  unchanged: a CAS error keeps its old numbering (`-1000` to `-1200`), which overlaps server
-  codes, so `error_source` is the way to tell them apart. It survives `pickle` and `copy`.
-  `-165` (`ER_AU_INVALID_USER`) and `-171` (`ER_AU_INVALID_PASSWORD`) are now described as
-  "Invalid user" and "Invalid password" and raise `OperationalError` with SQLSTATE `28000`
-  (see Upgrade notes) by @yeongseon.
-
-* **cursor:** deprecate fetchmany() sizes of 0 or less ([#876](https://github.com/cubrid-lab/pycubrid/issues/876)) ([fb30d0a](https://github.com/cubrid-lab/pycubrid/commit/fb30d0a6c3eeaa9d29e4409209b156f23ec7d081)), refs [#678](https://github.com/cubrid-lab/pycubrid/issues/678) by @yeongseon.
-* **errors:** identify and classify CAS-generated and authentication error codes ([#915](https://github.com/cubrid-lab/pycubrid/issues/915)) ([d9435cc](https://github.com/cubrid-lab/pycubrid/commit/d9435cca61fa3bd55c03c47240fdf2fd3a1d9829)), refs [#903](https://github.com/cubrid-lab/pycubrid/issues/903) by @yeongseon.
+  read-only attribute, sync and async, that survives `pickle` and `copy`. It is `"cas"` when the
+  broker reported the error with `CAS_ERROR_INDICATOR` (the CAS itself, for example
+  `get_schema_info()` with an invalid schema type), `"server"` with `DBMS_ERROR_INDICATOR` (the
+  database server, including every failed batch row), and `None` for errors the driver raises
+  itself. Error numbers are unchanged, and CAS numbering (`-1000` to `-1200`) overlaps server
+  codes, so `error_source` is the way to tell them apart. `-165` (`ER_AU_INVALID_USER`) and
+  `-171` (`ER_AU_INVALID_PASSWORD`) are now described as "Invalid user" and "Invalid password"
+  and raise `OperationalError` with SQLSTATE `28000` (see Upgrade notes)
+  ([#915](https://github.com/cubrid-lab/pycubrid/issues/915),
+  [d9435cc](https://github.com/cubrid-lab/pycubrid/commit/d9435cca61fa3bd55c03c47240fdf2fd3a1d9829),
+  refs [#903](https://github.com/cubrid-lab/pycubrid/issues/903)) by @yeongseon.
 
 ### Changed
 
-- **Docs: the `DEVELOPMENT.md` project structure and architecture diagrams match the
-  current repository (#878)** — the English and Korean guides now list the `aio` and
-  `compat` packages, the private shared modules, `error_codes.py` and `timing.py`, describe
-  `tests/` by its behavior-oriented modules instead of the removed `test_suite.py`, and no
-  longer hard-code function-code, type or packet-class counts. Documentation only. Contributed by @yeongseon.
-
-- **Internal: the prepared bind types and encoders moved out of `protocol.py`
-  (#856)** — refactor with no behavior change. `_PreparedScalar`,
-  `_PreparedCollection`, `_PreparedLob`, the encoders behind
-  `executemany(..., prepared=True)` and `compat.native` `bind_param()`/`bind_set()`,
-  `_write_prepared_binding` and the packed LOB handle helpers now live in the
-  private `pycubrid/_prepared_binding.py`, moved verbatim (24 names).
-  `pycubrid.protocol` re-exports every one of them as the same object, so
-  existing imports and `isinstance()` checks are unchanged; only their
-  `__module__` is now `pycubrid._prepared_binding`. The new module imports
-  nothing from `protocol.py`, so no import cycle is added. Packet classes,
-  framing and reply parsing did not move. The byte-exact FC2/FC3/FC21 fixtures pass
-  unchanged, and a 10,000-row mixed-type `EXECUTE_ARRAY` request is
-  byte-identical before and after. New tests check the re-export identity, fresh
-  imports of both modules and the one-way import direction. `ci.yml` selects the
-  charset and official-differential lanes for the new file as it does for
-  `protocol.py`; mutation testing (`only_mutate` and the `protocol` shard) and
-  CODEOWNERS include it. `docs/ARCHITECTURE.md`, `docs/PARAMETER_BINDING.md`
-  and `AGENTS.md` name the new module. Contributed by @yeongseon.
+- **Internal: prepared bind types and encoders moved out of `protocol.py` (#856)** — refactor
+  with no behavior change. The prepared-binding types and encoders behind
+  `executemany(..., prepared=True)` and `compat.native` `bind_param()`/`bind_set()` (24 names)
+  now live in the private `pycubrid/_prepared_binding.py`. `pycubrid.protocol` re-exports every
+  one of them as the same object, so existing imports and `isinstance()` checks are unchanged
+  (only `__module__` differs), and a 10,000-row mixed-type `EXECUTE_ARRAY` request is
+  byte-identical before and after. CI, mutation testing, CODEOWNERS and the architecture docs
+  cover the new module. Contributed by @yeongseon.
 
 ### Deprecated
 
-- **`fetchmany(size)` with a size of 0 or less (#678)** — sync `Cursor` and
-  async `AsyncCursor` `fetchmany()` now emit a `DeprecationWarning` when an
-  explicit integer `size` is 0 or negative. The result is unchanged in 1.x: `[]`
-  without consuming rows or sending a FETCH. pycubrid 2.0 will raise
-  `ProgrammingError("size must be a positive integer")`, the rule the
-  `arraysize` setter already applies. The warning names the calling line.
-  Omitted/`None` sizes and positive integers do not warn, and the
-  `pycubrid.compat` wrapper keeps returning `[]` for `size <= 0` without a
-  warning, like the official CUBRIDdb driver. Replacement: skip the call when
-  the size can reach 0, for example
-  `rows = cur.fetchmany(remaining) if remaining > 0 else []` (with `await` on an
-  `AsyncCursor`: `rows = await cur.fetchmany(remaining) if remaining > 0 else []`),
-  which works on 1.x and 2.0; the warning message names the matching form. See [API reference](docs/API_REFERENCE.md#fetchmanysize) by @yeongseon.
+- **`fetchmany(size)` with a size of 0 or less (#678)** — sync `Cursor` and async `AsyncCursor`
+  `fetchmany()` now emit a `DeprecationWarning` naming the calling line when an explicit integer
+  `size` is 0 or negative. The result is unchanged in 1.x: `[]`, without consuming rows or
+  sending a FETCH. pycubrid 2.0 will raise `ProgrammingError("size must be a positive
+  integer")`, the rule the `arraysize` setter already applies. Omitted/`None` sizes and positive
+  integers do not warn, and the `pycubrid.compat` wrapper keeps returning `[]` for `size <= 0`
+  without a warning, like the official CUBRIDdb driver. Replacement, which works on 1.x and 2.0:
+  skip the call when the size can reach 0, for example
+  `rows = cur.fetchmany(remaining) if remaining > 0 else []` (on an `AsyncCursor`:
+  `rows = await cur.fetchmany(remaining) if remaining > 0 else []`; the async warning message
+  suggests this awaited form). See [API reference](docs/API_REFERENCE.md#fetchmanysize)
+  ([#876](https://github.com/cubrid-lab/pycubrid/issues/876),
+  [fb30d0a](https://github.com/cubrid-lab/pycubrid/commit/fb30d0a6c3eeaa9d29e4409209b156f23ec7d081),
+  [#879](https://github.com/cubrid-lab/pycubrid/issues/879),
+  [0f507ca](https://github.com/cubrid-lab/pycubrid/commit/0f507cab93a080c3906703883ebfd9305de85eee),
+  refs [#678](https://github.com/cubrid-lab/pycubrid/issues/678)) by @yeongseon.
 
 ### Fixed
 
 - **An async batch cancelled while its rows are encoded sends nothing and keeps the session
-  (#882)** — `AsyncCursor.executemany()` with `prepared=True`, and the default literal batch of an
-  `INSERT`, `UPDATE`, `DELETE` or `MERGE`, encode or render every row without yielding, so a
-  cancellation requested meanwhile was raised only after the first request (`PREPARE`, or
-  `EXECUTE_BATCH` for the literal batch) had been written, and the session was then retired.
-  Both paths now yield once after encoding, so that cancellation is raised before any request
-  with the session kept. The event-loop hold itself is unchanged and now measured and documented
-  (about 7-10 µs per row of a simple three-column row on CUBRID 11.4; see
-  `docs/PERFORMANCE.md` and `scripts/measure_async_prepared_encoding.py`), together with the
-  cancellation semantics after `PREPARE` and after `EXECUTE_ARRAY`. Contributed by @yeongseon.
+  (#882)** — `AsyncCursor.executemany()` with `prepared=True`, and the default literal batch of
+  an `INSERT`, `UPDATE`, `DELETE` or `MERGE`, encode every row without yielding, so a
+  cancellation requested meanwhile was raised only after the first request was written and the
+  session was retired. Both paths now yield once after encoding, so the cancellation is raised
+  before any request and the session is kept. The event-loop hold itself is unchanged; it is
+  now measured and documented (about 7-10 µs per simple three-column row on CUBRID 11.4; see
+  `docs/PERFORMANCE.md`), with the cancellation semantics after `PREPARE` and `EXECUTE_ARRAY`.
+  Contributed by @yeongseon.
 
 - **`TimingStats` counts executes and fetches consistently and as documented (#899)** — the
   escape-mode probe that `connect()` runs on a new session was counted as an application
   execute, so "connect + one `execute()`" reported `execute_count == 2`; it is no longer
-  counted. One successful `executemany()` call now counts as one execute in both drivers:
-  the `EXECUTE_BATCH` and `prepared=True` paths recorded nothing, and the per-row loop
-  counted every row. `fetch_count` is unchanged and now documented as the number of server
-  `FETCH` requests, so the `SELECT 1` + `fetchall()` example reports `fetch=0`. Contributed by @yeongseon.
+  counted. One successful `executemany()` call now counts as one execute in both drivers: the
+  `EXECUTE_BATCH` and `prepared=True` paths recorded nothing, and the per-row loop counted every
+  row. `fetch_count` is unchanged and now documented as the number of server `FETCH` requests,
+  so the `SELECT 1` + `fetchall()` example reports `fetch=0`
+  ([#908](https://github.com/cubrid-lab/pycubrid/issues/908),
+  [46012b3](https://github.com/cubrid-lab/pycubrid/commit/46012b325e6e4cacade5fed5dc278ab6835697a0))
+  by @yeongseon.
 
 - **Sub-minute UTC offsets, verbs followed by a comment and `Lob.write()` input (#898)** —
-  three input-handling gaps, fixed in both drivers where they apply:
+  three input-handling gaps, fixed in both drivers where they apply
+  ([#907](https://github.com/cubrid-lab/pycubrid/issues/907),
+  [5ce7ae7](https://github.com/cubrid-lab/pycubrid/commit/5ce7ae7ebea0d4749ebf23529cd7dfdb5507e0d0)):
   - An aware `datetime` parameter whose UTC offset is not a whole number of minutes (for
     example `+05:30:45`) now raises `DataError` in the literal and prepared paths. Before, the
     offset was truncated to `+05:30` and the server stored an instant 45 seconds off.
@@ -831,192 +821,190 @@ This release tightens authentication-error reporting and network/connection beha
     is now detected as `INSERT`. `executemany(..., prepared=True)` raised `NotSupportedError`
     for it, and the default `executemany()` ran one request per row instead of one
     `EXECUTE_BATCH`.
-  - `Lob.write()` accepts only `bytes`, `bytearray` and `memoryview`; anything else, such as
-    a `str`, raises `InterfaceError` instead of a raw `TypeError` or a request. Every empty
-    value returns `0` without broker I/O, as the docstring said, and a multi-byte
-    `memoryview` writes and reports its byte count instead of its item count. Contributed by @yeongseon.
+  - `Lob.write()` accepts only `bytes`, `bytearray` and `memoryview`; anything else, such as a
+    `str`, raises `InterfaceError` instead of a raw `TypeError` or a request. Every empty value
+    returns `0` without broker I/O, as the docstring said, and a multi-byte `memoryview` writes
+    and reports its byte count instead of its item count.
+
+  by @yeongseon.
 
 - **Malformed FC20 and FC40 replies are reported as malformed (#897)** — an `EXECUTE_BATCH`
   reply whose row error has a negative message length was read as an empty message, and a
-  `GET_LAST_INSERT_ID` reply whose two-byte type header did not fit its one-byte value read
-  the second byte past the value and returned `''`. Both now raise
+  `GET_LAST_INSERT_ID` reply whose two-byte type header did not fit its one-byte value read the
+  second byte past the value and returned `''`. Both now raise
   `OperationalError('malformed response from broker')` and close the session, as the
-  `EXECUTE_ARRAY` and row-cell parsers already did. Contributed by @yeongseon.
+  `EXECUTE_ARRAY` and row-cell parsers already did
+  ([#906](https://github.com/cubrid-lab/pycubrid/issues/906),
+  [25a0708](https://github.com/cubrid-lab/pycubrid/commit/25a070838004584974ce6456db132ce9a262e2e6))
+  by @yeongseon.
 
 - **Undecodable JSON values raise `DataError` and keep the session (#900)** — with
-  `json_deserializer=json.loads`, complete JSON text that `json.loads` cannot decode now
-  raises `DataError: JSON value cannot be decoded` with the original error as its cause:
-  an integer longer than Python's integer string conversion limit (a plain `ValueError`,
-  reported as a malformed reply that closed the session) or nesting deeper than the
-  recursion limit (an unwrapped `RecursionError`). Invalid JSON text still raises
-  `DataError: JSON value is not valid JSON` (#543). CUBRID 11.4 stores and returns a JSON
-  array nested 20,000 levels deep, which raised the raw `RecursionError`; it rejects a
-  5,000-digit integer at insert, so that case was reproduced offline only. The `CUBRIDDataType.NULL` alias of `UNKNOWN` is now documented, and a
-  stale comment about collection element bounds in `packet.py` matches the code. Contributed by @yeongseon.
+  `json_deserializer=json.loads`, complete JSON text that `json.loads` cannot decode now raises
+  `DataError: JSON value cannot be decoded` with the original error as its cause: an integer
+  longer than Python's integer string conversion limit (before, a `ValueError` reported as a
+  malformed reply that closed the session) or nesting deeper than the recursion limit (before, a
+  raw `RecursionError`). Invalid JSON text still raises `DataError: JSON value is not valid JSON`
+  (#543). On CUBRID 11.4 the deep-nesting case was reproduced live (20,000 levels); the
+  5,000-digit integer is rejected at insert, so it was reproduced offline only. The
+  `CUBRIDDataType.NULL` alias of `UNKNOWN` is now documented. Contributed by @yeongseon.
 
-- **`ping(reconnect=True)` and broker redirects fail the same way in both drivers (#896)**
-  — a sync `Connection.ping(reconnect=True)` whose reconnect the server rejected at
-  `OPEN_DATABASE`, for example a wrong password (`-171`), raised `DatabaseError` instead of
-  returning `False`; it now returns `False`, as the async driver already did. A broker
-  redirect to a port above `65535` now raises `OperationalError` in both drivers before any
-  reconnect. Before, the async driver let a raw `OverflowError` escape for a numeric host,
-  and the sync driver's resolver reduced the port to 16 bits and tried that other port. Contributed by @yeongseon.
+- **`ping(reconnect=True)` and broker redirects fail the same way in both drivers (#896)** — a
+  sync `Connection.ping(reconnect=True)` whose reconnect the server rejected at `OPEN_DATABASE`,
+  for example a wrong password (`-171`), raised `DatabaseError` instead of returning `False`; it
+  now returns `False`, as the async driver already did. A broker redirect to a port above
+  `65535` now raises `OperationalError` in both drivers before any reconnect. Before, the async
+  driver let a raw `OverflowError` escape for a numeric host, and the sync driver's resolver
+  reduced the port to 16 bits and tried that other port
+  ([#905](https://github.com/cubrid-lab/pycubrid/issues/905),
+  [4562360](https://github.com/cubrid-lab/pycubrid/commit/4562360f3b80a1df5eb3b975f07825e87ce7f9e4),
+  refs [#896](https://github.com/cubrid-lab/pycubrid/issues/896)) by @yeongseon.
 
-- **Async requests refused during another task's session setup keep that session (#894)**
-  — an `AsyncConnection` request that passed the setup wait before `ping(reconnect=True)`
-  or `connect()` began, and then took the lock while setup released it for the escape-mode
-  probe, raised "connection setup in progress; retry operation" as before, but
-  `get_schema_info()` then dropped the new session and `commit()`, `rollback()` and cursor
-  statements treated the refused `CHECK_CAS` as a dead CAS and replaced it. The probe then
-  failed and `ping()` returned `False`. These entry points now raise the same retryable
-  `OperationalError` before any cleanup or recovery, without sending anything. A schema
-  result from the replaced session keeps its retired outcome (`fetch_schema_info()` raises
-  `InterfaceError`, `close_schema_info()` is a no-op); both also check the gate before they
-  send. The setup task's own requests are unchanged. Contributed by @yeongseon.
+- **Async requests refused during another task's session setup keep that session (#894)** — an
+  `AsyncConnection` request that slipped past the setup wait while `ping(reconnect=True)` or
+  `connect()` was running its escape-mode probe still raised "connection setup in progress;
+  retry operation". But `get_schema_info()` then dropped the new session, and `commit()`,
+  `rollback()` and cursor statements treated the refused `CHECK_CAS` as a dead CAS and replaced
+  it, so the probe failed and `ping()` returned `False`. These calls now raise the same retryable
+  `OperationalError` before any cleanup or recovery, sending nothing. A schema result from the
+  replaced session keeps its retired outcome (`fetch_schema_info()` raises `InterfaceError`,
+  `close_schema_info()` is a no-op); the setup task's own requests are unchanged
+  ([#902](https://github.com/cubrid-lab/pycubrid/issues/902),
+  [ffa0069](https://github.com/cubrid-lab/pycubrid/commit/ffa006989c234aedf7b4f07f7d4b529342e7cb6f))
+  by @yeongseon.
 
-- **CAS error `-4` is an interrupted statement, not a communication error (#895)** — the
-  error tables in `pycubrid.error_codes` followed an old client-side CCI numbering for
-  `-1` to `-15` and had several other misnumbered codes, so an interrupted statement
-  raised `OperationalError(description='Communication error', sqlstate='08S01')` and pools
-  and ORMs discarded a healthy session. Every entry was checked against CUBRID
-  `src/base/error_code.h` (release/10.2 and release/11.4) and each one now cites its
-  `ER_*` constant:
+- **CAS error `-4` is an interrupted statement, not a communication error (#895)** — the error
+  tables in `pycubrid.error_codes` followed an old client-side CCI numbering for `-1` to `-15`
+  with several other misnumbered codes, so an interrupted statement raised
+  `OperationalError(description='Communication error', sqlstate='08S01')` and pools and ORMs
+  discarded a healthy session. Every entry was checked against CUBRID `src/base/error_code.h`
+  (release/10.2 and release/11.4) and now cites its `ER_*` constant
+  ([#904](https://github.com/cubrid-lab/pycubrid/issues/904),
+  [411bfd4](https://github.com/cubrid-lab/pycubrid/commit/411bfd4609998ce054c8b456a366d50954780976)):
   - `-4` (`ER_INTERRUPTED`): `'Interrupted'`, `OperationalError`, SQLSTATE `HY008`.
-  - `-1` (`ER_FAILED`) is described as `'Generic failure'`, and `-111`
-    (`ER_TM_SERVER_DOWN_UNILATERALLY_ABORTED`) as `'Transaction aborted by the server'`;
-    their classes and SQLSTATEs are unchanged.
-  - `-13`, `-14` and `-15` (`ER_IO_READ`, `ER_IO_WRITE`, `ER_IO_WRITE_OUT_OF_SPACE`) are
-    I/O errors raised as `OperationalError` / `HY000`. Before, they were described as
-    shard, cursor position and statement pooling errors (and `-14` had SQLSTATE `24000`).
-  - Removed: `-5` to `-12` (server hash-table and volume errors that the table described
-    as client conditions, such as type conversion or handle closed), `-394`
-    (`ER_TX_ENDPOINT_TOO_LARGE`, not "Column not found": an unknown column is `-494`), and
-    `-21001`/`-21003` (JDBC client codes the broker never sends; a wrong password is
-    `-171`). These codes are now `DatabaseError` / `HY000` without a description.
-  - `pycubrid.constants.ErrorCode` uses the same server names: `ER_FAILED`,
-    `ER_GENERIC_ERROR`, `ER_OUT_OF_VIRTUAL_MEMORY`, `ER_INTERRUPTED`, `ER_IO_READ`,
-    `ER_IO_WRITE` and `ER_IO_WRITE_OUT_OF_SPACE` replace the old CCI-style names.
+  - `-1` (`ER_FAILED`) is `'Generic failure'` and `-111`
+    (`ER_TM_SERVER_DOWN_UNILATERALLY_ABORTED`) is `'Transaction aborted by the server'`; their
+    classes and SQLSTATEs are unchanged.
+  - `-13`, `-14` and `-15` (`ER_IO_READ`, `ER_IO_WRITE`, `ER_IO_WRITE_OUT_OF_SPACE`) are I/O
+    errors raised as `OperationalError` / `HY000`; before, they were described as shard, cursor
+    position and statement pooling errors (and `-14` had SQLSTATE `24000`).
+  - Removed `-5` to `-12` (server hash-table and volume errors the table described as client
+    conditions), `-394` (`ER_TX_ENDPOINT_TOO_LARGE`, not "Column not found": an unknown column
+    is `-494`) and `-21001`/`-21003` (JDBC client codes the broker never sends; a wrong password
+    is `-171`). They are now `DatabaseError` / `HY000` without a description.
+  - `pycubrid.constants.ErrorCode` uses the same server names: `ER_FAILED`, `ER_GENERIC_ERROR`,
+    `ER_OUT_OF_VIRTUAL_MEMORY`, `ER_INTERRUPTED`, `ER_IO_READ`, `ER_IO_WRITE` and
+    `ER_IO_WRITE_OUT_OF_SPACE` replace the old CCI-style names.
 
   The API reference and the troubleshooting and connection guides now show the real
   authentication errors. Contributed by @yeongseon.
 
-* **aio:** keep get_schema_info() from dropping a session another task is setting up ([#902](https://github.com/cubrid-lab/pycubrid/issues/902)) ([ffa0069](https://github.com/cubrid-lab/pycubrid/commit/ffa006989c234aedf7b4f07f7d4b529342e7cb6f)) by @yeongseon.
-* **binding:** keep a negative number after a minus sign from starting a comment ([#901](https://github.com/cubrid-lab/pycubrid/issues/901)) ([626e2f4](https://github.com/cubrid-lab/pycubrid/commit/626e2f4dcff36ee50f0fe39c7a31fe4779e738af)) by @yeongseon.
-* **connection:** align ping() reconnect failures and redirect port checks across drivers ([#905](https://github.com/cubrid-lab/pycubrid/issues/905)) ([4562360](https://github.com/cubrid-lab/pycubrid/commit/4562360f3b80a1df5eb3b975f07825e87ce7f9e4)), refs [#896](https://github.com/cubrid-lab/pycubrid/issues/896) by @yeongseon.
-* **cursor:** reject sub-minute offsets, detect verbs before comments and tighten Lob.write() ([#907](https://github.com/cubrid-lab/pycubrid/issues/907)) ([5ce7ae7](https://github.com/cubrid-lab/pycubrid/commit/5ce7ae7ebea0d4749ebf23529cd7dfdb5507e0d0)) by @yeongseon.
-* **cursor:** suggest the awaited fetchmany() replacement on the async cursor ([#879](https://github.com/cubrid-lab/pycubrid/issues/879)) ([0f507ca](https://github.com/cubrid-lab/pycubrid/commit/0f507cab93a080c3906703883ebfd9305de85eee)), refs [#678](https://github.com/cubrid-lab/pycubrid/issues/678) by @yeongseon.
-* **errors:** map CAS error -4 to an interrupted statement, not a communication error ([#904](https://github.com/cubrid-lab/pycubrid/issues/904)) ([411bfd4](https://github.com/cubrid-lab/pycubrid/commit/411bfd4609998ce054c8b456a366d50954780976)) by @yeongseon.
-* **protocol:** reject malformed FC20/FC40 replies and map undecodable JSON to DataError ([#906](https://github.com/cubrid-lab/pycubrid/issues/906)) ([25a0708](https://github.com/cubrid-lab/pycubrid/commit/25a070838004584974ce6456db132ce9a262e2e6)) by @yeongseon.
-* **timing:** count executes and fetches consistently and as documented ([#908](https://github.com/cubrid-lab/pycubrid/issues/908)) ([46012b3](https://github.com/cubrid-lab/pycubrid/commit/46012b325e6e4cacade5fed5dc278ab6835697a0)) by @yeongseon.
-
 ### Security
 
-- **A negative number bound after a minus sign no longer starts a comment
-  (#893)** — the literal binding of sync and async `execute()` and of the default
-  `executemany()` pasted a negative `int`, `float` or `Decimal` straight after the
-  SQL text, so `UPDATE t SET x = x-? WHERE id = ?` with `(-5, 1)` was sent as
-  `x--5 WHERE id = 1`. CUBRID reads `--` as a line comment, so the `WHERE` clause
-  was dropped and every row was updated; anyone who controls a numeric parameter
-  could truncate the statement this way. A space now separates a literal that
-  starts with `-` from a `-` right before its placeholder (`x- -5`). Every other
-  rendering, including negative values after any other character and collection
-  elements, is byte-identical. The prepared paths (`executemany(..., prepared=True)`
-  and `compat.native`) send typed values and were not affected. See
-  [Parameter binding](docs/PARAMETER_BINDING.md#placeholder-tokenizer) by @yeongseon.
+- **A negative number bound after a minus sign no longer starts a comment (#893)** — the
+  literal binding of sync and async `execute()` and of the default `executemany()` pasted a
+  negative `int`, `float` or `Decimal` straight after the SQL text, so
+  `UPDATE t SET x = x-? WHERE id = ?` with `(-5, 1)` was sent as `x--5 WHERE id = 1`. CUBRID
+  reads `--` as a line comment, so the `WHERE` clause was dropped and every row was updated;
+  anyone who controls a numeric parameter could truncate the statement this way. A space now
+  separates a literal that starts with `-` from a `-` right before its placeholder (`x- -5`).
+  Every other rendering, including negative values after any other character and collection
+  elements, is byte-identical. The prepared paths (`executemany(..., prepared=True)` and
+  `compat.native`) send typed values and were not affected. See
+  [Parameter binding](docs/PARAMETER_BINDING.md#placeholder-tokenizer)
+  ([#901](https://github.com/cubrid-lab/pycubrid/issues/901),
+  [626e2f4](https://github.com/cubrid-lab/pycubrid/commit/626e2f4dcff36ee50f0fe39c7a31fe4779e738af))
+  by @yeongseon.
 
 ### Documentation
 
 - **The README and the documentation site show the CUBRID Lab repository icon (#919)** — the
   English README and its Korean, Chinese, Hindi, German and Russian translations open with the
-  pycubrid icon, centered and without a caption, and the documentation site uses it as its
-  header logo and favicon. All of them load the SVG from one immutable
-  [cubrid-lab/brand](https://github.com/cubrid-lab/brand) commit ([#920](https://github.com/cubrid-lab/pycubrid/pull/920), [05f1db3](https://github.com/cubrid-lab/pycubrid/commit/05f1db339de618113ee6305f5988dd71c47cf7db)). Contributed by @yeongseon.
+  centered pycubrid icon, and the documentation site uses it as its header logo and favicon,
+  all loaded from one immutable [cubrid-lab/brand](https://github.com/cubrid-lab/brand) commit
+  ([#920](https://github.com/cubrid-lab/pycubrid/pull/920),
+  [05f1db3](https://github.com/cubrid-lab/pycubrid/commit/05f1db339de618113ee6305f5988dd71c47cf7db),
+  [#921](https://github.com/cubrid-lab/pycubrid/issues/921),
+  [0719025](https://github.com/cubrid-lab/pycubrid/commit/0719025d48398a7b691c576c9501fa35ab06f13b))
+  by @yeongseon.
 
-* **agents:** refresh the module map, test, docs and commit sections ([#877](https://github.com/cubrid-lab/pycubrid/issues/877)) ([6e05ce0](https://github.com/cubrid-lab/pycubrid/commit/6e05ce0fce91e92dde2c9e249dcf5eba9e8cac1f)) by @yeongseon.
-* **brand:** show the centered repository icon in the README and docs site ([#921](https://github.com/cubrid-lab/pycubrid/issues/921)) ([0719025](https://github.com/cubrid-lab/pycubrid/commit/0719025d48398a7b691c576c9501fa35ab06f13b)) by @yeongseon.
-* **development:** match the structure diagrams to the repository ([#880](https://github.com/cubrid-lab/pycubrid/issues/880)) ([f6a2734](https://github.com/cubrid-lab/pycubrid/commit/f6a2734655aca5506c4551f85387c50cc8fbec05)) by @yeongseon.
-* **i18n:** update the Python requirement in the German README ([#870](https://github.com/cubrid-lab/pycubrid/issues/870)) ([5a7638e](https://github.com/cubrid-lab/pycubrid/commit/5a7638e6634ef776632b57e4476e61713bb84a33)), refs [#702](https://github.com/cubrid-lab/pycubrid/issues/702) by @yeongseon.
-* **i18n:** update the Python requirement in the Hindi README ([#871](https://github.com/cubrid-lab/pycubrid/issues/871)) ([cc0b879](https://github.com/cubrid-lab/pycubrid/commit/cc0b8794099754d4d08779a7c843df13bed6bd97)), refs [#703](https://github.com/cubrid-lab/pycubrid/issues/703) by @yeongseon.
-* **i18n:** update the Python requirement in the Russian README ([#873](https://github.com/cubrid-lab/pycubrid/issues/873)) ([4f81fa3](https://github.com/cubrid-lab/pycubrid/commit/4f81fa3561d1a167679b9fc151bdb1b4539854f6)), refs [#704](https://github.com/cubrid-lab/pycubrid/issues/704) by @yeongseon.
+- **`DEVELOPMENT.md` project structure and architecture diagrams match the repository (#878)**
+  — the English and Korean guides now list the `aio` and `compat` packages, the private shared
+  modules, `error_codes.py` and `timing.py`, describe `tests/` by its behavior-oriented modules
+  instead of the removed `test_suite.py`, and no longer hard-code function-code, type or packet
+  class counts. The agent guide's module map, test, docs and commit sections were refreshed too
+  ([#880](https://github.com/cubrid-lab/pycubrid/issues/880),
+  [f6a2734](https://github.com/cubrid-lab/pycubrid/commit/f6a2734655aca5506c4551f85387c50cc8fbec05),
+  [#877](https://github.com/cubrid-lab/pycubrid/issues/877),
+  [6e05ce0](https://github.com/cubrid-lab/pycubrid/commit/6e05ce0fce91e92dde2c9e249dcf5eba9e8cac1f))
+  by @yeongseon.
+
+- **The German, Hindi and Russian READMEs state the current Python requirement** — updated in
+  [#870](https://github.com/cubrid-lab/pycubrid/issues/870) (German,
+  [5a7638e](https://github.com/cubrid-lab/pycubrid/commit/5a7638e6634ef776632b57e4476e61713bb84a33),
+  refs [#702](https://github.com/cubrid-lab/pycubrid/issues/702)),
+  [#871](https://github.com/cubrid-lab/pycubrid/issues/871) (Hindi,
+  [cc0b879](https://github.com/cubrid-lab/pycubrid/commit/cc0b8794099754d4d08779a7c843df13bed6bd97),
+  refs [#703](https://github.com/cubrid-lab/pycubrid/issues/703)) and
+  [#873](https://github.com/cubrid-lab/pycubrid/issues/873) (Russian,
+  [4f81fa3](https://github.com/cubrid-lab/pycubrid/commit/4f81fa3561d1a167679b9fc151bdb1b4539854f6),
+  refs [#704](https://github.com/cubrid-lab/pycubrid/issues/704)) by @yeongseon.
 
 ### Tests
 
-- **The live microbenchmarks check that they act on real rows (#922)** — the table of
-  `tests/test_benchmarks.py` had an `AUTO_INCREMENT` key that `DELETE` does not reset, and
-  nothing checked results, so `test_bench_single_select` timed a lookup of a missing row
-  (reproduced on CUBRID 11.4.6 and 10.2.18). The benchmarks now use explicit primary keys, seed
-  and check the starting state in an untimed setup before every round, warm-up rounds included,
-  and check every fetched row, affected-row count and the whole table after every round; a
-  missing or wrong row fails the benchmark. They connect to the shared test endpoint
-  (`CUBRID_TEST_URL`/`CUBRID_TEST_HOST`) that also enables them, instead of `CUBRID_HOST`,
-  `CUBRID_PORT` and `CUBRID_DB`. They were renamed (workload revision
-  `micro-explicit-keys-v2`) so older results are not compared with them;
-  `test_bench_prepared_reuse` is now `test_bench_execute_parameterized_loop_100`, because it was
-  always an ordinary parameterized `execute()` loop. The new offline
-  `tests/test_benchmarks_workload.py` runs the workloads on SQLite, and the first reference run
-  on CUBRID 11.4 and 10.2 is in `benchmarks/2026-10-14-micro-explicit-keys-v2`. The dev group
-  needs pytest-benchmark 5.0. Test harness only; no driver change. Contributed by @yeongseon.
+- **The live microbenchmarks check that they act on real rows (#922)** — the benchmark table's
+  `AUTO_INCREMENT` key is not reset by `DELETE` and nothing checked results, so
+  `test_bench_single_select` had been timing a lookup of a missing row (reproduced on CUBRID
+  11.4.6 and 10.2.18). The benchmarks now use explicit primary keys and fail on a missing or wrong
+  row or affected-row count in every round. They connect through the shared test endpoint
+  (`CUBRID_TEST_URL`/`CUBRID_TEST_HOST`) instead of `CUBRID_HOST`, `CUBRID_PORT` and `CUBRID_DB`,
+  need pytest-benchmark 5.0 in the dev group, and were renamed (workload revision
+  `micro-explicit-keys-v2`, with `test_bench_prepared_reuse` now
+  `test_bench_execute_parameterized_loop_100`) so older results are not compared with them. The
+  first reference run on CUBRID 11.4 and 10.2 is in `benchmarks/2026-10-14-micro-explicit-keys-v2`.
+  Test harness only; no driver change. Contributed by @yeongseon.
 
-- **The wide-row measurement synchronizes the async batches' readiness and reports batch time
-  alone (#914)** — in `scripts/measure_prepared_wide_rows.py` the two async connections now
-  wait at an `asyncio.Barrier` once their rows are built, as the sync threads do at a
-  `threading.Barrier`. It reports each connection's `executemany()` and commit times, the
-  batch window and the start spread separately from the whole workload, which also includes
-  connecting, `CREATE TABLE`, building the rows, `COUNT(*)` and `DROP TABLE`. The
-  `docs/PERFORMANCE.md` tables were rerun. The async second batch still starts one batch's
-  encoding time after the first, because encoding does not yield (#882). Memory conclusions are
-  unchanged; two connections cost 1.5-2.0 times one. Script and docs only. Contributed by @yeongseon.
+- **The wide-row measurement reports batch time alone (#914)** —
+  `scripts/measure_prepared_wide_rows.py` now starts the two async connections together, as the
+  sync threads already were, and reports each connection's `executemany()` and commit times
+  apart from the whole workload; the `docs/PERFORMANCE.md` tables were rerun. The async second
+  batch still starts one batch's encoding time after the first because encoding does not yield
+  (#882); memory conclusions are unchanged (two connections cost 1.5-2.0 times one). Script and
+  docs only. Contributed by @yeongseon.
 
-- **Wide-value and two-connection prepared batches measured (#881)** — the new
-  `scripts/measure_prepared_wide_rows.py` and the opt-in `slow`
-  `tests/test_integration_prepared_wide_rows.py` measure `executemany(..., prepared=True)` with
-  1 KB text, 8 KB UTF-8 text, 1 KB bytes, 50-element sequences and LOB handles, sync and
-  async, on one connection and on two at once, and check the predicted `EXECUTE_ARRAY` size.
-  On CUBRID 11.4 the client heap peak is about 3-4.6 times the request size for scalar values and
-  about 9 times for sequences; two concurrent connections cost the sum of two batches, with no
-  extra amplification. 16-128 MiB single values are accepted and a value too wide for its column
-  fails only its row. No runtime change; results in `docs/PERFORMANCE.md`. Contributed by @yeongseon.
+- **Wide-value and two-connection prepared batches measured (#881)** — a new script and opt-in
+  `slow` integration test measure `executemany(..., prepared=True)` with wide text, bytes,
+  50-element sequences and LOB handles, sync and async, on one and two connections. On CUBRID
+  11.4 the client heap peak is about 3-4.6 times the request size for scalar values and about 9
+  times for sequences; two concurrent connections cost the sum of two batches. 16-128 MiB single
+  values are accepted, and a value too wide for its column fails only its row. No runtime change;
+  results in `docs/PERFORMANCE.md`. Contributed by @yeongseon.
 
-- **What `read_timeout` bounds when a reply arrives slowly, pinned and documented
-  (#855)** — the new offline `tests/test_slow_stream_timeout.py` has the scripted
-  replay broker send a reply in ten pieces 0.1 s apart (0.9 s in all) with
-  `read_timeout=0.3`. The sync driver, whose `read_timeout` bounds each socket
-  send or receive call, completes it and keeps the session; the async driver,
-  whose `read_timeout` bounds the whole request round trip, raises
-  `OperationalError('read timeout: ...')` with the `asyncio.TimeoutError` as its
-  cause, and completes the same reply when the bound is larger than it. The tests
-  also cover a sync stall longer than `read_timeout` after half a frame and an
-  async caller cancellation after part of a frame. Each failure retires the
-  session and its cursor and schema handles, keeps buffered rows readable, sends
-  nothing until `ping(reconnect=True)`, which then gives a clean session, and
-  never sends the interrupted SQL again; the cancellation still raises
-  `asyncio.CancelledError`. `docs/CONNECTION.md` (and its Korean translation)
-  gains a table of what `connect_timeout`, `read_timeout` and the TLS handshake
-  bound on each driver, and states that none is a wall-clock deadline for a
-  statement or cancels it on the server; `docs/SUPPORT_MATRIX.md` and
-  `docs/API_REFERENCE.md` say the same in brief. Tests and docs only; the driver
-  is unchanged. Contributed by @yeongseon.
+- **What `read_timeout` bounds when a reply arrives slowly, pinned and documented (#855)** — a
+  new offline test sends a reply in ten pieces 0.1 s apart (0.9 s in all) with
+  `read_timeout=0.3`. The sync driver, whose `read_timeout` bounds each socket send or receive
+  call, completes it and keeps the session; the async driver, whose `read_timeout` bounds the
+  whole request round trip, raises `OperationalError('read timeout: ...')` with the
+  `asyncio.TimeoutError` as its cause, and completes the same reply when the bound is larger. A
+  sync stall or async cancellation partway through a frame retires the session and its cursor and
+  schema handles, keeps buffered rows readable and never resends the interrupted SQL;
+  `ping(reconnect=True)` then gives a clean session, and cancellation still raises
+  `asyncio.CancelledError`. `docs/CONNECTION.md` (and its Korean translation) now tabulates what
+  `connect_timeout`, `read_timeout` and the TLS handshake bound on each driver and states that
+  none is a wall-clock deadline for a statement or cancels it on the server;
+  `docs/SUPPORT_MATRIX.md` and `docs/API_REFERENCE.md` say the same in brief. Tests and docs only.
+  Contributed by @yeongseon.
 
-- **Large `executemany(..., prepared=True)` batches measured and their failure
-  states pinned (#854)** — the new offline
-  `tests/test_prepared_batch_failure_invariants.py` checks, sync and async, that
-  an `EXECUTE_ARRAY` frame over the 32-bit `DATA_LENGTH` limit raises
-  `DataError` before any byte of it is sent and keeps the session, and that the
-  frame size is a fixed head plus the same bytes per row. It also injects
-  transport faults before `PREPARE`, after `PREPARE`, during a partial
-  `EXECUTE_ARRAY` send and after a complete send. Each raises
-  `OperationalError`, retires the session and the cursor's handle, and never
-  sends the batch again. A send failure is the error's cause; a missing or cut
-  reply has `asyncio.IncompleteReadError` as the cause on the async cursor and
-  no cause on the sync cursor, which detects the end of the stream itself. A new opt-in `slow` integration
-  test, `tests/test_integration_prepared_large_batch.py`, runs
-  `scripts/measure_prepared_batch.py` for 10,000 and 100,000 rows, sync and
-  async, with a list and a one-shot generator. It records peak RSS, the
-  `tracemalloc` peak, request bytes and time. On CUBRID 10.2 and 11.4, 100,000
-  rows took 8.7-12.5 s with a heap peak of 47.3 MiB, and 1,000,000 rows took about
-  123 s with 473.5 MiB; every row was inserted. The results and the decision
-  (no runtime change) are in `docs/PERFORMANCE.md`, and the command is in
-  `docs/DEVELOPMENT.md`. Test, script and docs only; the driver is unchanged. Contributed by @yeongseon.
+- **Large `executemany(..., prepared=True)` batches measured and their failure states pinned
+  (#854)** — new offline tests check, sync and async, that an `EXECUTE_ARRAY` frame over the
+  32-bit `DATA_LENGTH` limit raises `DataError` before any byte is sent and keeps the session, and
+  that a transport fault before `PREPARE`, after `PREPARE`, during a partial send or after a
+  complete send raises `OperationalError`, retires the session and the cursor's handle, and never
+  resends the batch. A send failure is the error's cause; a missing or cut reply has
+  `asyncio.IncompleteReadError` as the cause on the async cursor and none on the sync cursor. An
+  opt-in `slow` integration test measured 100,000 rows at 8.7-12.5 s with a 47.3 MiB heap peak,
+  and 1,000,000 rows at about 123 s with 473.5 MiB, on CUBRID 10.2 and 11.4; every row was
+  inserted. The results and the decision (no runtime change) are in `docs/PERFORMANCE.md`, and
+  the command is in `docs/DEVELOPMENT.md`. Test, script and docs only. Contributed by @yeongseon.
 
 ## [1.12.0] - 2026-10-12
 
