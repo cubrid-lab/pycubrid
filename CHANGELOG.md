@@ -1311,99 +1311,74 @@ Behavior changes you may notice (details in the entries below):
   autocommit mode there is no such boundary: close cursors yourself, or their
   handles stay open until commit/rollback/close. (#485)
 - `get_last_insert_id()` returns `None` instead of `""` when no identity is
-  available; replace `value == ""` checks with `value is None`. (#381)
+  available; replace `value == ""` with `value is None` and check for `None`
+  before `int(value)`. (#381)
 - Unknown connection keyword arguments now emit
   `pycubrid.UnknownConnectionOptionWarning` (still ignored otherwise). Use
   `warnings.simplefilter("error", pycubrid.UnknownConnectionOptionWarning)` to
-  reject them. (#377)
+  reject them; `"ignore"` silences them. (#377)
 
-New explicit, staged APIs (additive; ordinary 1.x connect/cursor behavior is
-unchanged):
-- `pycubrid.compat.native` and `pycubrid.compat.cubriddb` factories construct
-  and close an owned sync connection (#465). `compat.native` also offers a sync
-  prepared scalar cursor limited to INT32, UTF-8 CHAR and SQL NULL bindings with
-  tuple-only rows (#439). Neither is full official-driver/DB-API parity; there is
-  no async preparation, and `compat.cubriddb` provides no cursor execution.
-- `Connection.fetch_schema_info()` / `close_schema_info()` (sync and async)
-  eagerly fetch and close owned schema rows (#456). Handles are closed at
-  transaction boundaries and are never reconnected or replayed. Live
-  verification covers CLASS/VCLASS/ATTRIBUTE/CONSTRAINT/PRIMARY_KEY/
-  IMPORTED_KEYS/EXPORTED_KEYS on CUBRID 10.2 and 11.4, not all schema codes
-  (#457).
+New opt-in compatibility factories, a prepared scalar cursor and schema-info
+methods are additive; ordinary 1.x connect/cursor behavior is unchanged (see
+Added).
 
 ### Added
 
-- Explicit `pycubrid.compat.native` sync prepared scalar cursor (#439): one
-  physical-session-owned FC2 handle supports repeated typed FC3 execution of
-  INT32, UTF-8 CHAR and SQL NULL, tuple-only row fetch, current-generation
-  FC6 close, and connection commit/rollback result hooks. Pooling-off/unknown
-  sessions fail before FC2. HOLDABLE SELECT results continue across commit
-  and invalidate across rollback; ordinary sync/async FC41 remains unchanged.
-  Live scalar, DML and 130-row multi-FETCH gates pass on CUBRID 10.2, 11.0,
-  11.2 and 11.4. Pinned official-native comparisons on 10.2/11.4 match the
-  selected non-NULL scalar/DML results; native `bind_param(None)` crashes and
-  is a documented safety deviation, not a NULL parity pass. This is an
-  additive MINOR subset, not full native/DB-API
-  parity, public async preparation, effective settings, or a release. Contributed by @yeongseon.
-- Internal FC2/FC3 scalar packet groundwork (#475) now serializes validated
-  INT32, UTF-8 CHAR and SQL NULL bindings, preserves the authoritative FC2
-  bind count, and parses refreshed FC3 column metadata before shard/FETCH.
-  Error records fail closed. This has no public prepared cursor or owner
-  lifecycle yet; ordinary sync/async FC41 literal execution is unchanged and
-  #439 remains the public implementation gate. Contributed by @yeongseon.
-- Construction-only official-driver compatibility factories (#465): explicit
+- **Official-driver compatibility factories (#465)** — explicit
   `pycubrid.compat.native` and `pycubrid.compat.cubriddb` namespaces validate
   CUBRID/UTF-8 DSNs, preserve the source's public/empty credential defaults and
   start one owned pure-Python sync connection with autocommit enabled. Wrapper
-  aliases and close are available; cursor execution, prepared binding, sharing,
-  configurable charset and HA are not. Ordinary 1.x defaults and async behavior
-  are unchanged. MINOR/additive public surface, protected by the API baseline. Contributed by @yeongseon.
-- Owned schema rows (#456): corrected FC9 requests/condensed metadata now ship with sync/async eager `fetch_schema_info(packet)` and idempotent `close_schema_info(packet)`. Existing getter positional arguments and raw packet fields remain; keyword-only `arg2=None` adds the second filter. Immutable original-session ownership prevents forged/retired handle RPCs; explicit transaction boundaries and auto-committing cursor statements/batches and version lookup with connection autocommit enabled close schema handles before the boundary, while connection teardown and I/O failures retire resources. Schema FETCH/CLOSE do not reconnect, replay, implicitly commit or return partial rows as success. Initial live coverage was CLASS/ATTRIBUTE on 10.2/11.4; the #457 live matrix extends it to CLASS/VCLASS/ATTRIBUTE/CONSTRAINT/PRIMARY_KEY/IMPORTED_KEYS/EXPORTED_KEYS, not all schema codes or native parity. MINOR/additive surface; API baseline regenerated. Contributed by @yeongseon.
-- **Unknown connection options are now surfaced instead of silently ignored (#377)** — `Connection.__init__`/`AsyncConnection.__init__` read a fixed set of options out of `**kwargs` and discarded everything else without a word, so a typo such as `read_timout=30` or `connectTimeout=5` was accepted, had no effect, and gave the caller no signal. Any keyword outside the supported set now emits a new `pycubrid.UnknownConnectionOptionWarning` (a `UserWarning` subclass, **not** part of the PEP 249 exception hierarchy) naming the offending option, suggesting the closest supported spelling when there is one, and listing the full supported set. Known options behave exactly as before, and the warning is emitted before any socket work so a mis-spelled option is reported even when the connection then fails. It covers `pycubrid.connect()`, `pycubrid.aio.connect()`, and direct `Connection(...)`/`AsyncConnection(...)` construction, and points at the caller's own line rather than pycubrid's internals. Contributed by @Parth-Vasave (first contribution 🎉).
+  aliases and close are available; cursor execution (`compat.cubriddb` has none),
+  prepared binding, sharing, configurable charset and HA are not. Not full
+  official-driver/DB-API parity. Ordinary 1.x defaults and async behavior are
+  unchanged. MINOR/additive public surface, protected by the API baseline.
+  Contributed by @yeongseon.
 
-  A warning rather than a hard `TypeError` is deliberate: wrapper layers (connection pools, ORM dialects such as `sqlalchemy-cubrid`) legitimately forward extra keywords, so rejecting them would be a breaking change under `RELEASE_POLICY.md` §3 and cannot land on the 1.x line. Callers choose their own strictness with the standard `warnings` machinery — `warnings.simplefilter("error", pycubrid.UnknownConnectionOptionWarning)` to reject unknown options, `"ignore"` to silence them. Additive surface change (`api-baseline.json` regenerated).
+- **`compat.native` prepared scalar cursor (#439)** — a sync cursor where one
+  physical-session-owned FC2 handle supports repeated typed FC3 execution of
+  INT32, UTF-8 CHAR and SQL NULL, tuple-only row fetch, current-generation FC6
+  close, and connection commit/rollback result hooks. Pooling-off/unknown
+  sessions fail before FC2. HOLDABLE SELECT results continue across commit and
+  invalidate across rollback; ordinary sync/async FC41 execution is unchanged and
+  there is no async preparation. Live scalar, DML and 130-row multi-FETCH gates
+  pass on CUBRID 10.2, 11.0, 11.2 and 11.4. Pinned official-native comparisons
+  on 10.2/11.4 match the selected non-NULL scalar/DML results; native
+  `bind_param(None)` crashes and is a documented safety deviation, not a NULL
+  parity pass. This is an additive MINOR subset, not full native/DB-API parity,
+  public async preparation, effective settings, or a release. Supporting work
+  that shipped alongside it and changes nothing for ordinary use: FC2/FC3
+  scalar packet serialization and refreshed-column-metadata parsing, with error
+  records failing closed (#475), and fencing prepared FC3/FC6 requests to their
+  owning physical CAS generation, so a stale handle is rejected before send even
+  if a replacement server reuses its number and an uncertain post-send failure
+  retires the session without replay (#478); the declared `threadsafety=1`
+  contract is unchanged. Contributed by @yeongseon.
+
+- **Owned schema rows (#456, #457)** — sync/async eager
+  `Connection.fetch_schema_info(packet)` and idempotent `close_schema_info(packet)`
+  (corrected FC9 requests/condensed metadata). Existing getter positional
+  arguments and raw packet fields remain; keyword-only `arg2=None` adds the
+  second filter. Immutable original-session ownership prevents forged/retired
+  handle RPCs. Handles are closed at explicit transaction boundaries, at
+  auto-committing cursor statements/batches and at version lookup with
+  connection autocommit enabled; connection teardown and I/O failures retire
+  them. Schema FETCH/CLOSE never reconnect, replay, implicitly commit or return
+  partial rows as success. Live coverage on CUBRID 10.2 and 11.4 spans
+  CLASS/VCLASS/ATTRIBUTE/CONSTRAINT/PRIMARY_KEY/IMPORTED_KEYS/EXPORTED_KEYS with
+  real multi-FETCH/close evidence in both sync and async modes, not all schema
+  codes or native parity. Schema examples now consume/close results and supply
+  ATTRIBUTE's second filter; row-order, qualifier and index-family boundaries are
+  documented. MINOR/additive surface; API baseline regenerated. Contributed by
+  @yeongseon.
+
+- **Unknown connection options are now surfaced instead of silently ignored (#377)** — `Connection.__init__`/`AsyncConnection.__init__` read a fixed set of options out of `**kwargs` and discarded everything else, so a typo such as `read_timout=30` or `connectTimeout=5` was accepted, had no effect, and gave no signal. Any keyword outside the supported set now emits `pycubrid.UnknownConnectionOptionWarning` (a `UserWarning` subclass, **not** part of the PEP 249 exception hierarchy) naming the option, suggesting the closest supported spelling when there is one, and listing the supported set. Known options behave exactly as before, and the warning is emitted before any socket work, so it is reported even when the connection then fails. It covers `pycubrid.connect()`, `pycubrid.aio.connect()` and direct `Connection(...)`/`AsyncConnection(...)` construction, and points at the caller's own line. Contributed by @Parth-Vasave (first contribution 🎉).
+
+  A warning rather than a hard `TypeError` is deliberate: wrapper layers (connection pools, ORM dialects such as `sqlalchemy-cubrid`) legitimately forward extra keywords, so rejecting them would be a breaking change under `RELEASE_POLICY.md` §3 and cannot land on the 1.x line. Additive surface change (`api-baseline.json` regenerated).
 
 ### Fixed
 
-- Recover when the CAS closes the socket after a transaction boundary, and
-  release open query handles at END_TRAN (#485). Since #468 the session survives
-  commit/rollback, but the CAS may still close the socket right after an OUT_TRAN
-  reply (CAS memory restart at `APPL_SERVER_MAX_SIZE`, `cubrid broker reset`,
-  CHANGE CLIENT with more clients than CAS processes), and the next request then
-  failed with `OperationalError: connection lost during receive`. Sync and async
-  connections now send one `CHECK_CAS` before a request that follows an OUT_TRAN
-  reply, like JDBC `checkReconnect`. A live CAS keeps the same session, so
-  session variables and isolation level still survive normal boundaries. Only a
-  failed probe replaces the session, once per request and before that request is
-  first sent: the escape mode is re-probed unless pinned and explicit autocommit is
-  restored, and the replacement is verified once more before the request. Requests
-  tied to the lost session are not sent to the new one (a CLOSE_REQ is skipped;
-  FETCH, last-insert-id, LOB read/write and native prepared requests fail; a
-  `lastrowid` lost after an autocommit INSERT is `None` and logged at WARNING),
-  and cursors probe before rendering parameters, so SQL rendered for a session
-  that is then replaced is rejected before send with the retryable
-  `OperationalError`, never sent to the new session (sync and async). Async cursor
-  FETCH/CLOSE_REQ requests whose handle another task's boundary released while
-  they waited are no longer sent. No SQL is replayed. SQL-level session state
-  of the lost CAS is not carried over, so layers that set isolation or session variables with SQL must
-  keep re-applying them on a new session (sqlalchemy-cubrid#527). A failed
-  replacement raises `OperationalError` and leaves the connection disconnected
-  for `ping(reconnect=True)`. Commit and rollback first send `CLOSE_REQ` for
-  handles still held by unclosed cursors, so server handles no longer accumulate
-  until the CAS exceeds its memory limit; in autocommit mode there is no such
-  boundary, so close cursors.
-  Already received rows stay readable; unfinished results still raise
-  `InterfaceError` (#395). Requests after an OUT_TRAN reply cost one extra round
-  trip, including each statement in autocommit mode. This supersedes the #468
-  entry's statement that only an explicit `ping(reconnect=True)` may recover:
-  normal boundaries keep the session, and only a CAS that fails the probe
-  triggers the automatic reconnect. Contributed by @yeongseon.
-- Fence future prepared FC3/FC6 requests to their owning physical CAS
-  generation inside the synchronous transport boundary (#478). A stale
-  handle is rejected before send even when a replacement server reuses its
-  number; uncertain post-send failure retires the session without replay.
-  This is internal groundwork for #439, not a public prepared API or a
-  change to the declared `threadsafety=1` contract. Contributed by @yeongseon.
+- **Sessions survive transaction boundaries, and a CAS that closes the socket is recovered (#468, #485)** — `CAS_INFO[0]=0` is now treated as OUT_TRAN, not a released CAS session, so normal commit, rollback and autocommit requests keep the physical connection and session state. The CAS can still close the socket right after an OUT_TRAN reply (CAS memory restart at `APPL_SERVER_MAX_SIZE`, `cubrid broker reset`, CHANGE CLIENT with more clients than CAS processes), which used to fail the next request with `OperationalError: connection lost during receive`. Sync and async connections now send one `CHECK_CAS` before a request that follows an OUT_TRAN reply, like JDBC `checkReconnect`; only a failed probe replaces the session, once per request and before that request is first sent. No SQL is replayed, and requests tied to the lost session are not sent to the new one: a CLOSE_REQ is skipped; FETCH, last-insert-id, LOB read/write and native prepared requests fail; a `lastrowid` lost after an autocommit INSERT is `None` and logged at WARNING; cursors probe before rendering parameters, so SQL rendered for a replaced session is rejected with the retryable `OperationalError`; async FETCH/CLOSE_REQ whose handle another task's boundary released are no longer sent. Layers that set session state with SQL must keep re-applying it on a new session (sqlalchemy-cubrid#527). A failed replacement raises `OperationalError` and leaves the connection disconnected for `ping(reconnect=True)`; `ping(reconnect=False)` still reports failure without reconnecting, and `ping(reconnect=True)` also recovers from a disconnected socket or a failed `CHECK_CAS`. Commit and rollback now close the server handles of unclosed cursors, so handles no longer accumulate until the CAS exceeds its memory limit. This supersedes the earlier statement that only an explicit `ping(reconnect=True)` may recover. Contributed by @yeongseon.
+
 - Re-probe automatically detected `no_backslash_escapes` on each new physical
   session, including explicit ping recovery (#471). Explicit `True`/`False`
   remains pinned; healthy same-session ping does not probe. Probe failure
@@ -1412,53 +1387,59 @@ unchanged):
   rejected before send, not silently rebound or replayed. PATCH correction;
   no dynamic `SET` or heterogeneous-failover guarantee. This supersedes the
   historical #264 note that recovery never re-probes. Contributed by @yeongseon.
-- Treat `CAS_INFO[0]=0` as OUT_TRAN, not a released CAS session (#468). Normal
-  commit, rollback, and autocommit requests keep the physical connection and
-  session state; only an explicit `ping(reconnect=True)` may recover from a
-  disconnected socket, a negative `CHECK_CAS` response, or a CHECK_CAS
-  transport/protocol error. `ping(reconnect=False)` still reports failure without
-  reconnecting. Other SQL is never replayed after an uncertain transport
-  failure. Connection, API, architecture, and support documentation now
-  describe this boundary consistently. Contributed by @yeongseon.
+
 - Async schema FETCH now discards the session without sending CLOSE when
   `KeyboardInterrupt` or `SystemExit` interrupts a pending reply; the original
   interruption is preserved. Ordinary FETCH errors retain their cleanup behavior. Contributed by @yeongseon.
-- Empty `bytes` LOB writes return `0` without a broker request after existing object, offset, connection and wire argument checks. BLOB/CLOB data and handles stay unchanged; nonempty ACK checks and existing bool/other-data paths are preserved. No new strict type policy or async LOB feature is introduced. (#394) by @yeongseon.
+
+- Unfinished SELECT results invalidated by commit/rollback no longer silently look exhausted: sync and async fetch methods raise `InterfaceError` when another broker FETCH is required without a valid handle. Fully buffered/exhausted results retain normal EOF, and the reconnect-specific `OperationalError` stays distinct. (#395) by @yeongseon.
+
+- Native NOT NULL (`-631`) and invalid foreign-key (`-922`) errors raise `IntegrityError` by error code, independent of message language. Single-statement and batch paths preserve the native value in `code` and `errno`; the shared batch error helper no longer drops errno. (#390) by @yeongseon.
+
 - Native syntax (`-493`), semantic (`-494`) and communication (`-671`) errors now carry their verified meanings: generic `ProgrammingError` / `42000` for parser errors, `OperationalError` / `08S01` for communication. Batch dispatch reuses known-code SQLSTATE lookup rather than discarding it in favor of a class default; unknown-code defaults are unchanged. Missing-table inference from `-493` alone is unsupported. (#391) by @yeongseon.
-- Unfinished SELECT results invalidated by commit/rollback no longer silently look exhausted: sync and async fetch methods raise `InterfaceError` when another broker FETCH is required without a valid handle. Already received rows remain readable, fully buffered/exhausted results retain normal EOF, and reconnect-specific `OperationalError` stays distinct. No transparent replay or holdable-result guarantee is added. (#395) by @yeongseon.
-- Native NOT NULL (`-631`) and invalid foreign-key (`-922`) errors now raise `IntegrityError` with SQLSTATE `23000` by code, independent of message language. Single-statement and batch paths preserve the native value in `code` and `errno`; the shared batch error helper no longer drops errno. Sync/async regressions verify constrained inserts and connection reuse after rollback. (#390) by @yeongseon.
-- `cursor.description` now reports `null_ok=True` for nullable columns and `False` for NOT NULL/primary-key columns. The CAS byte is an `is_non_null` flag, previously interpreted backwards. Full per-type metadata and sync/async nullability regressions preserve existing size fields and collection codes. (#431, #398, #408) by @yeongseon.
-- Collection column metadata retains CAS collection-kind flags instead of treating the element type as the column type. SET/MULTISET/SEQUENCE, including empty collections with a NULL element-type header, return their documented containers with `decode_collections=True`, or raw bytes when disabled, in both sync and async queries. Real-header regressions cover initial and subsequent fetches. (#403, #410) by @yeongseon.
-- Development quality checks synchronize Ruff/Mypy hook revisions with the exact dev pins, reject installed-tool/configuration drift, and lint/format maintained scripts and demos through shared local/CI Make targets. The Mypy hook explicitly checks the package instead of running only stub installation. (#416) by @yeongseon.
-- Full integration validation selects current pytest markers instead of filename globs. Normal, TLS, and nightly slow lanes cover the declared integration inventory, including concurrency stress; unknown skips and missing workflow paths fail the lane audit. TLS provisioning runs broker commands as the service owner. (#397) by @yeongseon.
-- Integration CI now uses the shared CUBRID readiness probe with host/port connection fields and fails before running tests when all retries are exhausted. (#411) by @yeongseon.
-- **`Connection.get_last_insert_id()` / `AsyncConnection.get_last_insert_id()` no longer return an ambiguous empty string after `commit()` (#381)** — cache the broker identity captured after INSERT so it survives commit/rollback and SELECT. Successful values remain strings; unavailable identities return `None`. A new INSERT attempt, nonempty batch, or physical connection change clears the cache; failed, empty, or malformed identity retrieval leaves it unavailable. The broker can report an earlier identity after a non-auto-increment INSERT, so an ID does not prove the current statement generated it or that a row exists after rollback. Migration: replace `value == ""` with `value is None` and check for `None` before `int(value)`; `cursor.lastrowid` remains `int | None`. This is a documented bug correction, not an annotation-only change. Contributed by @srijavuppala (first contribution 🎉).
+
+- `cursor.description` reports `null_ok=True` for nullable columns and `False` for NOT NULL/primary-key columns; the CAS byte is an `is_non_null` flag that was previously interpreted backwards. Size fields and collection codes are preserved. (#431, #398, #408) by @yeongseon.
+
+- Collection column metadata retains CAS collection-kind flags instead of treating the element type as the column type. SET/MULTISET/SEQUENCE, including empty collections with a NULL element-type header, return their documented containers with `decode_collections=True`, or raw bytes when disabled, in both sync and async queries, for initial and subsequent fetches. (#403, #410) by @yeongseon.
+
+- **`Connection.get_last_insert_id()` / `AsyncConnection.get_last_insert_id()` no longer return an ambiguous empty string after `commit()` (#381)** — the broker identity captured after INSERT is cached so it survives commit/rollback and SELECT. Successful values remain strings; unavailable identities return `None`. A new INSERT attempt, nonempty batch, or physical connection change clears the cache; failed, empty, or malformed identity retrieval leaves it unavailable. The broker can report an earlier identity after a non-auto-increment INSERT, so an ID does not prove the current statement generated it or that a row exists after rollback. `cursor.lastrowid` remains `int | None`. This is a documented bug correction, not an annotation-only change. Contributed by @srijavuppala (first contribution 🎉).
+
+- Empty `bytes` LOB writes return `0` without a broker request after existing object, offset, connection and wire argument checks. BLOB/CLOB data and handles stay unchanged; nonempty ACK checks and existing bool/other-data paths are preserved. No new strict type policy or async LOB feature is introduced. (#394) by @yeongseon.
+
 - **Empty `executemany()` clears previous results (#376)** — sync and async cursors
   release the previous query handle and reset result state to `description=None`,
   `rowcount=0`, and `lastrowid=None`. No SQL is executed; immediate query-close
   failures propagate without discarding the handle. With deferred close (#488),
   an eligible previous handle is queued without a request and an empty call
   does not flush the queue; FC20 batches likewise do not carry queued IDs (#585) by @HarshRajSinghania (first contribution 🎉).
+
 - Failed batch execution no longer exposes stale cursor result state (#375): sync and async executemany_batch clear prior result metadata, row counts, and last-insert IDs before the batch request, including per-statement, transport, and response-parse failure paths. If closing the previous query handle fails, no batch is sent and the handle remains tracked. Contributed by @tayfuryldz.
-- **`Cursor.arraysize` now rejects non-integer values in sync and async cursors (#370).** Floats, booleans, and other non-integers raise `ProgrammingError` without changing the previous value; positive integers remain valid. Contributed by @MugdhoAI (first contribution 🎉).
+
 - **Batch execution closes an existing query handle (#374)** — `executemany_batch()` now releases an active server-side query handle before sending a batch request, matching `execute()` and preventing the prior result-set handle from leaking. Sync and async cursors keep the same behavior. Contributed by @tayfuryldz (first contribution 🎉).
+
+- **`Cursor.arraysize` now rejects non-integer values in sync and async cursors (#370).** Floats, booleans, and other non-integers raise `ProgrammingError` without changing the previous value; positive integers remain valid. Contributed by @MugdhoAI (first contribution 🎉).
+
 - Format very large integer parameters as decimal strings without converting them to floats, avoiding `OverflowError`. Float NaN/infinity rejection and boolean formatting are unchanged. (#368) by @varshith84 (first contribution 🎉).
 
 ### Documentation
 
-- Define the bounded typed-CAS prepared binding design (#418) for a future
-  sync-only compatibility scalar slice (#439): exact FC2/FC3/FC6 framing,
-  session-owned handle/result states, explicit pooling-on evidence limits,
-  and failing-first test IDs. This is design evidence, not a shipped prepared
-  API, ordinary 1.x behavior change, or full native-parity claim. Contributed by @yeongseon.
-- Verify owned CLASS/VCLASS/ATTRIBUTE/index/composite PK/FK schema rows on CUBRID 10.2/11.4 in both sync and async modes, with real multi-FETCH/close evidence. Correct schema examples to consume/close results and supply ATTRIBUTE's second filter; document row-order/qualifier/index-family boundaries without claiming native parity. (#457) by @yeongseon.
-- Select a conservative additive compatibility design (#438): separate wrapper/native namespaces, unchanged ordinary 1.x/SQLAlchemy contracts, classified safe deviations and focused migration/acceptance boundaries. This design preceded the construction-only #465 slice and does not authorize a 2.0/default or release migration. Contributed by @yeongseon.
-- Record the pinned official-driver source declaration inventory and reviewed assertion subcases in a scenario ledger, keeping unknown/duplicate candidates and execution evidence separate; validate candidate links against ledger declarations. This accounting does not certify functional parity. (#437) by @yeongseon.
-- Private FC9 request/condensed-column groundwork (#455) preceded atomic getter activation and owned row consumption in #456. Its wire fixtures alone were not live-getter or native-parity certification. Contributed by @yeongseon.
-- Add a source-referenced official-driver public API inventory and compatibility guide; catalog consistency checks do not certify functional parity. (#436) by @yeongseon.
-- Added a README "First contribution" guide (with Korean translation) pointing newcomers to the right sibling repo for their first PR, and documented the `good first issue` → `status: in progress` label lifecycle in AGENTS.md. Contributed by @yeongseon.
+- **Official-driver compatibility design (#438, #418)** — a conservative additive design with separate wrapper/native namespaces, unchanged ordinary 1.x/SQLAlchemy contracts, classified safe deviations and focused migration/acceptance boundaries. It preceded the construction-only #465 slice and does not authorize a 2.0/default or release migration. A bounded typed-CAS prepared binding design for the sync scalar slice (#439) adds exact FC2/FC3/FC6 framing, session-owned handle/result states, explicit pooling-on evidence limits and failing-first test IDs. This is design evidence, not a shipped prepared API, ordinary 1.x behavior change, or full native-parity claim. Contributed by @yeongseon.
+
+- **Official-driver inventories (#436, #437, #455)** — a source-referenced public API inventory and compatibility guide (#436), and a pinned declaration inventory with reviewed assertion subcases in a scenario ledger that keeps unknown/duplicate candidates and execution evidence separate (#437). Private FC9 request/condensed-column groundwork (#455) preceded the getter activation and owned row consumption in #456; its wire fixtures alone were not live-getter or native-parity certification. Catalog consistency checks do not certify functional parity. Contributed by @yeongseon.
+
+- Added a README "First contribution" guide (with Korean translation) pointing newcomers to the right sibling repo for their first PR, documented the `good first issue` → `status: in progress` label lifecycle in AGENTS.md, and clarified contributor and maintainer review/label/translation responsibilities. Contributed by @yeongseon.
+
 - Acknowledge CUBRID/cubrid-python's reference test scenarios in the README, NOTICE and third-party provenance notes, with source links and explicit licensing-verification limits. Contributed by @yeongseon.
-- Clarify contributor and maintainer review/label/translation responsibilities, validate populated standalone docs exceptions with executable event-JSON checks, and pin the two verified shared workflow callers. CI code/security/release gates and security support policy are unchanged. Contributed by @yeongseon.
+
+### CI
+
+- Development quality checks synchronize Ruff/Mypy hook revisions with the exact dev pins, reject installed-tool/configuration drift, and lint/format maintained scripts and demos through shared local/CI Make targets; the Mypy hook now checks the package. (#416) by @yeongseon.
+
+- Full integration validation selects current pytest markers instead of filename globs, so the normal, TLS and nightly slow lanes cover the declared integration inventory, including concurrency stress; unknown skips and missing workflow paths fail the lane audit, and TLS provisioning runs broker commands as the service owner. (#397) by @yeongseon.
+
+- Integration CI uses the shared CUBRID readiness probe with host/port connection fields and fails before running tests when all retries are exhausted. (#411) by @yeongseon.
+
+- Docs exceptions in pull requests are validated with executable event-JSON checks, and the two verified shared workflow callers are pinned. CI code/security/release gates and security support policy are unchanged. Contributed by @yeongseon.
 
 ## [1.7.1] - 2026-09-18
 
