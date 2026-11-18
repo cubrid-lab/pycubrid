@@ -245,27 +245,23 @@ This is the next actually published release after v1.13.1. **v1.13.2 was never p
 
 ### Changed
 
-- **`make test` and `make integration` write `test-results/` (#1024)** — `make test`
-  writes `junit.xml`, `coverage.xml`, `summary.json` and `environment.json` to
-  `test-results/test/`; `make integration` and `make integration-tls` write them (and
-  `service.log` after a failed run) to `test-results/integration/` and
-  `test-results/integration-tls/`. `scripts/report_results.py` reports `PASS`, `FAIL` or
-  `INCOMPLETE` and prints the same one-line summary; a skipped or unexecuted lane is never
-  `PASS`, no credential is written, and exit codes are unchanged. The directory is gitignored
-  and `make clean` removes it. `INTEGRATION_RESULTS` no longer defaults to
-  `integration-results.xml` in the repository root. CI is unchanged. Contributed by @yeongseon.
-- **Makefile targets have one meaning each (#1007)** — `make lint` runs only `ruff check`;
-  `make format` is the only quality target that modifies files. `make check` is the complete
-  static gate: `lint`, `format-check`, `typecheck`, `security` and `docs-reason-check`.
-  `make doctor` now exits non-zero, without its success line, when a required tool is
-  missing or fails `--version`. Every tool variable (`PIP`, `PYTEST`, `RUFF`, `MYPY`,
-  `BANDIT`, `PRE_COMMIT`) runs as `$(PYTHON) -m <tool>` and can be overridden with `?=`
-  from the command line or the environment. `make help` groups the targets by purpose. Contributed by @yeongseon.
-- **`make integration` and `make integration-tls` are one `scripts/run_integration.py` call
-  (#1007)** — the script owns the Compose lifecycle, readiness, SIGINT/SIGTERM handling,
-  cleanup, exit status and the every-test-skipped audit. Test selection, the pinned
-  endpoint and volume handling are unchanged: cleanup runs `docker compose down`, never
-  `-v`, after success, failure or a signal. Cleanup now also runs when
+- **`make test` and `make integration` write `test-results/` (#1024)** — each run now leaves
+  `junit.xml`, `coverage.xml`, `summary.json` and `environment.json` (plus `service.log` after
+  a failed integration run) under `test-results/<lane>/`, and `scripts/report_results.py`
+  prints a one-line `PASS`, `FAIL` or `INCOMPLETE` verdict; a skipped or unexecuted lane is
+  never `PASS`. Exit codes and CI are unchanged. The directory is gitignored and `make clean`
+  removes it. `INTEGRATION_RESULTS` no longer defaults to `integration-results.xml` in the
+  repository root. Contributed by @yeongseon.
+- **Makefile targets have one meaning each (#1007)** — `make lint` runs only `ruff check` and
+  `make format` is the only target that modifies files. `make check` is the complete static
+  gate (`lint`, `format-check`, `typecheck`, `security`, `docs-reason-check`). `make doctor`
+  exits non-zero when a required tool is missing or fails `--version`. The tool variables
+  (`PIP`, `PYTEST`, `RUFF`, `MYPY`, `BANDIT`, `PRE_COMMIT`) can be overridden with `?=`, and
+  `make help` groups the targets by purpose. Contributed by @yeongseon.
+- **`make integration` and `make integration-tls` call `scripts/run_integration.py`
+  (#1007)** — the script owns the Compose lifecycle, readiness, signal handling, cleanup and
+  the every-test-skipped audit. Test selection, the pinned endpoint and volume handling are
+  unchanged (cleanup runs `docker compose down`, never `-v`), and cleanup now also runs when
   `docker compose up` fails. Contributed by @yeongseon.
 - **`make docker-down` keeps the test data (#1006)** — it now runs `docker compose down`,
   which removes the container and network but keeps the named data volumes, so the next
@@ -287,17 +283,14 @@ This is the next actually published release after v1.13.1. **v1.13.2 was never p
 ### Fixed
 
 - **`make integration` no longer attaches to or removes the `make docker-up` lab (#1021)** —
-  `scripts/run_integration.py` ran `docker compose up -d`, `ps` and `down` on the default
-  Compose project, so a run could attach to a manually started CUBRID, stop and remove its
-  container, and reuse its data volumes. Every `docker compose` call now carries
-  `-p <project>` with a run-unique default `pycubrid-it-<timestamp>-<pid>` (override with
-  `INTEGRATION_PROJECT=<name>`; an exported `COMPOSE_PROJECT_NAME` is ignored). The run
-  refuses a project that already has a container, volume or network (exit 1) before
-  starting or removing anything, and refuses a second run of the same project name while
-  the first holds its `flock` lock (POSIX only). Cleanup, after success, failure or SIGINT/SIGTERM, is now
-  `docker compose -p <project> down -v` of that run-owned project, so each run starts from an
-  empty database and leaves no volumes; the manual lab's containers and data are untouched.
-  Readiness, the lane audit and exit statuses are unchanged ([#1027](https://github.com/cubrid-lab/pycubrid/pull/1027), [588cd8a](https://github.com/cubrid-lab/pycubrid/commit/588cd8affe771e1ca7b741b7022d84fa94e69a58)). Contributed by @yeongseon.
+  it used the default Compose project, so a run could attach to a manually started CUBRID and
+  remove its container and data volumes. Every `docker compose` call now uses a run-unique
+  project `pycubrid-it-<timestamp>-<pid>` (override with `INTEGRATION_PROJECT=<name>`; an
+  exported `COMPOSE_PROJECT_NAME` is ignored). The run refuses a project that already has a
+  container, volume or network (exit 1) and a second run of the same name (POSIX `flock`),
+  and cleans up only its own project with `docker compose -p <project> down -v`, so each run
+  starts from an empty database and leaves no volumes. Readiness, the lane audit and exit
+  statuses are unchanged ([#1027](https://github.com/cubrid-lab/pycubrid/pull/1027), [588cd8a](https://github.com/cubrid-lab/pycubrid/commit/588cd8affe771e1ca7b741b7022d84fa94e69a58)). Contributed by @yeongseon.
 
 ### Documentation
 
@@ -319,36 +312,29 @@ This is the next actually published release after v1.13.1. **v1.13.2 was never p
 
 * **release:** verify against the current cookbook and restart after the abandoned 1.13.2 ([#1040](https://github.com/cubrid-lab/pycubrid/issues/1040)) ([be7817e](https://github.com/cubrid-lab/pycubrid/commit/be7817e17ec59397af105dfe193eee550afdd38c)), refs [#1016](https://github.com/cubrid-lab/pycubrid/issues/1016) by @yeongseon.
 
-- **Every live CI job runs the Make contract or documents why not (#1023)** — each job of
-  `ci.yml`, `integration-full.yml` and `bug-hunt.yml` that talks to a live CUBRID now carries
-  a `# Not using make integration because ...` comment, and docs/DEVELOPMENT.md lists the
-  reason per job (test selection, SSL=ON broker, EUC-KR database, several servers at once,
-  benchmark or downstream suites). No job switched: none could keep its versions, matrix,
-  test selection, lane audit, result files and readiness unchanged.
-  `tests/test_workflow_make_contract.py` fails when a new live job has neither. Steps,
-  permissions, secrets and triggers are unchanged. Contributed by @yeongseon.
+- **Every live CI job runs the Make contract or documents why not (#1023)** — each live-CUBRID
+  job in `ci.yml`, `integration-full.yml` and `bug-hunt.yml` now carries a `# Not using make
+  integration because ...` comment, with the reasons listed per job in docs/DEVELOPMENT.md,
+  and `tests/test_workflow_make_contract.py` fails when a new live job has neither. No job,
+  step, permission, secret or trigger changed. Contributed by @yeongseon.
 
-- **CI publishes the test-results summary and uploads it on every run (#1024)** — the offline
-  (`offline-tests`, `offline-endpoints`), integration and TLS integration jobs of `ci.yml` and
-  `integration-full.yml` write their JUnit XML to `test-results/<lane>/junit.xml`, run
-  `scripts/report_results.py summarize` and append its one-line summary to the job summary,
-  then upload `test-results/` with `actions/upload-artifact` (the commit `publish-pypi.yml`
-  already pins), both with `if: always()`; one 7-day artifact per matrix entry. Test
-  selection, coverage files, Codecov uploads, lane checks, permissions, secrets and triggers
-  are unchanged. Contributed by @yeongseon.
+- **CI publishes the test-results summary and uploads it on every run (#1024)** — the offline,
+  integration and TLS integration jobs of `ci.yml` and `integration-full.yml` add the
+  one-line summary to the job summary and upload `test-results/` as a 7-day artifact per
+  matrix entry, even when the job fails. Test selection, coverage, Codecov, permissions,
+  secrets and triggers are unchanged. Contributed by @yeongseon.
 
 - **The lint lanes run `make check` (#1007)** — `ci.yml`, its release copy in
   `integration-full.yml` and `maintenance.yml` call `make check` instead of `make lint` (and,
   in `maintenance.yml`, a separate Bandit command) by @yeongseon.
 - **mypy runs once per code pull request and not on docs-only ones (#1009)** — the always-on
-  `lint` job in `ci.yml`, and its release copy in `integration-full.yml`, now run
-  `make lint format-check security docs-reason-check`, which is `make check` without
-  `typecheck`. mypy runs only in the `typecheck` job, which runs for code changes and which
-  the CI gate still requires. `make check` and `maintenance.yml` are unchanged. Contributed by @yeongseon.
+  `lint` job in `ci.yml` (and its copy in `integration-full.yml`) no longer runs `typecheck`;
+  mypy runs only in the `typecheck` job, which runs for code changes and is still required by
+  the CI gate. `make check` and `maintenance.yml` are unchanged. Contributed by @yeongseon.
 
 ### Tests
 
-- **Offline tests for repository tooling** — new offline tests cover the benchmark regression report's thresholds and input errors, the connection profiling cycles, the README translation-sync policy, and the readiness retry outcomes of `scripts/wait_for_cubrid.py` (now run in the tooling CI lane). The prepared-batch measurement CLI now rejects non-positive `--rows` before any database work, and `scripts/generate_llms_full.py` fails before overwriting anything when a listed source page is missing ([#1029](https://github.com/cubrid-lab/pycubrid/pull/1029), [#1030](https://github.com/cubrid-lab/pycubrid/pull/1030), [#1031](https://github.com/cubrid-lab/pycubrid/pull/1031), [#1034](https://github.com/cubrid-lab/pycubrid/pull/1034), [#1037](https://github.com/cubrid-lab/pycubrid/pull/1037), [#1038](https://github.com/cubrid-lab/pycubrid/pull/1038)) by @WilliamK112 (first contribution 🎉).
+- **Offline tests for repository tooling** — new offline tests cover the benchmark regression report, the connection profiling cycles, the README translation-sync policy and the readiness retries of `scripts/wait_for_cubrid.py` (now in the tooling CI lane). Two behavior changes: the prepared-batch measurement CLI rejects non-positive `--rows` before any database work, and `scripts/generate_llms_full.py` fails before overwriting anything when a listed source page is missing ([#1029](https://github.com/cubrid-lab/pycubrid/pull/1029), [#1030](https://github.com/cubrid-lab/pycubrid/pull/1030), [#1031](https://github.com/cubrid-lab/pycubrid/pull/1031), [#1034](https://github.com/cubrid-lab/pycubrid/pull/1034), [#1037](https://github.com/cubrid-lab/pycubrid/pull/1037), [#1038](https://github.com/cubrid-lab/pycubrid/pull/1038)) by @WilliamK112 (first contribution 🎉).
 
 ## [1.13.1] - 2026-10-21
 
@@ -834,63 +820,41 @@ This release adds an **opt-in prepared batch** for synchronous and asynchronous 
 
 ### CI
 
-- **The closing guard skips a multi-line link reference definition** — CommonMark
-  lets a definition's destination and title run on to later lines, so `Closes`, a
-  `[a]:` line, an indented `/target` line and then `owner/repo#N` still renders
-  nothing between the keyword and the reference. The gap walk now reaches every
-  later line end of the paragraph after a definition line, up to a blank line, which
-  can only add blocking; each line end is scanned once per check. Copilot found this
-  in cubrid-lab/sqlalchemy-cubrid#822; `pr-title.yml` stays byte-identical across
-  pycubrid, sqlalchemy-cubrid, cubrid-mcp-server and cubrid-cookbook-python. Contributed by @yeongseon.
+- **The closing guard skips a multi-line link reference definition** — a `Closes` keyword
+  followed by a link reference definition whose destination or title continues on later
+  lines (so nothing renders between the keyword and `owner/repo#N`) is now blocked; the
+  change can only add blocking. Copilot found this in cubrid-lab/sqlalchemy-cubrid#822;
+  `pr-title.yml` stays byte-identical across pycubrid, sqlalchemy-cubrid, cubrid-mcp-server
+  and cubrid-cookbook-python. Contributed by @yeongseon.
 
 - **Generated issue references are written as "refs", not "closes", in `CHANGELOG.md` and the
-  release PR body** — release-please 17.6.0 renders every issue trailer in a commit's final
-  footer block as `, closes [#N](…)`, so a commit that only said `Refs #N` was listed as
-  closing that issue, and GitHub read the release PR body as closing it on merge.
-  `scripts/compose_release_changelog.py` (shared byte for byte with sqlalchemy-cubrid and
-  cubrid-mcp-server; cubrid-lab/sqlalchemy-cubrid#820, cubrid-lab/sqlalchemy-cubrid#821,
-  cubrid-lab/cubrid-mcp-server#280) now rewrites generated
-  references to `, refs [#N](…)` on generated entry lines outside code blocks, and the
-  **Prepare release** workflow applies the same rewrite to the release PR body right after
-  release-please updates it; no permission changes (#850) by @yeongseon.
+  release PR body** — release-please 17.6.0 labelled every trailing issue `closes`, so a
+  commit that only said `Refs #N` was listed as closing that issue and GitHub could close it
+  when the release PR merged. `scripts/compose_release_changelog.py` (shared with
+  sqlalchemy-cubrid and cubrid-mcp-server; cubrid-lab/sqlalchemy-cubrid#820,
+  cubrid-lab/sqlalchemy-cubrid#821, cubrid-lab/cubrid-mcp-server#280) and the **Prepare
+  release** workflow now rewrite them to `refs`; no permission changes (#850) by @yeongseon.
 
 - **The closing guard is the one shared with sqlalchemy-cubrid, cubrid-mcp-server
-  and cubrid-cookbook-python** — `pr-title.yml` is the shared file, and a test pins
-  the guard block's SHA-256. This change also catches a closing keyword used as link
-  text (`[Closes](url) owner/repo#N`, which renders as "Closes owner/repo#N"), a
-  quoted continuation line, an image or a link reference definition between the
-  keyword and the reference, and stays fast on adversarial link syntax; the three
-  sibling repositories take the same fix in their own pull requests, after which the
-  file is byte-identical in all four. The shared guard is the union of both
-  versions. It keeps this repository's title, commit-message, underscore-owner and
-  250-commit checks, checks each commit message on its own, and blocks forms this
-  guard let through: a comment that ends at `--!>`, `<?` and `<![CDATA[` that a
-  browser ends at the first `>`, a quote inside an earlier tag's attribute that
-  reopens a later comment, raw-text elements such as `<select>`, a leading byte
-  order mark, a fence in a block quote followed by top-level text, lowercase `<!x`
-  declaration lines, inline instructions and CDATA between the keyword and the
-  reference, relative issue links, a lazy `<span>` continuation under a list item,
-  and a foreign issue listed after another one (`Closes #1, owner/repo#2`). Code
-  spans and inline comments are now checked, and so are fences inside list items or
-  block quotes, indented code inside list items, and indented text after an empty
-  list item or a thematic break: hiding them needs inline or container parsing that
-  a mis-paired fence or a link destination can defeat, so some bodies this guard
-  accepted are now blocked; the change trades missed closures for false positives.
-  Every regression case from this repository is kept; the 13 whose expectation
-  changed are in `test_uncertain_markdown_is_checked_on_purpose`, and CONTRIBUTING
-  (English and Korean) and AGENTS.md describe the shared rules. Contributed by @yeongseon.
+  and cubrid-cookbook-python** — `pr-title.yml` is the shared file (a test pins the guard
+  block's SHA-256; the three sibling repositories take the same fix in their own pull
+  requests). It now also catches a closing keyword used as link text, a quoted continuation
+  line, an image or link reference definition between the keyword and the reference, a
+  comment that ends at `--!>`, `<?` and `<![CDATA[`, raw-text elements such as `<select>`, a
+  leading byte order mark, relative issue links, and a foreign issue listed after another
+  one (`Closes #1, owner/repo#2`), while keeping this repository's title, commit-message,
+  underscore-owner and 250-commit checks. Code spans, inline comments and fences or indented
+  code inside list items or block quotes are now checked too, so some bodies the old guard
+  accepted are blocked: the change trades missed closures for false positives. The 13
+  changed regression expectations are in `test_uncertain_markdown_is_checked_on_purpose`.
+  Contributed by @yeongseon.
 - **Repository-local issue closure in PRs** — the required `PR title` check now
-  rejects direct closing keywords targeting a different GitHub repository in the PR
-  body, the PR title and the PR's commit messages (the title and commit messages
-  make up the squash commit); local `Closes #N` and cross-repository
-  `Refs owner/repo#N` remain valid. The body is untrusted data and nothing is
-  checked out; the job's token can only read pull requests, to list the commit
-  messages, and a PR with 250 or more commits fails because GitHub lists only 250.
-  Keywords and references split by emphasis (`*`, `_`, `~`), inline HTML, comments,
-  entities or escapes are caught, as are `http://`, `www.`, autolink, `<a href>`,
-  inline and reference-link issue URLs. The title and commit messages are plain text
-  and are checked as written. How the body's Markdown is read is described in the
-  entry above. Contributed by @yeongseon.
+  rejects closing keywords that target a different GitHub repository in the PR body, the PR
+  title and the PR's commit messages (the title and commit messages make up the squash
+  commit); local `Closes #N` and cross-repository `Refs owner/repo#N` remain valid. Keywords
+  split by emphasis, inline HTML, comments, entities or escapes are caught, as are
+  `http://`, `www.`, autolink, `<a href>`, inline and reference-link issue URLs. A PR with 250 or more commits fails because GitHub
+  lists only 250. Contributed by @yeongseon.
 
 ## [1.11.0] - 2026-10-11
 
