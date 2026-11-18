@@ -166,6 +166,39 @@ def test_documentation_site_scope_separates_bundled_and_remote_assets() -> None:
         assert asset not in bundled, asset
 
 
+def _docs_pin(name: str) -> str:
+    for req in requirements("docs"):
+        if canonicalize_name(req.name) == canonicalize_name(name):
+            (spec,) = req.specifier
+            assert spec.operator == "==", f"{name} is no longer an exact pin in the docs group"
+            return spec.version
+    raise AssertionError(f"{name} is not in the docs dependency group")
+
+
+def test_docs_table_records_the_exact_docs_group_pins() -> None:
+    # The site is built from the exact docs pins, so unlike the dev group a
+    # docs-group bump must refresh its table row along with the site review.
+    rows = table("docs")
+    for req in requirements("docs"):
+        name = canonicalize_name(req.name)
+        assert rows[name]["version"] == _docs_pin(name), (
+            f"{name} row in the docs table does not match the pin in pyproject.toml"
+        )
+
+
+def test_site_inventory_names_the_pinned_material_theme() -> None:
+    # A Material for MkDocs bump can change the redistributed assets; the
+    # inventory must be rechecked and record the version actually built.
+    pinned = _docs_pin("mkdocs-material")
+    site = _site_section()
+    bundled = site[site.index("### Third-party assets bundled") :]
+    theme_row = re.search(r"\| Material for MkDocs (\S+) \(Martin Donath\)", bundled)
+    assert theme_row, "the bundled-assets table has no Material for MkDocs row"
+    assert theme_row.group(1) == pinned, (
+        f"rebuild the site and recheck its bundled assets for Material for MkDocs {pinned}"
+    )
+
+
 def test_remote_font_statement_matches_mkdocs_config() -> None:
     # Material links Google Fonts unless theme.font is set to false; the
     # inventory must say which of the two the site does.
