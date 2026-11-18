@@ -14,25 +14,25 @@ nonsecret inputs for a terminal recording and never display a password/DSN.
 The committed recording's exact source/build/engine evidence is in
 `recording-provenance.json`.
 
-## Source wheel and recording environment
+## Published release and recording environment
 
-Build one wheel from a clean checkout of the recorded source revision:
+The recordings install a **published PyPI release**, the version pinned in the
+tapes' `pip install pycubrid==X.Y.Z` line. When you re-record for a newer
+release, update that pin in both tapes and in `recording-provenance.json`.
+Start with a fresh, empty venv for each recording:
 
 ```bash
-python -m build --wheel --outdir .demo-artifacts/wheels
 python -m venv .demo-artifacts/venv
 source .demo-artifacts/venv/bin/activate
-export PIP_NO_INDEX=1
-export PIP_FIND_LINKS="$PWD/.demo-artifacts/wheels"
-export PIP_DISABLE_PIP_VERSION_CHECK=1
-export PIP_PROGRESS_BAR=off
 ```
 
-Only the selected local wheel belongs in that directory. The visible
-`pip install pycubrid` is therefore a **local source-build installation**, not
-a PyPI release check. Start with a fresh venv for each recording. Confirm the
-installed distribution/version and `pycubrid.__file__` belong to this venv,
-not an editable checkout or another package installation.
+The tapes set `PIP_INDEX_URL=https://pypi.org/simple` and
+`PIP_NO_CACHE_DIR=1`, so the visible install downloads the wheel from PyPI
+rather than from a mirror, a local wheel directory or pip's cache. After
+recording, confirm that the installed distribution and version, and
+`pycubrid.__file__`, belong to the recording venv and not to the repository
+checkout. Run that check from outside the checkout: `python -c` started from the
+repository root imports the source tree instead.
 
 Set the script's endpoint, expected actual engine build and unique fixture
 inputs as documented in `record_demo.py`. Run both modes without VHS first;
@@ -56,7 +56,7 @@ test -s .demo-artifacts/demo.mp4
 ```
 
 Both tapes write only ignored `.demo-artifacts/` staging paths. Verify the
-recording shell actually uses the selected venv/wheel and script before
+recording shell actually uses the recording venv and script before
 rendering; shell startup configuration must not substitute another `python`
 or `pip`. A VHS marker wait is not a substitute for the separate real exit
 and cleanup checks.
