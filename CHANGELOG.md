@@ -78,53 +78,21 @@ This maintenance update improves source builds, setup and migration guidance, an
 
 ## [1.17.0] - 2026-11-05
 
-**Compatibility policy change:** this release explicitly withdraws the earlier promise that the `pycubrid.compat` names shipped in v1.8.0 would remain supported for all of 1.x. Compat now emits `FutureWarning` on connection creation and may be removed in a future **minor** release after the stated notice and migration requirements. The ordinary `pycubrid` and `pycubrid.aio` APIs retain the major-version compatibility policy. **No Compat removal version or date was set in this release.**
+**Compat deprecation and policy reversal:** `pycubrid.compat` still works, but creating a Compat connection now warns. This release explicitly withdraws the earlier promise that Compat names released in v1.8.0 would remain supported throughout 1.x. **No Compat API is removed in v1.17.0, and no removal version or date is announced.**
 
 ### Upgrade notes
 
-- **The 1.x guarantee for 1.8.0 `pycubrid.compat` names is withdrawn (#1124).** The
-  1.9.0 Upgrade note and the release policy promised that these names would stay
-  supported for the rest of 1.x. That promise no longer holds, and this is a
-  deliberate reversal, not a clarification: those names were not provisional. They
-  remain supported until they are retired through the new process, and no removal
-  version or date is set. The note below describes the warning they now emit. Contributed by @yeongseon.
-- **`pycubrid.compat` can now be retired in a MINOR release (#1124).** A later 1.x
-  MINOR release may remove these namespaces, after an earlier published MINOR release
-  with a visible warning and a migration guide, and at least 28 calendar days of
-  notice from its PyPI upload. `pycubrid>=1.8.0,<2.0` and similar ranges can install
-  such a release automatically; pin below the removal version if you still use these
-  namespaces when it is announced. `pycubrid` and `pycubrid.aio` keep the MAJOR-only
-  rule for breaking changes, PATCH releases stay compatible except for a security
-  fix that cannot be made compatibly (it changes no more than the fix requires and
-  carries its own Upgrade note), and `pycubrid.compat` now receives bug and security
-  fixes only. See the
-  [release policy](RELEASE_POLICY.md#deprecation-based-retirement-in-a-minor-release) by @yeongseon.
-- **Creating a `pycubrid.compat` connection now emits `FutureWarning` (#1120).** Your code
-  keeps working, and Python shows the warning by default once per calling line. If you run
-  with warnings as errors (`python -W error`, or `filterwarnings = error` in pytest), this
-  upgrade makes `pycubrid.compat` connections raise `FutureWarning` until you migrate or add
-  a narrow filter for that message. Migrating is not only a rename: for example Compat starts
-  in autocommit and `pycubrid.connect()` does not, so code that never calls `commit()` would
-  lose writes. Follow the [migration guide](docs/COMPAT_MIGRATION.md), which lists what has no
-  ordinary replacement. A later 1.x MINOR release will remove these namespaces, at least 28
-  calendar days after this release reaches PyPI. No version or date is set yet, and a range
-  such as `pycubrid>=1.8.0,<2.0` can install that release automatically. Contributed by @yeongseon.
+- **The previous 1.x Compat guarantee is withdrawn** — The v1.9.0 Upgrade note promised that the `pycubrid.compat` names shipped in v1.8.0 would remain available throughout 1.x; those names were **not provisional**. The new policy deliberately reverses that promise. A later **1.x MINOR** may remove Compat only after an earlier published MINOR provides a visible warning and an English/Korean migration guide, and at least **28 calendar days** have passed since that notice release reached PyPI. An open range such as `pycubrid>=1.8.0,<2.0` could install the eventual removal release; pin below its announced version if you cannot migrate. Ordinary `pycubrid` and `pycubrid.aio` keep their MAJOR-version protection; PATCH releases do not retire APIs. No removal version or date is set ([#1124](https://github.com/cubrid-lab/pycubrid/issues/1124), [PR #1125](https://github.com/cubrid-lab/pycubrid/pull/1125)) by @yeongseon.
 
-### Added
-
-* **compat:** warn that the compat namespaces are deprecated ([#1128](https://github.com/cubrid-lab/pycubrid/issues/1128)) ([24c4518](https://github.com/cubrid-lab/pycubrid/commit/24c4518fd848876d2da3b8998c4c9e7116584f01)) by @yeongseon.
+- **Compat connection creation now emits `FutureWarning`** — All Compat connection factories warn at the caller's line before socket work (shown by default once per calling line). Importing Compat or using ordinary `pycubrid`/`pycubrid.aio` does not warn. Under `python -W error` or `filterwarnings = error`, opening a Compat connection raises the warning as an exception; migrate or use a narrowly scoped filter while transitioning. Migration is not just a rename: Compat starts in autocommit mode, while `pycubrid.connect()` does not, so callers must review their commit handling to avoid losing writes. The [versioned migration guide](https://github.com/cubrid-lab/pycubrid/blob/v1.17.0/docs/COMPAT_MIGRATION.md) lists other differences and features without ordinary replacements ([#1120](https://github.com/cubrid-lab/pycubrid/issues/1120), [PR #1128](https://github.com/cubrid-lab/pycubrid/pull/1128)) by @yeongseon.
 
 ### Deprecated
 
-- **`pycubrid.compat` (#1120)** — `pycubrid.compat.native`, `pycubrid.compat.cubriddb` and
-  `pycubrid.compat.cursors`, the opt-in imitation of the official `_cubrid` and `CUBRIDdb` APIs,
-  are deprecated. `pycubrid` and `pycubrid.aio` are the replacements. Every factory warns at
-  the caller's line before any socket work. Importing these modules, and using `pycubrid` or
-  `pycubrid.aio`, does not warn. Contributed by @yeongseon.
+- **Opt-in official-driver compatibility APIs** — `pycubrid.compat.native`, `pycubrid.compat.cubriddb` and `pycubrid.compat.cursors` are deprecated, but remain available in this version. The deprecation does not affect the normal `pycubrid` and `pycubrid.aio` APIs ([PR #1128](https://github.com/cubrid-lab/pycubrid/pull/1128)) by @yeongseon.
 
 ### Documentation
 
-* **release:** adopt deprecation-based MINOR retirement for Compat ([#1125](https://github.com/cubrid-lab/pycubrid/issues/1125)) ([2c52d45](https://github.com/cubrid-lab/pycubrid/commit/2c52d459999ac5a2332f2de51921bd01e4775ab1)) by @yeongseon.
+- **Compat retirement and migration rules** — The [versioned release policy](https://github.com/cubrid-lab/pycubrid/blob/v1.17.0/RELEASE_POLICY.md#deprecation-based-retirement-in-a-minor-release) records the withdrawn guarantee, the notice/review conditions for a future breaking MINOR, and the limits that remain for ordinary drivers. The English and Korean migration guides explain supported replacements and behavior differences ([PR #1125](https://github.com/cubrid-lab/pycubrid/pull/1125), [PR #1128](https://github.com/cubrid-lab/pycubrid/pull/1128)) by @yeongseon.
 
 ## [1.16.0] - 2026-11-05
 
