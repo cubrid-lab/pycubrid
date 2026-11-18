@@ -60,11 +60,21 @@ third-party material. The observations below come from a local
 `mkdocs build --strict` with the locked `docs` group (Material for MkDocs 9.8.0)
 at commit `7b2d0cfb7ec64a0b3833ebc37dc4dc7738f6eacb`, with the licenses read
 from the installed package's license files and from the notices in the built
-files. A theme upgrade can change these files, so when a pull request (including
-a Dependabot update) changes the `mkdocs-material` version, rebuild the site and
-recheck the bundled third-party files and their notices below, then update the
-recorded theme version. This is a manual review step; no test enforces it, so
-routine dependency updates are not blocked.
+files. They were rechecked for Material for MkDocs 9.8.1 by rebuilding the site
+with the old and the new locked `docs` group and comparing the two `site/`
+directories: the same files were copied into `site/assets/`, only
+`assets/javascripts/bundle.*.min.js` and its source map changed, the source map
+still lists the same five npm packages (clipboard, escape-html, focus-visible,
+RxJS and tslib) with the same license notices, and the HTML pages differ only in
+the bundle's file name and the generator tag.
+
+A theme upgrade can change these files, so when a pull request (including a
+Dependabot update) changes the `mkdocs-material` version, rebuild the site,
+recheck the bundled third-party files and their notices below, and update the
+recorded theme version. A repository test fails until the theme version in this
+section and in the `docs` dependency group table matches the pin in
+`pyproject.toml`; it cannot check the rebuild itself, which stays a manual
+review step.
 
 ### Build tools (not published)
 
@@ -80,7 +90,7 @@ site redistributes them unmodified:
 
 | Asset in `site/` | Component | License | Evidence |
 |---|---|---|---|
-| `assets/stylesheets/main.*.min.css`, `assets/stylesheets/palette.*.min.css`, `assets/javascripts/bundle.*.min.js`, `assets/images/favicon.png` (copied but not referenced, because `mkdocs.yml` sets its own favicon), and the HTML layout of every page, rendered from the theme's templates | Material for MkDocs 9.8.0 (Martin Donath) | MIT | Package metadata `License-Expression: MIT` and the wheel's `LICENSE` file |
+| `assets/stylesheets/main.*.min.css`, `assets/stylesheets/palette.*.min.css`, `assets/javascripts/bundle.*.min.js`, `assets/images/favicon.png` (copied but not referenced, because `mkdocs.yml` sets its own favicon), and the HTML layout of every page, rendered from the theme's templates | Material for MkDocs 9.8.1 (Martin Donath) | MIT | Package metadata `License-Expression: MIT` and the wheel's `LICENSE` file |
 | Compiled into `assets/javascripts/bundle.*.min.js` | clipboard.js 2.0.11 | MIT | "Licensed MIT" header in the source embedded in the bundle's source map |
 | Compiled into `assets/javascripts/bundle.*.min.js` | escape-html | MIT | "MIT Licensed" header in the embedded source |
 | Compiled into `assets/javascripts/bundle.*.min.js` | tslib (Microsoft) | 0BSD | The 0BSD permission text in the embedded source header |
@@ -336,13 +346,13 @@ regenerating the tables, not by the test.
 | idna | 3.20 | BSD-3-Clause | Permissive | https://github.com/kjd/idna |
 | Jinja2 | 3.1.6 | BSD License | Permissive | https://github.com/pallets/jinja/ |
 | Markdown | 3.11.1 | BSD-3-Clause | Permissive | https://Python-Markdown.github.io/ |
-| markdown-it-py | 4.2.0 | MIT License | Permissive | https://github.com/executablebooks/markdown-it-py |
+| markdown-it-py | 4.3.0 | MIT License | Permissive | https://github.com/executablebooks/markdown-it-py |
 | MarkupSafe | 3.0.4 | BSD-3-Clause | Permissive | https://github.com/pallets/markupsafe/ |
 | mdurl | 0.1.2 | MIT License | Permissive | https://github.com/executablebooks/mdurl |
 | mergedeep | 1.3.4 | MIT License | Permissive | https://github.com/clarketm/mergedeep |
 | mkdocs | 1.6.1 | BSD-2-Clause | Permissive | https://github.com/mkdocs/mkdocs |
 | mkdocs-get-deps | 0.2.2 | MIT | Permissive | https://github.com/mkdocs/get-deps |
-| mkdocs-material | 9.8.0 | MIT | Permissive | https://github.com/squidfunk/mkdocs-material |
+| mkdocs-material | 9.8.1 | MIT | Permissive | https://github.com/squidfunk/mkdocs-material |
 | mkdocs-material-extensions | 1.3.1 | MIT | Permissive | https://github.com/facelessuser/mkdocs-material-extensions |
 | packaging | 26.3 | Apache-2.0 OR BSD-2-Clause | Permissive | https://github.com/pypa/packaging |
 | paginate | 0.5.7 | MIT License | Permissive | https://github.com/Signum/paginate |

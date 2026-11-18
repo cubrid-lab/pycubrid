@@ -59,7 +59,7 @@ test = [
     "jinja2>=3.1",
 ]
 lint = [
-    "ruff==0.17.4",
+    "ruff==0.17.5",
     "mypy==2.4.1",
     "pre-commit",
 ]
@@ -76,10 +76,10 @@ release = [
 ]
 docs = [
     "mkdocs==1.6.1",
-    "mkdocs-material==9.8.0",
+    "mkdocs-material==9.8.1",
     "pymdown-extensions==12.3",
     # The deterministic documentation checks in the docs-check CI job (#927).
-    "markdown-it-py==4.2.0",
+    "markdown-it-py==4.3.0",
 ]
 mutation = [
     "mutmut>=3.8,<4",
