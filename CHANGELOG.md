@@ -125,13 +125,10 @@ This release adds a limited `schema_info()` compatibility surface to the opt-in 
   state Python 3.11–3.15 support, the standard GIL build requirement, and the Python 3.10
   fallback to 1.9.x. The Support Matrix remains the authoritative compatibility reference ([#1099](https://github.com/cubrid-lab/pycubrid/pull/1099)) ([5b6a814](https://github.com/cubrid-lab/pycubrid/commit/5b6a814ac6fdcaf4c41afdc4cfe8d82a366a51e0)). Contributed by @goktugekin (first contribution 🎉).
 - **README and docs site show the transparent brand icon (#1096)** — the icon URL pinned in the README, its translations and `mkdocs.yml` (logo and favicon) now points at brand revision `e55990a`, where the Driver icon's layer gaps are real transparency instead of white strokes. Documentation only; behavior is unchanged ([#1097](https://github.com/cubrid-lab/pycubrid/pull/1097)) ([d9e2e1b](https://github.com/cubrid-lab/pycubrid/commit/d9e2e1b8cb5c02a4af205e2d7b61469f738b7c25)). Contributed by @yeongseon.
+- **Troubleshooting lists the connection-closed errors the driver raises (#1095)** — the troubleshooting guide now names the errors raised when a connection has been closed ([#1095](https://github.com/cubrid-lab/pycubrid/issues/1095)) ([232c15e](https://github.com/cubrid-lab/pycubrid/commit/232c15ebd3129dbe345da8d3bb426f7eb6dc4c04)). Contributed by @bfs2021 (first contribution 🎉).
+- **Bug report template asks for environment details (#1102)** — the bug report guidance now states which environment information to include ([#1102](https://github.com/cubrid-lab/pycubrid/issues/1102)) ([e588438](https://github.com/cubrid-lab/pycubrid/commit/e588438a7a8e004f4fdda430ca1f746e7b59344b)). Contributed by @Vamsi-2581 (first contribution 🎉).
+- **Contributor, agent and site-theme housekeeping (#1062, #1067, #1103, #1117)** — issue titles follow the organization writing standard ([#1067](https://github.com/cubrid-lab/pycubrid/issues/1067) ([629a3ac](https://github.com/cubrid-lab/pycubrid/commit/629a3ac3b9e8492207db9ac092d78d5abcefdd7c))), agents are asked for human-readable communication and self-explanatory comments ([#1062](https://github.com/cubrid-lab/pycubrid/issues/1062) ([83fbbca](https://github.com/cubrid-lab/pycubrid/commit/83fbbca04828b15ea24fe4d3e962d187deb77940))), the site theme takes its Python yellow from the brand tokens ([#1103](https://github.com/cubrid-lab/pycubrid/issues/1103) ([c18d35a](https://github.com/cubrid-lab/pycubrid/commit/c18d35a3057e879989868163481068a351bdcbaa))), and the `schema_info` changelog note moved to the unreleased section ([#1117](https://github.com/cubrid-lab/pycubrid/issues/1117) ([28b7cdc](https://github.com/cubrid-lab/pycubrid/commit/28b7cdcc16917792393aaccaa0974b905ab178c6))). No driver behavior changed. Contributed by @yeongseon.
 
-* align issue titles with organization writing standard ([#1067](https://github.com/cubrid-lab/pycubrid/issues/1067)) ([629a3ac](https://github.com/cubrid-lab/pycubrid/commit/629a3ac3b9e8492207db9ac092d78d5abcefdd7c)) by @yeongseon.
-* **changelog:** move the schema_info note to the unreleased section ([#1117](https://github.com/cubrid-lab/pycubrid/issues/1117)) ([28b7cdc](https://github.com/cubrid-lab/pycubrid/commit/28b7cdcc16917792393aaccaa0974b905ab178c6)) by @yeongseon.
-* require human-readable agent communication and self-explanatory comments ([#1062](https://github.com/cubrid-lab/pycubrid/issues/1062)) ([83fbbca](https://github.com/cubrid-lab/pycubrid/commit/83fbbca04828b15ea24fe4d3e962d187deb77940)) by @yeongseon.
-* **troubleshooting:** list the connection-closed errors the driver raises ([#1095](https://github.com/cubrid-lab/pycubrid/issues/1095)) ([232c15e](https://github.com/cubrid-lab/pycubrid/commit/232c15ebd3129dbe345da8d3bb426f7eb6dc4c04)) by @bfs2021 (first contribution 🎉).
-* update bug report environment guidance ([#1102](https://github.com/cubrid-lab/pycubrid/issues/1102)) ([e588438](https://github.com/cubrid-lab/pycubrid/commit/e588438a7a8e004f4fdda430ca1f746e7b59344b)) by @Vamsi-2581 (first contribution 🎉).
-* use the Python yellow from the brand tokens in the site theme ([#1103](https://github.com/cubrid-lab/pycubrid/issues/1103)) ([c18d35a](https://github.com/cubrid-lab/pycubrid/commit/c18d35a3057e879989868163481068a351bdcbaa)) by @yeongseon.
 
 ### Tests
 
@@ -156,12 +153,9 @@ This release improves reproducible test-result reporting and documentation prese
 
 ### Documentation
 
-- **README and docs site show the brand icon with white marks (#1071)** — the icon URL pinned in the README, its translations and `mkdocs.yml` (logo and favicon) now points at brand revision `3a385be`, where the Python Yellow icons draw white role marks on a bare cube like every other language. Documentation only; behavior is unchanged ([#1072](https://github.com/cubrid-lab/pycubrid/pull/1072)) ([5dcd360](https://github.com/cubrid-lab/pycubrid/commit/5dcd3608bac3d1e3f71ba85e636a5de6eb974c79)). Contributed by @yeongseon.
-- **README and docs site show the emblem-aligned brand icon (#1069)** — the icon URL pinned in the README, its translations and `mkdocs.yml` (logo and favicon) now points at the brand revision `538bad3`, whose Python Yellow keyline keeps the cube silhouette of the organization emblem (open seams, no flat bottom). Documentation only; behavior is unchanged ([#1070](https://github.com/cubrid-lab/pycubrid/pull/1070)) ([223d83a](https://github.com/cubrid-lab/pycubrid/commit/223d83a85e187d766f3b256790b3f15671ecd5d0)). Contributed by @yeongseon.
-- **README and docs site show the cube-redesign brand icon (#1060)** — the icon URL pinned in the README, its translations and `mkdocs.yml` (logo and favicon) now points at the brand revision `38b4646`, which carries the redesigned Driver icon. Documentation only; behavior is unchanged ([#1061](https://github.com/cubrid-lab/pycubrid/pull/1061)) ([675739e](https://github.com/cubrid-lab/pycubrid/commit/675739ee5fc541fac02f6b289aa533eeb42daba8)). Contributed by @yeongseon.
-- **README and docs site show the 2026-10-25 brand icon (#1058)** — the icon URL pinned in the README, its translations and `mkdocs.yml` (logo and favicon) now points at the approved CUBRID Lab brand revision `8aa81b7`. Documentation only; behavior is unchanged ([#1059](https://github.com/cubrid-lab/pycubrid/pull/1059)) ([a3f7d6b](https://github.com/cubrid-lab/pycubrid/commit/a3f7d6bb30652a592d43a8f492cc88bdcd5d459c)). Contributed by @yeongseon.
+- **README and docs site show the updated brand icon (#1058, #1060, #1069, #1071)** — the icon URL pinned in the README, its translations and `mkdocs.yml` (logo and favicon) was moved to a newer brand revision four times during this release: `8aa81b7` (approved CUBRID Lab icon, [#1059](https://github.com/cubrid-lab/pycubrid/pull/1059), ([a3f7d6b](https://github.com/cubrid-lab/pycubrid/commit/a3f7d6bb30652a592d43a8f492cc88bdcd5d459c))), `38b4646` (redesigned Driver icon, [#1061](https://github.com/cubrid-lab/pycubrid/pull/1061), ([675739e](https://github.com/cubrid-lab/pycubrid/commit/675739ee5fc541fac02f6b289aa533eeb42daba8))), `538bad3` (Python Yellow keyline that keeps the cube silhouette of the organization emblem, [#1070](https://github.com/cubrid-lab/pycubrid/pull/1070), ([223d83a](https://github.com/cubrid-lab/pycubrid/commit/223d83a85e187d766f3b256790b3f15671ecd5d0))) and finally `3a385be` (Python Yellow icons draw white role marks on a bare cube like every other language, [#1072](https://github.com/cubrid-lab/pycubrid/pull/1072), ([5dcd360](https://github.com/cubrid-lab/pycubrid/commit/5dcd3608bac3d1e3f71ba85e636a5de6eb974c79))), which this release ships. Documentation only; behavior is unchanged. Contributed by @yeongseon.
 
-* **profile:** warn that the profilers write to the target database ([#1063](https://github.com/cubrid-lab/pycubrid/issues/1063)) ([1789ebc](https://github.com/cubrid-lab/pycubrid/commit/1789ebc32fab0a2648cbad21f567e3da32ed1e53)), refs [#918](https://github.com/cubrid-lab/pycubrid/issues/918) by @paikend.
+- **Profilers warn that they write to the target database** ([#1063](https://github.com/cubrid-lab/pycubrid/issues/1063)) ([1789ebc](https://github.com/cubrid-lab/pycubrid/commit/1789ebc32fab0a2648cbad21f567e3da32ed1e53)), refs [#918](https://github.com/cubrid-lab/pycubrid/issues/918). Contributed by @paikend.
 
 ### CI
 
@@ -227,8 +221,7 @@ This maintenance release improves the safety of stored test-run metadata by mask
 
 ### Documentation
 
-* **examples:** add a bounded opt-in prepared executemany example ([#1039](https://github.com/cubrid-lab/pycubrid/issues/1039)) ([1f1ddd9](https://github.com/cubrid-lab/pycubrid/commit/1f1ddd994403e19eb8bfe0176cd9a4531189a62d)) by @WilliamK112.
-* **examples:** document prepared executemany batches ([1f1ddd9](https://github.com/cubrid-lab/pycubrid/commit/1f1ddd994403e19eb8bfe0176cd9a4531189a62d)), refs [#891](https://github.com/cubrid-lab/pycubrid/issues/891) by @WilliamK112.
+* **examples:** add a bounded opt-in prepared executemany example and document prepared executemany batches ([#1039](https://github.com/cubrid-lab/pycubrid/issues/1039)) ([1f1ddd9](https://github.com/cubrid-lab/pycubrid/commit/1f1ddd994403e19eb8bfe0176cd9a4531189a62d)), refs [#891](https://github.com/cubrid-lab/pycubrid/issues/891) by @WilliamK112.
 
 ## [1.13.3] - 2026-10-24
 
@@ -319,8 +312,7 @@ This is the next actually published release after v1.13.1. **v1.13.2 was never p
   authoritative; the README, the site index, the connection guide and both reference
   pages link to the overview. No driver behavior changed ([#1019](https://github.com/cubrid-lab/pycubrid/pull/1019), [dd70ef1](https://github.com/cubrid-lab/pycubrid/commit/dd70ef1f2d05aa7e9cf2d619eedd28a294e24b73)). Contributed by @yeongseon.
 
-* **agents:** require repository-local issue authoring checks ([#1014](https://github.com/cubrid-lab/pycubrid/issues/1014)) ([03ca2f9](https://github.com/cubrid-lab/pycubrid/commit/03ca2f96de47865cd3f596755b3bda8ae1156bae)) by @yeongseon.
-* enforce repository-local issue drafting ([03ca2f9](https://github.com/cubrid-lab/pycubrid/commit/03ca2f96de47865cd3f596755b3bda8ae1156bae)) by @yeongseon.
+* **agents:** require repository-local issue authoring checks and enforce repository-local issue drafting ([#1014](https://github.com/cubrid-lab/pycubrid/issues/1014)) ([03ca2f9](https://github.com/cubrid-lab/pycubrid/commit/03ca2f96de47865cd3f596755b3bda8ae1156bae)) by @yeongseon.
 * **triage:** clarify PR overlap and execution precedence ([d2c9318](https://github.com/cubrid-lab/pycubrid/commit/d2c93180672105b46cf1d29797cc5808386a85d6)), refs [#1025](https://github.com/cubrid-lab/pycubrid/issues/1025) by @yeongseon.
 
 ### CI
@@ -816,7 +808,7 @@ This release adds an **opt-in prepared batch** for synchronous and asynchronous 
   type in `with` / `async with` blocks and `for` / `async for` loops. A static
   contract module, `tests/typing_self_contract.py`, is part of `make typecheck` and
   fails mypy if any of these annotations regresses. Annotations only; no runtime
-  change. ([#773](https://github.com/cubrid-lab/pycubrid/pull/773)) ([a441d70](https://github.com/cubrid-lab/pycubrid/commit/a441d7092ab254b47aa4ae052d15238e669861de)) Contributed by @Jah-yee.
+  change. ([#689](https://github.com/cubrid-lab/pycubrid/issues/689)) ([a441d70](https://github.com/cubrid-lab/pycubrid/commit/a441d7092ab254b47aa4ae052d15238e669861de)) Contributed by @Jah-yee.
 
 ### Changed
 
@@ -2963,11 +2955,11 @@ This release adds an asynchronous CAS health check and makes the reconnect setti
 
 ### Added
 
-- **Native async `AsyncConnection.ping()`** using `CHECK_CAS` (FC=32) for lightweight CAS-level liveness checks. Native `CHECK_CAS` now performs a round trip regardless of `CAS_INFO` status, while `reconnect=False` suppresses implicit broker-handoff reconnect via `_send_and_receive(..., allow_reconnect=False)` (#95, #70) by @yeongseon.
+- **Native async `AsyncConnection.ping()`** using `CHECK_CAS` (FC=32) for lightweight CAS-level liveness checks, mirroring the sync `Connection.ping()` (#95) by @yeongseon.
 
 ### Fixed
 
-- **Sync `Connection.ping(reconnect=False)` now honors broker handoff correctly** — native `CHECK_CAS` runs regardless of `CAS_INFO` status, while `reconnect=False` suppresses implicit broker-handoff reconnect via the new `_send_and_receive(..., allow_reconnect=False)` flag (#95, #70) by @yeongseon.
+- **Sync `Connection.ping(reconnect=False)` now honors broker handoff correctly** — native `CHECK_CAS` runs regardless of `CAS_INFO` status, while `reconnect=False` suppresses implicit broker-handoff reconnect via the new `_send_and_receive(..., allow_reconnect=False)` flag (#70) by @yeongseon.
 
 ## [1.3.1] - 2026-04-21
 
