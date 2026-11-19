@@ -12,7 +12,10 @@ GitHub Releases explain **what changed for Python developers**, not every implem
 
 ## Write for readers
 
-- Lead an entry with the **observable result**, the affected API or workflow, and why it matters. Prefer one concise paragraph to internal helper names, test matrix details and a chronicle of PR implementation steps. Detailed proof can remain in linked PRs or docs.
+- Lead an entry with the **observable result**, the affected API or workflow, and why it matters. Avoid internal helper names, test matrix details and a chronicle of PR implementation steps. Detailed proof can remain in linked PRs or docs.
+- Keep each entry to **one or two sentences**, about 250 characters as a guide, plus its links and credit. Put the details a reader can do without (exact internals, measurements, test mechanics) behind the PR link. `Upgrade notes` and `Security` entries may be longer when every sentence is something a user must know or do.
+- Group `CI`, `Tests` and `Documentation` changes by outcome into a few entries, each citing all its PRs, rather than one entry per PR.
+- A release with many changes is long because of its count, not because of its entries: when a draft is long, shorten the entries first and only then accept the length.
 - Preserve significant limits and user actions, especially PEP 249 behavior, sync/async differences, transaction/autocommit semantics, CUBRID server and supported Python versions, TLS and security, source-install dependencies, and migration instructions. Never shorten a warning until it becomes misleading.
 - Distinguish a **database server version**, a **Python driver/package version** and an unpublished release candidate. A failed test is not evidence that an entire database or driver is unsupported.
 - Put migration/breaking changes near the beginning under `Upgrade notes`. A feature removal must not be disguised as `Documentation` or silently shipped in a PATCH.
