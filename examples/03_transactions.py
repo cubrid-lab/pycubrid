@@ -10,7 +10,7 @@ import pycubrid
 from pycubrid.cursor import Cursor
 
 
-def main(table_name: str | None = None) -> None:
+def main() -> None:
     conn = pycubrid.connect(
         host=os.getenv("CUBRID_HOST", "localhost"),
         port=int(os.getenv("CUBRID_PORT", "33000")),
@@ -20,7 +20,7 @@ def main(table_name: str | None = None) -> None:
     )
     cur = cast(Cursor, conn.cursor())
 
-    table = table_name or ("example_ledger_" + uuid.uuid4().hex[:8])
+    table = "example_ledger_" + uuid.uuid4().hex[:8]
     created = False
 
     try:

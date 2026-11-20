@@ -364,3 +364,27 @@ def test_transactions_example_failure_during_first_transaction_cleans_up(
 
     actions = [entry[0] for entry in db.log]
     assert "rollback" in actions
+
+
+def test_transactions_example_rejects_caller_table_name_before_connecting(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify that main() accepts no arguments, rejecting caller-provided identifiers with TypeError.
+
+    This ensures that injection-like inputs (e.g. 'example; DROP TABLE users')
+    cannot reach the database or affect connection/query execution.
+    """
+    connect_called = False
+
+    def fail_connect(**kwargs: Any) -> Any:
+        nonlocal connect_called
+        connect_called = True
+        raise AssertionError("pycubrid.connect() should not be called")
+
+    monkeypatch.setattr(pycubrid, "connect", fail_connect)
+
+    mod = importlib.import_module("examples.03_transactions")
+    with pytest.raises(TypeError):
+        mod.main("example; DROP TABLE users")  # type: ignore[call-arg]
+
+    assert connect_called is False
