@@ -151,19 +151,19 @@ class TestTimingStats:
         stats.record_execute(5_000_000)
         stats.record_execute(5_000_000)
         r = repr(stats)
-        assert "1 calls" in r
-        assert "2 calls" in r
-        assert "10.000ms total" in r
-        assert "5.000ms avg" in r
+        assert "connect=1 call, 10.000ms total, 10.000ms avg" in r
+        assert "execute=2 calls, 10.000ms total, 5.000ms avg" in r
+        assert "1 calls" not in r
 
     def test_fmt_ns_zero_calls(self) -> None:
         assert TimingStats._fmt_ns(0, 0) == "0 calls"
 
+    def test_fmt_ns_single_call_is_singular(self) -> None:
+        assert TimingStats._fmt_ns(1_000_000, 1) == "1 call, 1.000ms total, 1.000ms avg"
+
     def test_fmt_ns_with_values(self) -> None:
         result = TimingStats._fmt_ns(10_000_000, 2)
-        assert "2 calls" in result
-        assert "10.000ms total" in result
-        assert "5.000ms avg" in result
+        assert result == "2 calls, 10.000ms total, 5.000ms avg"
 
     def test_thread_safety(self) -> None:
         stats = TimingStats()

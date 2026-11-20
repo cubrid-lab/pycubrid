@@ -100,7 +100,8 @@ class TimingStats:
             return "0 calls"
         ms = total_ns / 1_000_000
         avg_ms = ms / count
-        return f"{count} calls, {ms:.3f}ms total, {avg_ms:.3f}ms avg"
+        noun = "call" if count == 1 else "calls"
+        return f"{count} {noun}, {ms:.3f}ms total, {avg_ms:.3f}ms avg"
 
     def __repr__(self) -> str:
         with self._lock:
