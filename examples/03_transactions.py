@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import os
 from typing import cast
+import uuid
 
 import pycubrid
 from pycubrid.cursor import Cursor
 
 
-def main() -> None:
+def main(table_name: str | None = None) -> None:
     conn = pycubrid.connect(
         host=os.getenv("CUBRID_HOST", "localhost"),
         port=int(os.getenv("CUBRID_PORT", "33000")),
@@ -19,22 +20,21 @@ def main() -> None:
     )
     cur = cast(Cursor, conn.cursor())
 
+    table = table_name or ("example_ledger_" + uuid.uuid4().hex[:8])
+    created = False
+
     try:
         _ = cur.execute(
-            """
-            CREATE TABLE IF NOT EXISTS example_ledger (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                message VARCHAR(200) NOT NULL
-            )
-            """
+            "CREATE TABLE "
+            + table
+            + " (id INT AUTO_INCREMENT PRIMARY KEY, message VARCHAR(200) NOT NULL)"
         )
+        created = True
         conn.commit()
 
         try:
-            _ = cur.execute(
-                "INSERT INTO example_ledger (message) VALUES (?)", ["start transaction"]
-            )
-            _ = cur.execute("INSERT INTO example_ledger (message) VALUES (?)", ["commit path"])
+            _ = cur.execute("INSERT INTO " + table + " (message) VALUES (?)", ["start transaction"])
+            _ = cur.execute("INSERT INTO " + table + " (message) VALUES (?)", ["commit path"])
             conn.commit()
             print("Commit path succeeded")
         except pycubrid.Error:
@@ -42,19 +42,24 @@ def main() -> None:
             raise
 
         try:
-            _ = cur.execute("INSERT INTO example_ledger (message) VALUES (?)", ["rollback path"])
-            # Violate NOT NULL constraint on message to force an error deterministically.
-            _ = cur.execute("INSERT INTO example_ledger (message) VALUES (?)", [None])
+            _ = cur.execute("INSERT INTO " + table + " (message) VALUES (?)", ["rollback path"])
+            # Deliberately violate NOT NULL constraint on message to force an error deterministically.
+            _ = cur.execute("INSERT INTO " + table + " (message) VALUES (?)", [None])
             conn.commit()
         except pycubrid.Error as exc:
             conn.rollback()
             print(f"Rollback path executed: {exc}")
 
-        _ = cur.execute("SELECT id, message FROM example_ledger ORDER BY id")
+        _ = cur.execute("SELECT id, message FROM " + table + " ORDER BY id")
         print("Ledger rows:", cur.fetchall())
     finally:
-        cur.close()
-        conn.close()
+        try:
+            if created:
+                _ = cur.execute("DROP TABLE IF EXISTS " + table)
+                conn.commit()
+        finally:
+            cur.close()
+            conn.close()
 
 
 if __name__ == "__main__":
