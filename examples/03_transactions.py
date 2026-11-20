@@ -43,7 +43,8 @@ def main() -> None:
 
         try:
             _ = cur.execute("INSERT INTO example_ledger (message) VALUES (?)", ["rollback path"])
-            _ = cur.execute("INSERT INTO missing_table (message) VALUES (?)", ["force error"])
+            # Violate NOT NULL constraint on message to force an error deterministically.
+            _ = cur.execute("INSERT INTO example_ledger (message) VALUES (?)", [None])
             conn.commit()
         except pycubrid.Error as exc:
             conn.rollback()
