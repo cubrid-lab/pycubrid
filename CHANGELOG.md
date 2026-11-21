@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.17.2] - 2026-11-21
+
+### Documentation
+
+* welcome community improvement ideas ([#1308](https://github.com/cubrid-lab/pycubrid/issues/1308)) ([32a6669](https://github.com/cubrid-lab/pycubrid/commit/32a6669f6bb20fd8a5b98564d23f8c4671b70d57))
+
 ### CI
 
 - **Official-driver oracle builds with GCC 14 and later** — The differential's CUBRIDdb oracle build now passes two flags that keep GCC 14+ from rejecting the unchanged upstream C source ([#1302](https://github.com/cubrid-lab/pycubrid/issues/1302)) by @yeongseon.

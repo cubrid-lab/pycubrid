@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.17.2](https://github.com/cubrid-lab/pycubrid/compare/v1.17.1...v1.17.2) (2026-11-21)
+
+
+### Documentation
+
+* welcome community improvement ideas ([#1308](https://github.com/cubrid-lab/pycubrid/issues/1308)) ([32a6669](https://github.com/cubrid-lab/pycubrid/commit/32a6669f6bb20fd8a5b98564d23f8c4671b70d57))
+
 ## [1.17.1](https://github.com/cubrid-lab/pycubrid/compare/v1.17.0...v1.17.1) (2026-11-19)
 
 
