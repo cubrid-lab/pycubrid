@@ -26,6 +26,17 @@ import pstats
 import sys
 
 
+def _positive_int(value: str) -> int:
+    """Parse a positive iteration count before profiling starts."""
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("must be a positive integer") from exc
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("must be a positive integer")
+    return parsed
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Profile pycubrid connection open+close handshake cycle."
@@ -37,9 +48,9 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--password", default="", help="DB password (default: empty)")
     parser.add_argument(
         "--iterations",
-        type=int,
+        type=_positive_int,
         default=100,
-        help="Number of connect/close cycles to run (default: 100)",
+        help="Positive number of connect/close cycles to run (default: 100)",
     )
     parser.add_argument(
         "--output",
