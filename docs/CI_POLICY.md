@@ -105,7 +105,7 @@ The release sample uses its current workflow shape. The `ci.yml` runs are classi
   `offline-tests` cell on Python 3.11. Otherwise an ordinary code PR executed
   `offline-tests`. Any other PR is docs-only.
 - **Pushes**: a code push executed `offline-tests`.
-- **Releases**: `publish-pypi.yml` push runs in which the `Full compatibility
+- **Releases**: `publish.yml` push runs in which the `Full compatibility
   matrix` jobs ran.
 
 | Category | Window (runs) | Median jobs | Median runner min | Median rounded min | Median wall min | Failed / cancelled |
@@ -119,7 +119,7 @@ The release sample uses its current workflow shape. The `ci.yml` runs are classi
 | Weekly `bug-hunt.yml` (Monday 04:00) | 2026-10-05 (1) | 7 | 149.4 | 152 | 83.0 | 1 (mutation: runner shutdown after 82.8 min) / 0 |
 | `bug-hunt.yml` dispatch | 2026-10-04 (2) | 7 | 110.1 | 112.5 | 74.6 | 0 / 1 |
 | `integration-full.yml` dispatch | 2026-10-04 (3) | 27 | 40.6 | 53 | 8.4 | 0 / 0 |
-| Release (`publish-pypi.yml` with `integration-full.yml`) | 2026-10-04..09 (2) | 34 | 41.8 | 60.5 | 10.2 | 1 (cookbook verification after publish) / 0 |
+| Release (`publish.yml` with `integration-full.yml`) | 2026-10-04..09 (2) | 34 | 41.8 | 60.5 | 10.2 | 1 (cookbook verification after publish) / 0 |
 
 - **No defect findings in the scheduled lanes.** No live lane, official
   differential, TLS or charset job failed on any push, weekly, dispatch or
@@ -162,7 +162,7 @@ Median per-job runner minutes on successful code pushes:
 | Lint, format, Bandit, docs-reason examples (`make check` without `typecheck`), CHANGELOG structure, translation structure, `llms-full.txt` sync | `ci.yml` `lint`; `integration-full.yml` `lint` (same steps) | Every event; release and full dispatch |
 | Type checking (the only mypy run in each workflow) | `ci.yml` `typecheck`; `integration-full.yml` `typecheck` (same steps) | Every code event; release and full dispatch |
 | Public API baseline | `ci.yml` `compat-check`; `integration-full.yml` `compat-check` (same steps) | Every code event; release and full dispatch |
-| Packaging | `ci.yml` `packaging-smoke-test`; `publish-pypi.yml` `consistency` and `build` | Risk PR, non-PR code; release |
+| Packaging | `ci.yml` `packaging-smoke-test`; `publish.yml` `consistency` and `build` | Risk PR, non-PR code; release |
 | Repository tooling | `ci.yml` `repo-tooling-tests`; `integration-full.yml` `repo-tooling-tests` (same steps) | Tooling-path events; release and full dispatch |
 | Release automation tests | `ci.yml` `release-tests` (Python 3.12) | Every event that changes a listed release script, its test or `release-please.yml`. A PR that changes only those files skips the code lanes and live CUBRID; main push, weekly and dispatch still run the full code lanes (#1157) |
 | Python 3.15 packaging check (advisory) | `python-canary.yml` | Manual only |
@@ -222,7 +222,7 @@ claiming a saving.
 
 ### Release evidence
 
-`publish-pypi.yml` calls `integration-full.yml` at the release SHA through
+`publish.yml` calls `integration-full.yml` at the release SHA through
 `workflow_call`. `build` and `publish` need that `matrix` job, so a failed,
 cancelled or skipped matrix stops publication. `full-matrix-result` fails unless
 every dependency reports `success`.
@@ -257,7 +257,7 @@ Python version, timeout and steps, at the exact SHA. Three things differ from
 
 `full-matrix-result` lists all four in `needs` and fails on any result other
 than `success`, so a failed, cancelled, skipped or missing copy blocks
-publication. `publish-pypi.yml` is unchanged, because it is kept identical
+publication. `publish.yml` is unchanged, because it is kept identical
 across cubrid-lab repositories. The alternative, making `main` push runs
 non-cancellable and having the publisher require them, would have changed it.
 From the per-job medians above, the copies add about 1.5 runner minutes
@@ -308,7 +308,7 @@ lane, whose policy and workflow tests parse and check it; the live lanes of
 | --- | --- |
 | `ci.yml` | All lanes it defines, plus tooling |
 | `integration-full.yml` | Tooling, plus a manual `workflow_dispatch` of `integration-full.yml` on the PR head, linked in the PR |
-| `publish-pypi.yml`, `release-please.yml` | Tooling (release workflow tests) |
+| `publish.yml`, `release-please.yml` | Tooling (release workflow tests) |
 | `bug-hunt.yml`, `python-canary.yml` | Tooling; dispatch when the run itself changes |
 | Other workflows | Tooling; `pr-title.yml` and `docs-sync.yml` also run themselves on the PR |
 
@@ -344,7 +344,7 @@ short timeout; a timed-out dependency reports a non-success result
 (`cancelled`/`failure`), which the gate treats as a failure.
 
 Jobs that call a reusable workflow cannot set `timeout-minutes`. Repo-local
-callees (`publish-pypi.yml` → `integration-full.yml`) are covered through their
+callees (`publish.yml` → `integration-full.yml`) are covered through their
 own jobs. The externally owned callees are an explicit allowlist in
 `tests/test_workflow_timeouts.py`: the shared `doc-lint` and `codeql` workflows in
 `cubrid-lab/.github`, and the cookbook smoke test. That test parses every

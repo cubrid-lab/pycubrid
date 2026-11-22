@@ -12,7 +12,7 @@
 | `.github/workflows/ci.yml` | PR, main, weekly, manual | Minimum PR smoke and representative integration; see docs/CI_POLICY.md |
 | `.github/workflows/integration-full.yml` | Manual dispatch, release workflow_call | Full supported compatibility matrix |
 | `.github/workflows/release-please.yml` | Push main or manual dispatch | Prepare a PR-only release candidate (version + generated notes + canonical curated CHANGELOG) |
-| `.github/workflows/publish-pypi.yml` | Push to main; recovery dispatch (`resume` / `verify-only` / `dry-run`) | Detect a merged release, then matrix, build, tag + GitHub Release + PyPI, cookbook verification, summary |
+| `.github/workflows/publish.yml` | Push to main; recovery dispatch (`resume` / `verify-only` / `dry-run`) | Detect a merged release, then matrix, build, tag + GitHub Release + PyPI, cookbook verification, summary |
 | `.github/workflows/docs-sync.yml` | PR | Requires matching docs or a `Docs: not needed -` reason (see Documentation definition of done) |
 | `.github/workflows/pr-title.yml` | PR | Conventional PR title; rejects closing keywords for other repositories' issues |
 | `.github/workflows/docs.yml` | Push to main, manual | Build and deploy the MkDocs site |

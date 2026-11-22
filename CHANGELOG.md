@@ -12,6 +12,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### CI
 
+- Standardize the package publisher as `publish.yml` with job `publish-production` and environment `production`, including release tooling and recovery documentation ([#1313](https://github.com/cubrid-lab/pycubrid/issues/1313)).
+
 - **Official-driver oracle builds with GCC 14 and later** — The differential's CUBRIDdb oracle build now passes two flags that keep GCC 14+ from rejecting the unchanged upstream C source ([#1302](https://github.com/cubrid-lab/pycubrid/issues/1302)) by @yeongseon.
 
 ## [1.17.1] - 2026-11-19

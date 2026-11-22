@@ -489,7 +489,7 @@ pytest tests/ -m "integration and tls" -v
 > `cubrid`로 실행해 실제 브로커를 제어합니다.
 
 이 잡은 `integration-full`의 나머지와 같은 트리거(수동 `workflow_dispatch`,
-그리고 `publish-pypi.yml`이 호출하는 릴리스 게이트)로 실행됩니다. `ci.yml`은
+그리고 `publish.yml`이 호출하는 릴리스 게이트)로 실행됩니다. `ci.yml`은
 PR마다 같은 레인을 Python 3.14 × CUBRID 11.4 단일 셀로 실행하되, TLS 관련
 경로(연결 모듈, `pycubrid/__init__.py`, `pycubrid/protocol.py`,
 `pycubrid/aio/`, TLS 및 SSL 테스트, `tests/helpers/tls_*.py`,
@@ -941,9 +941,9 @@ main 기반 설정/스캐너를 내려받으므로 호출자 핀만으로 이 �
 | 워크플로 | 트리거 | 설명 |
 |----------|---------|-------------|
 | `ci.yml` | PR, main 푸시, 주간, 수동 실행 | 최소 PR 스모크; main/주간 커버리지와 대표 통합 검사 |
-| `integration-full.yml` | 수동 실행, `publish-pypi.yml`에서 호출 | 전체 Python × CUBRID 호환성 매트릭스 |
+| `integration-full.yml` | 수동 실행, `publish.yml`에서 호출 | 전체 Python × CUBRID 호환성 매트릭스 |
 | `release-please.yml` | main push 또는 수동 실행 | PR 전용 릴리스 후보 생성/갱신 (버전 + 생성/큐레이션된 노트) |
-| `publish-pypi.yml` | main 푸시, 복구용 수동 실행 | 병합된 릴리스 PR 감지 후 전체 매트릭스, 빌드, 태그 + GitHub Release + PyPI, cookbook 검증 |
+| `publish.yml` | main 푸시, 복구용 수동 실행 | 병합된 릴리스 PR 감지 후 전체 매트릭스, 빌드, 태그 + GitHub Release + PyPI, cookbook 검증 |
 
 ### CI 매트릭스
 
@@ -983,7 +983,7 @@ CUBRID 버전과 매트릭스, pytest 선택, 레인 감사, 결과 파일과 �
 | `bug-hunt.yml` | `perf-trend` | 유지 | `integration` 마커가 아니라 캐시된 기준선에 대해 `tests/test_benchmarks.py`를 실행합니다 |
 | `bug-hunt.yml` | `downstream-corpus` | 유지 | 다운스트림 저장소의 자체 테스트를 정확한 SHA의 드라이버로 실행합니다 |
 
-릴리스를 검증하는 `publish-pypi.yml` 작업은 직접 CUBRID를 실행하지 않습니다. `matrix`는
+릴리스를 검증하는 `publish.yml` 작업은 직접 CUBRID를 실행하지 않습니다. `matrix`는
 위에서 다룬 `integration-full.yml`을 호출하고, `verify-candidate`와 `verify-cookbook`은
 cookbook의 `smoke-test.yml`을 호출합니다.
 
@@ -1159,7 +1159,7 @@ graph TD
 
 릴리스는 유지보수자 전용이며 [RELEASING.md](https://github.com/cubrid-lab/pycubrid/blob/main/RELEASING.md)를 따릅니다:
 `release-please.yml`이 릴리스 PR(버전 갱신 + 날짜가 있는 CHANGELOG 섹션, `make release-check VERSION=X.Y.Z`로 확인)을
-엽니다. 검토 후 squash 병합하면 `publish-pypi.yml`이 전체 매트릭스, 한 번의 빌드, 태그, PyPI 게시, cookbook 검증을
+엽니다. 검토 후 squash 병합하면 `publish.yml`이 전체 매트릭스, 한 번의 빌드, 태그, PyPI 게시, cookbook 검증을
 자동으로 수행합니다. 태그 푸시나 게시를 수동으로 하지 않습니다.
 
 
