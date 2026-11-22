@@ -102,7 +102,7 @@ GitHub 요금이 어느 워크플로나 러너 SKU에서 발생하는지는 확�
   위험 PR입니다. 그렇지 않고 `offline-tests`를 실행했으면 일반 코드 PR입니다.
   나머지 PR은 문서 전용입니다.
 - **푸시**: `offline-tests`를 실행했으면 코드 푸시입니다.
-- **릴리스**: `Full compatibility matrix` 잡이 실행된 `publish-pypi.yml` 푸시
+- **릴리스**: `Full compatibility matrix` 잡이 실행된 `publish.yml` 푸시
   실행입니다.
 
 | 범주 | 기간 (실행 수) | 잡 수 중앙값 | 러너 분 중앙값 | 올림 분 중앙값 | 벽시계 분 중앙값 | 실패 / 취소 |
@@ -116,7 +116,7 @@ GitHub 요금이 어느 워크플로나 러너 SKU에서 발생하는지는 확�
 | 주간 `bug-hunt.yml` (월요일 04:00) | 2026-10-05 (1) | 7 | 149.4 | 152 | 83.0 | 1 (뮤테이션: 82.8분 뒤 러너 종료) / 0 |
 | `bug-hunt.yml` 수동 실행 | 2026-10-04 (2) | 7 | 110.1 | 112.5 | 74.6 | 0 / 1 |
 | `integration-full.yml` 수동 실행 | 2026-10-04 (3) | 27 | 40.6 | 53 | 8.4 | 0 / 0 |
-| 릴리스 (`publish-pypi.yml`과 `integration-full.yml`) | 2026-10-04..09 (2) | 34 | 41.8 | 60.5 | 10.2 | 1 (게시 후 cookbook 검증) / 0 |
+| 릴리스 (`publish.yml`과 `integration-full.yml`) | 2026-10-04..09 (2) | 34 | 41.8 | 60.5 | 10.2 | 1 (게시 후 cookbook 검증) / 0 |
 
 - **일정 레인에서 결함을 찾은 적은 없습니다.** 기간 중 푸시, 주간, 수동 실행,
   릴리스 실행에서 라이브 레인, 공식 차분, TLS, charset 잡이 실패한 적은 없습니다.
@@ -157,7 +157,7 @@ GitHub 요금이 어느 워크플로나 러너 SKU에서 발생하는지는 확�
 | lint, 포맷, Bandit, docs-reason 예제(`typecheck`를 뺀 `make check`), CHANGELOG 구조, 번역 구조, `llms-full.txt` 동기화 | `ci.yml` `lint`, `integration-full.yml` `lint` (같은 단계) | 모든 이벤트, 릴리스와 전체 수동 실행 |
 | 타입 검사(각 워크플로에서 mypy를 실행하는 유일한 잡) | `ci.yml` `typecheck`, `integration-full.yml` `typecheck` (같은 단계) | 모든 코드 이벤트, 릴리스와 전체 수동 실행 |
 | 공개 API 기준선 | `ci.yml` `compat-check`, `integration-full.yml` `compat-check` (같은 단계) | 모든 코드 이벤트, 릴리스와 전체 수동 실행 |
-| 패키징 | `ci.yml` `packaging-smoke-test`, `publish-pypi.yml` `consistency`와 `build` | 위험 PR, PR이 아닌 코드 이벤트, 릴리스 |
+| 패키징 | `ci.yml` `packaging-smoke-test`, `publish.yml` `consistency`와 `build` | 위험 PR, PR이 아닌 코드 이벤트, 릴리스 |
 | 저장소 도구 | `ci.yml` `repo-tooling-tests`, `integration-full.yml` `repo-tooling-tests` (같은 단계) | 도구 경로 이벤트, 릴리스와 전체 수동 실행 |
 | 릴리스 자동화 테스트 | `ci.yml` `release-tests` (Python 3.12) | 목록에 있는 릴리스 스크립트, 그 테스트 또는 `release-please.yml`을 바꾸는 모든 이벤트. 이 파일만 바꾸는 PR은 코드 레인과 라이브 CUBRID를 건너뛰고, main 푸시·주간·수동 실행은 그대로 전체 코드 레인을 실행합니다 (#1157) |
 | Python 3.15 패키징 검사 (권고용) | `python-canary.yml` | 수동 실행만 |
@@ -211,7 +211,7 @@ GitHub 요금이 어느 워크플로나 러너 SKU에서 발생하는지는 확�
 
 ### 릴리스 증거
 
-`publish-pypi.yml`은 릴리스 SHA로 `workflow_call`을 통해 `integration-full.yml`을
+`publish.yml`은 릴리스 SHA로 `workflow_call`을 통해 `integration-full.yml`을
 호출합니다. `build`와 `publish`는 그 `matrix` 잡을 필요로 하므로, 매트릭스가 실패하거나
 취소되거나 생략되면 게시가 멈춥니다. `full-matrix-result`는 모든 의존 잡이
 `success`를 보고하지 않으면 실패합니다.
@@ -243,7 +243,7 @@ GitHub 요금이 어느 워크플로나 러너 SKU에서 발생하는지는 확�
 - **캐시 모드.** setup-uv는 이 워크플로의 `auto` 캐시 모드를 씁니다.
 
 `full-matrix-result`는 네 잡을 모두 `needs`에 두고 `success`가 아닌 결과에는 실패하므로,
-실패·취소·건너뜀·누락된 사본은 게시를 막습니다. `publish-pypi.yml`은 바뀌지 않습니다.
+실패·취소·건너뜀·누락된 사본은 게시를 막습니다. `publish.yml`은 바뀌지 않습니다.
 이 워크플로는 cubrid-lab 저장소 사이에서 동일하게 유지되기 때문입니다. 다른 방안인
 `main` 푸시 실행을 취소 불가로 만들고 게시 워크플로가 이를 요구하게 하는 방식은
 이 파일을 바꿔야 했습니다. 위의 잡별 중앙값으로 보면 사본은 릴리스나 전체 수동 실행마다
@@ -291,7 +291,7 @@ GitHub 요금이 어느 워크플로나 러너 SKU에서 발생하는지는 확�
 | --- | --- |
 | `ci.yml` | 정의한 모든 레인과 도구 레인 |
 | `integration-full.yml` | 도구 레인과, PR head에서 `integration-full.yml`을 수동 `workflow_dispatch`로 실행하고 PR에 링크 |
-| `publish-pypi.yml`, `release-please.yml` | 도구 레인(릴리스 워크플로 테스트) |
+| `publish.yml`, `release-please.yml` | 도구 레인(릴리스 워크플로 테스트) |
 | `bug-hunt.yml`, `python-canary.yml` | 도구 레인. 실행 자체가 바뀌면 수동 실행 |
 | 그 밖의 워크플로 | 도구 레인. `pr-title.yml`과 `docs-sync.yml`은 PR에서 스스로도 실행됨 |
 
@@ -325,7 +325,7 @@ GitHub 요금이 어느 워크플로나 러너 SKU에서 발생하는지는 확�
 보고되며 게이트는 이를 실패로 처리합니다.
 
 재사용 워크플로를 호출하는 잡에는 `timeout-minutes`를 지정할 수 없습니다. 저장소
-내부 피호출 워크플로(`publish-pypi.yml` → `integration-full.yml`)는 그 워크플로의
+내부 피호출 워크플로(`publish.yml` → `integration-full.yml`)는 그 워크플로의
 잡에서 검증합니다. 외부 소유 피호출 워크플로는 `tests/test_workflow_timeouts.py`의
 명시적 허용 목록입니다. `cubrid-lab/.github`의 공유 `doc-lint`, `codeql` 워크플로와
 cookbook 스모크 테스트가 여기에 해당합니다. 이 테스트는 모든 워크플로를 파싱하여

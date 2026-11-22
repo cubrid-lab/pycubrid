@@ -13,7 +13,7 @@ explicitly in pull-request review.
 
 Every release ships the same way: a reviewed release-please PR (generated commits plus curated
 `CHANGELOG.md` section, including the Upgrade notes and the classification in
-§7) is merged, and `publish-pypi.yml` releases it. There is no manual tag or publish
+§7) is merged, and `publish.yml` releases it. There is no manual tag or publish
 step; see [`RELEASING.md`](RELEASING.md).
 
 **Release cadence:** pycubrid aims to review and publish meaningful releases

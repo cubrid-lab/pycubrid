@@ -271,14 +271,14 @@ Version is single-sourced from `pycubrid/__init__.py` → `__version__ = "x.y.z"
 (`pyproject.toml` reads it dynamically). Merging a reviewed release PR is the only
 normal way to release: `release-please.yml` opens it (curated + Conventional Commit dated CHANGELOG section +
 version bump, checked by `make release-check VERSION=x.y.z`), and after the
-squash-merge `publish-pypi.yml` detects the version change and runs consistency → full
+squash-merge `publish.yml` detects the version change and runs consistency → full
 matrix → build → candidate verification (the cookbook smoke test in candidate mode on
-the built wheel; `publish` needs it) → tag/Release/PyPI → cookbook verification (the
+the built wheel; `publish-production` needs it) → tag/Release/PyPI → cookbook verification (the
 cookbook smoke test called as a pinned reusable workflow, no token) → summary on its own.
 Freeze a release candidate with `autorelease: review` before branch-only note edits; wait for in-flight preparation to finish. Freeze only when the maintainer starts reviewing that candidate for release (at the planned cadence or for an urgent fix), not days ahead: a frozen candidate is not regenerated, so every later merge to `main` leaves it out of date (branch protection on `main` requires a PR to be up to date before it merges), and removing the label lets regeneration discard the branch-only edits. Between releases, leave the candidate unfrozen and merge ordinary PRs normally; once the review starts, hold ordinary merges until the release PR merges or the review is dropped. Agents may regenerate, freeze, curate and validate a candidate, but never merge a release PR: merging publishes to PyPI, which is the maintainer's decision. Unfrozen notes come from main Unreleased. GITHUB_TOKEN updates require maintainer-triggered CI at the final head; before merging a release PR, complete the release review checklist in `RELEASING.md` (candidate head, per-check CI state, impact, release purpose). Pending labels are reconciled only after successful publication and cookbook verification.
 Ordinary PRs never change `__version__` or date a CHANGELOG section. Never push
 tags or publish by hand; the only manual entry point is the narrow recovery
-dispatch of `publish-pypi.yml`. A `last-release-sha` override is temporary:
+dispatch of `publish.yml`. A `last-release-sha` override is temporary:
 Prepare release stops once a later release containing it is verified, and a
 normal PR must remove it (never edit it away inside a release PR). Procedure, failure matrix and recovery:
 [`RELEASING.md`](RELEASING.md).
@@ -299,7 +299,7 @@ These rules add to the release procedure above; the procedures and gates in
   editing a draft through the API, always resend `tag_name`: a PATCH without it resets
   the draft's tag to `untagged-…`. `gh release edit` resends `tag_name` automatically;
   raw `gh api` PATCHes must include it.
-- Automation enforces these rules: `publish-pypi.yml` creates Releases with
+- Automation enforces these rules: `publish.yml` creates Releases with
   `--title "$TAG"` and, on resume or recovery, fails closed through
   `scripts/check_release_title.py` when an existing Release has another title. It never
   renames one. Agents verify these rules whenever they touch release automation.

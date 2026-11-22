@@ -539,7 +539,7 @@ You do not need to run the steps above locally for routine development —
 > owner so the TLS job operates on the actual broker.
 
 This job runs on the same triggers as the rest of `integration-full`
-(via `workflow_dispatch`, and as the release gate called by `publish-pypi.yml`). `ci.yml` runs the same
+(via `workflow_dispatch`, and as the release gate called by `publish.yml`). `ci.yml` runs the same
 lane per pull request as a single Python 3.14 × CUBRID 11.4 cell, and only when
 TLS-relevant paths change (the connection modules, `pycubrid/__init__.py`,
 `pycubrid/protocol.py`, `pycubrid/aio/`, the TLS and SSL tests,
@@ -1015,9 +1015,9 @@ assets; pinning its caller is not a complete freeze of those assets.
 | Workflow | Trigger | Description |
 |----------|---------|-------------|
 | `ci.yml` | PRs, main, weekly, manual | Minimum PR smoke; main/weekly coverage and representative integration |
-| `integration-full.yml` | Manual dispatch, called by `publish-pypi.yml` | Full Python × CUBRID compatibility matrix |
+| `integration-full.yml` | Manual dispatch, called by `publish.yml` | Full Python × CUBRID compatibility matrix |
 | `release-please.yml` | Push main or manual dispatch | Open/update PR-only release candidate (version + generated/curated notes) |
-| `publish-pypi.yml` | Push to main, recovery dispatch | Detect a merged release PR, then full matrix, build, tag + GitHub Release + PyPI, cookbook verification |
+| `publish.yml` | Push to main, recovery dispatch | Detect a merged release PR, then full matrix, build, tag + GitHub Release + PyPI, cookbook verification |
 
 ### CI Matrix
 
@@ -1058,7 +1058,7 @@ today, so every live job keeps its own service containers and steps:
 | `bug-hunt.yml` | `perf-trend` | keep | Runs `tests/test_benchmarks.py` against a cached baseline, not the `integration` marker |
 | `bug-hunt.yml` | `downstream-corpus` | keep | Runs the downstream repositories' own suites against the driver at the exact SHA |
 
-The `publish-pypi.yml` jobs that verify a release run no CUBRID themselves: `matrix`
+The `publish.yml` jobs that verify a release run no CUBRID themselves: `matrix`
 calls `integration-full.yml`, covered above, and `verify-candidate` and
 `verify-cookbook` call the cookbook's `smoke-test.yml`.
 
@@ -1247,7 +1247,7 @@ To support a new CUBRID data type:
 
 Releases are maintainer-only and follow [RELEASING.md](https://github.com/cubrid-lab/pycubrid/blob/main/RELEASING.md):
 `release-please.yml` opens a release PR (version bump + dated CHANGELOG section, checked
-with `make release-check VERSION=X.Y.Z`); after review and squash-merge, `publish-pypi.yml`
+with `make release-check VERSION=X.Y.Z`); after review and squash-merge, `publish.yml`
 runs the full matrix, builds once, tags, publishes to PyPI and verifies the cookbook
 automatically. Nobody pushes tags or publishes by hand.
 

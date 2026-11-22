@@ -531,7 +531,7 @@ def test_release_runs_the_offline_endpoint_cells_itself() -> None:
     assert "--cov-fail-under=95" in run_of(job["steps"], FULL)
     assert "offline-endpoints" in FULL_GATE["needs"]
     assert "needs.offline-endpoints.result" in FULL_GATE["steps"][0]["run"]
-    assert workflow("publish-pypi.yml")["jobs"]["matrix"]["uses"] == (
+    assert workflow("publish.yml")["jobs"]["matrix"]["uses"] == (
         "./.github/workflows/integration-full.yml"
     )
 

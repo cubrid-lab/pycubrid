@@ -363,7 +363,7 @@ def test_changes_requested_blocks_until_superseded() -> None:
         "pycubrid/aio/connection.py",
         "pycubrid/compat/native.py",
         "pycubrid/compat/cubriddb.py",
-        ".github/workflows/publish-pypi.yml",
+        ".github/workflows/publish.yml",
         ".github/workflows/release-please.yml",
         ".github/workflows/dependabot-auto-merge.yml",
         ".github/workflows/agent-review.yml",
@@ -714,7 +714,7 @@ def test_dependabot_update_with_branch_sync_is_exempt() -> None:
         author="dependabot[bot]",
         branch="dependabot/github_actions/x",
         commits=[commit(OLD, "dependabot[bot]"), commit(HEAD, MAINTAINER, parents=2)],
-        files=(".github/workflows/publish-pypi.yml",),
+        files=(".github/workflows/publish.yml",),
         diffs={OLD: SAME, HEAD: SAME},
     )
     records["commits"][1]["parents"][0]["sha"] = OLD
