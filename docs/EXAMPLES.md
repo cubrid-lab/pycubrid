@@ -850,15 +850,14 @@ Every script reads the same environment variables: `CUBRID_HOST` (default `local
 | --- | --- | --- |
 | `01_connect.py` | Connects and runs a first query | None |
 | `02_crud.py` | Creates a table, then inserts, reads, updates and deletes a row | `example_users` |
-| `03_transactions.py` | Commits one insert and rolls another back; adds a row on every run | `example_ledger` |
+| `03_transactions.py` | Commits one insert and rolls another back in a new `example_ledger_<random>` table, then drops it | None |
 | `04_lob.py` | Stores and reads back CLOB and BLOB values | `example_documents` |
 | `05_batch.py` | Inserts many rows with `executemany` | `example_batch_users` |
 
-Scripts 02 to 05 create their tables with `IF NOT EXISTS` and never drop them. Remove them when you are done:
+Scripts 02, 04 and 05 create their tables with `IF NOT EXISTS` and never drop them. Remove them when you are done:
 
 ```sql
 DROP TABLE example_users;
-DROP TABLE example_ledger;
 DROP TABLE example_documents;
 DROP TABLE example_batch_users;
 ```

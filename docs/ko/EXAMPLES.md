@@ -846,15 +846,14 @@ python examples/01_connect.py
 | --- | --- | --- |
 | `01_connect.py` | 연결하고 첫 쿼리를 실행합니다 | 없음 |
 | `02_crud.py` | 테이블을 만들고 행을 삽입, 조회, 수정, 삭제합니다 | `example_users` |
-| `03_transactions.py` | 삽입 하나를 커밋하고 다른 하나를 롤백합니다. 실행할 때마다 행이 추가됩니다 | `example_ledger` |
+| `03_transactions.py` | 새 `example_ledger_<random>` 테이블에서 삽입 하나를 커밋하고 다른 하나를 롤백한 뒤 테이블을 삭제합니다 | 없음 |
 | `04_lob.py` | CLOB과 BLOB 값을 저장하고 다시 읽습니다 | `example_documents` |
 | `05_batch.py` | `executemany`로 여러 행을 삽입합니다 | `example_batch_users` |
 
-02번부터 05번 스크립트는 `IF NOT EXISTS`로 테이블을 만들고 지우지 않습니다. 끝나면 삭제하세요:
+02번, 04번, 05번 스크립트는 `IF NOT EXISTS`로 테이블을 만들고 지우지 않습니다. 끝나면 삭제하세요:
 
 ```sql
 DROP TABLE example_users;
-DROP TABLE example_ledger;
 DROP TABLE example_documents;
 DROP TABLE example_batch_users;
 ```
