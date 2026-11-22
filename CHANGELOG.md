@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **`TimingStats` uses singular wording for one call** — `repr(TimingStats())` now prints `1 call` instead of `1 calls`; zero and multi-call output is unchanged ([#1292](https://github.com/cubrid-lab/pycubrid/issues/1292), [PR #1293](https://github.com/cubrid-lab/pycubrid/pull/1293)) by @RiccardoBifulco (first contribution 🎉).
+
 ### CI
 
 - **Official-driver oracle builds with GCC 14 and later** — The differential's CUBRIDdb oracle build now passes two flags that keep GCC 14+ from rejecting the unchanged upstream C source ([#1302](https://github.com/cubrid-lab/pycubrid/issues/1302)) by @yeongseon.
@@ -15,8 +19,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 This maintenance update improves source builds, setup and migration guidance, and core DB-API regression tests. The changes currently recorded below do not alter normal driver runtime behavior.
 
 ### Changed
-
-- **`TimingStats` uses singular wording for one call** — `repr(TimingStats())` and `TimingStats._fmt_ns` now print `1 call` instead of `1 calls`; zero and multi-call output is unchanged ([#1292](https://github.com/cubrid-lab/pycubrid/issues/1292)).
 
 - **Moved the dated live microbenchmark run out of the repository** — The raw 2026-10-14 pytest-benchmark data is removed from `main` and stays linked at commit `88d2c5b`; the Performance guide (English and Korean) now says `cubrid-benchmark` owns comparative results. The weekly trend job and benchmark tools are kept ([#1209](https://github.com/cubrid-lab/pycubrid/issues/1209), [#1250](https://github.com/cubrid-lab/pycubrid/pull/1250)) by @yeongseon.
 

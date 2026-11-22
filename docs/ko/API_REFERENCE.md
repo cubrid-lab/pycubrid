@@ -1311,8 +1311,8 @@ cur.fetchall()
 stats = conn.timing_stats
 assert stats is not None
 print(stats)
-# TimingStats(connect=1 calls, 12.345ms total, 12.345ms avg,
-#             execute=1 calls, 0.987ms total, 0.987ms avg,
+# TimingStats(connect=1 call, 12.345ms total, 12.345ms avg,
+#             execute=1 call, 0.987ms total, 0.987ms avg,
 #             fetch=0 calls,
 #             close=0 calls)
 
@@ -2214,7 +2214,7 @@ def reset(self) -> None
 사람이 읽을 수 있는 요약을 반환합니다. 예:
 
 ```
-TimingStats(connect=1 calls, 12.345ms total, 12.345ms avg,
+TimingStats(connect=1 call, 12.345ms total, 12.345ms avg,
             execute=10 calls, 4.200ms total, 0.420ms avg,
             fetch=10 calls, 1.500ms total, 0.150ms avg,
             close=0 calls)
