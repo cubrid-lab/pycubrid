@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **`TimingStats` uses singular wording for one call** — `repr(TimingStats())` now prints `1 call` instead of `1 calls`; zero and multi-call output is unchanged ([#1292](https://github.com/cubrid-lab/pycubrid/issues/1292), [PR #1293](https://github.com/cubrid-lab/pycubrid/pull/1293)) by @RiccardoBifulco (first contribution 🎉).
+
 ### CI
 
 - **Official-driver oracle builds with GCC 14 and later** — The differential's CUBRIDdb oracle build now passes two flags that keep GCC 14+ from rejecting the unchanged upstream C source ([#1302](https://github.com/cubrid-lab/pycubrid/issues/1302)) by @yeongseon.

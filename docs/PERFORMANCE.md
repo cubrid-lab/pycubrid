@@ -1045,9 +1045,9 @@ cur.fetchall()
 
 stats = conn.timing_stats
 print(stats)
-# TimingStats(connect=1 calls, 12.345ms total, 12.345ms avg,
+# TimingStats(connect=1 call, 12.345ms total, 12.345ms avg,
 #             execute=2 calls, 18.700ms total, 9.350ms avg,
-#             fetch=1 calls, 4.200ms total, 4.200ms avg,
+#             fetch=1 call, 4.200ms total, 4.200ms avg,
 #             close=0 calls)
 
 # Programmatic access (nanoseconds, ints):
