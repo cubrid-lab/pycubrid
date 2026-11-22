@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 from pathlib import Path
 
@@ -46,6 +47,12 @@ def _load_medians(path: Path) -> dict[str, float]:
         stats = bench.get("stats", {})
         median = stats.get("median")
         if name and isinstance(median, (int, float)):
+            if not math.isfinite(median):
+                print(
+                    f"error: non-finite median for benchmark {name!r} in {path}: {median!r}",
+                    file=sys.stderr,
+                )
+                raise SystemExit(2)
             medians[name] = float(median)
     return medians
 

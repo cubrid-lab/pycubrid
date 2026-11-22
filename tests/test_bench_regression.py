@@ -112,6 +112,28 @@ def test_malformed_json_exits_with_input_error(
     assert f"error: cannot read benchmark JSON {baseline_path}:" in captured.err
 
 
+@pytest.mark.parametrize("bad_median", [float("nan"), float("inf"), float("-inf")])
+@pytest.mark.parametrize("slot", ["baseline", "current"])
+def test_non_finite_median_is_an_input_error(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    bad_median: float,
+    slot: str,
+) -> None:
+    good = {"select": 0.1}
+    bad = {"select": bad_median}
+    baseline, current = (bad, good) if slot == "baseline" else (good, bad)
+
+    with pytest.raises(SystemExit) as excinfo:
+        _run_report(tmp_path, baseline, current, threshold=20)
+
+    assert excinfo.value.code == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "error: non-finite median for benchmark 'select'" in captured.err
+    assert "FAIL" not in captured.err
+
+
 def test_load_medians_falls_back_to_fullname_and_skips_unusable_entries(
     tmp_path: Path,
 ) -> None:
