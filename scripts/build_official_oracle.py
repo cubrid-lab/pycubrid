@@ -116,6 +116,11 @@ def build(out: Path, work: Path) -> dict[str, object]:
             "-shared",
             "-fPIC",
             "-O2",
+            # GCC 14+ (GCC 15.2 on the ubuntu-26.04 runner) turns these long-standing
+            # warnings in the pinned python_cubrid.c into errors; keep them warnings
+            # so the unchanged upstream source builds as it did with older compilers.
+            "-Wno-error=incompatible-pointer-types",
+            "-Wno-error=int-conversion",
             f"-I{generated}",
             f"-I{sysconfig.get_paths()['include']}",
             f"-I{cci / 'src' / 'base'}",
