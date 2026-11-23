@@ -9,6 +9,10 @@ Every run writes to the target database, ``--operation select`` included: it is
 not a read-only command. Run it only against a disposable database; the default
 is ``demodb``.
 
+``--operation select`` first inserts ``SELECT_SEED_ROWS`` rows into the scratch
+table, so the profiled SELECT returns that many rows instead of an empty result.
+``--operation all`` needs no seeding: its INSERT stage fills the table first.
+
 Usage
 -----
     python scripts/profile_execute.py [options]
@@ -21,7 +25,7 @@ Examples
     # Only INSERT, 200 iterations, save .prof for snakeviz:
     python scripts/profile_execute.py --operation insert --iterations 200 --output exec.prof
 
-    # SELECT only, against a disposable database on another host:
+    # SELECT only (seeds SELECT_SEED_ROWS rows first), against a disposable database:
     python scripts/profile_execute.py --host myhost --database scratchdb --operation select
 
     # Visualise saved profile:
@@ -45,6 +49,10 @@ from _profile_scratch import run_with_scratch_table  # noqa: E402
 
 OPERATIONS = ("insert", "select", "update", "delete")
 
+# Rows inserted into the scratch table before a select-only run, so that SELECT
+# and fetchall() process a small, fixed result set rather than an empty table (#1310).
+SELECT_SEED_ROWS = 20
+
 # ``{table}`` is filled only with the run's validated scratch-table name.
 _SQL = {
     "insert": "INSERT INTO {table} (val) VALUES (?)",
@@ -57,6 +65,8 @@ _SQL = {
 _WARNING = (
     "Writes to the target database: every run, --operation select included, "
     "creates and drops its own table _profile_tmp_<12 hex digits>. "
+    f"--operation select first inserts {SELECT_SEED_ROWS} rows into it; "
+    "--operation all fills it through the insert stage. "
     "Run it only against a disposable database."
 )
 
@@ -81,7 +91,10 @@ def _build_parser() -> argparse.ArgumentParser:
         "--operation",
         choices=[*OPERATIONS, "all"],
         default="all",
-        help="Which operation(s) to profile (default: all)",
+        help=(
+            "Which operation(s) to profile (default: all). "
+            f"select seeds {SELECT_SEED_ROWS} rows into the scratch table first."
+        ),
     )
     parser.add_argument(
         "--output",
@@ -100,6 +113,11 @@ def _run_select(cursor: Any, sql: Mapping[str, str], iterations: int) -> None:
     for _ in range(iterations):
         cursor.execute(sql["select"], (0,))
         cursor.fetchall()
+
+
+def _seed_for_select(cursor: Any, sql: Mapping[str, str]) -> None:
+    for i in range(SELECT_SEED_ROWS):
+        cursor.execute(sql["insert"], ("seed-" + str(i),))
 
 
 def _run_update(cursor: Any, sql: Mapping[str, str], iterations: int) -> None:
@@ -146,6 +164,10 @@ def run_execute_cycle(
 
     def workload(cursor: Any, sql: Mapping[str, str]) -> None:
         ops_to_run = list(OPERATIONS) if operation == "all" else [operation]
+        if operation == "select":
+            # In "all" mode the INSERT stage has already filled the table.
+            _seed_for_select(cursor, sql)
+            conn.commit()
         for op in ops_to_run:
             print(f"  Profiling: {op} ({iterations} iterations)")
             _RUNNERS[op](cursor, sql, iterations)
