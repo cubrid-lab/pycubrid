@@ -339,7 +339,7 @@ The type also sets the next release version: `feat` asks for a MINOR release, an
 and `style` alone open no release. The wheel ships only the `pycubrid` packages, so a
 change confined to `examples/`, `demos/`, `scripts/`, `tests/` or `agent-evals/` adds
 nothing to the published package: give it `test`, `ci` or `chore` (or `docs` for
-documentation) rather than `feat`, and rather than `fix` unless you want a release.
+documentation), not `feat` or `fix`, even when it corrects a bug in that tooling.
 
 Examples:
 
