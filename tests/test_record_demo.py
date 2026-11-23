@@ -295,6 +295,47 @@ def test_missing_recording_inputs_fail_without_connecting(
     assert database.connections == []
 
 
+@pytest.mark.parametrize(
+    "value",
+    ["", "notaport", "33000abc", "   ", "0", "-1", "65536", "99999999999", "1e3", "３３０００"],
+)
+@pytest.mark.parametrize("mode", ["short", "extended"])
+def test_invalid_port_fails_with_demo_port_message_before_connecting(
+    database: Database,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    mode: str,
+    value: str,
+) -> None:
+    monkeypatch.setenv("DEMO_PORT", value)
+    monkeypatch.setenv("DEMO_PASSWORD", "s3cret-password")
+    with pytest.raises(ValueError, match="DEMO_PORT") as excinfo:
+        record_demo.main([mode])
+    assert "invalid literal" not in str(excinfo.value)
+    assert "s3cret-password" not in str(excinfo.value)
+    assert database.connections == []
+    out = capsys.readouterr().out
+    assert "DEMO_SHORT_OK" not in out
+    assert "DEMO_EXTENDED_OK" not in out
+
+
+@pytest.mark.parametrize("value", ["1", "33595", " 33595 ", "65535"])
+def test_valid_port_is_accepted_as_an_integer(
+    database: Database, monkeypatch: pytest.MonkeyPatch, value: str
+) -> None:
+    monkeypatch.setenv("DEMO_PORT", value)
+    assert record_demo._options()["port"] == int(value)
+
+
+def test_missing_host_still_fails_without_connecting(
+    database: Database, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("DEMO_HOST")
+    with pytest.raises(ValueError, match="DEMO_HOST"):
+        record_demo.main(["short"])
+    assert database.connections == []
+
+
 def test_table_identifier_is_rejected_not_normalized_or_interpolated(
     database: Database, monkeypatch: pytest.MonkeyPatch
 ) -> None:
