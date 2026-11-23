@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 ### Fixed
 
 - **`TimingStats` uses singular wording for one call** — `repr(TimingStats())` now prints `1 call` instead of `1 calls`; zero and multi-call output is unchanged ([#1292](https://github.com/cubrid-lab/pycubrid/issues/1292), [PR #1293](https://github.com/cubrid-lab/pycubrid/pull/1293)) by @RiccardoBifulco (first contribution 🎉).
+- **Demo recorder rejects a non-numeric `DEMO_PORT` clearly** — `demos/record_demo.py` now reports a missing, non-numeric, blank or out-of-range `DEMO_PORT` with its own `DEMO_HOST and a valid DEMO_PORT are required` message instead of a raw `int()` error, before any connection is opened; maintainer demo tooling only, the driver is unchanged ([#1311](https://github.com/cubrid-lab/pycubrid/issues/1311), [PR #1317](https://github.com/cubrid-lab/pycubrid/pull/1317)) by @yeongseon.
 - **Select-only execute profile reads seeded rows** — `scripts/profile_execute.py --operation select` now inserts 20 rows into its scratch table before the profiled SELECT instead of measuring an empty result; `--operation all` is unchanged. Contributor profiling tool only, the driver is unchanged ([#1310](https://github.com/cubrid-lab/pycubrid/issues/1310), [PR #1318](https://github.com/cubrid-lab/pycubrid/pull/1318)) by @yeongseon.
 
 ### CI
