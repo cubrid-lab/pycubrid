@@ -26,7 +26,10 @@ def _verify(actual: object, expected: object, operation: str) -> None:
 
 def _options() -> dict[str, str | int]:
     host = os.environ.get("DEMO_HOST", "")
-    port = int(os.environ.get("DEMO_PORT", "0"))
+    raw_port = os.environ.get("DEMO_PORT", "").strip()
+    # Only ASCII digits convert; anything else (missing, text, sign, blank) is 0 and
+    # fails the range check with the script's own message instead of a raw int() error.
+    port = int(raw_port) if raw_port.isascii() and raw_port.isdecimal() else 0
     if not host or not 1 <= port <= 65535:
         raise ValueError("DEMO_HOST and a valid DEMO_PORT are required")
     return {
