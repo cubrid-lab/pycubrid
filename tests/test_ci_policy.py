@@ -143,6 +143,7 @@ def test_sensitive_execution_paths_select_live_validation() -> None:
     )
     assert "pycubrid/**" in filters["risk"]
     assert "tests/**" in filters["risk"]
+    assert "examples/**" in filters["risk"]
     assert filters["code"][0].startswith("!{")
     assert "tests/helpers/tls_*.py" in filters["tls"]
     assert "tests/fixtures/tls/**" in filters["tls"]

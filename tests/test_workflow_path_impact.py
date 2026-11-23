@@ -104,6 +104,8 @@ def test_workflow_impact_table(name: str) -> None:
         ("mkdocs.yml", {"code", "site", "tooling"}),
         ("scripts/generate_llms_full.py", {"code", "risk", "tooling", "official", "site"}),
         ("README.md", {"docs"}),
+        # The live examples test runs examples/ against CUBRID, so an examples-only PR needs it.
+        ("examples/02_crud.py", {"code", "risk"}),
         # The documentation checks' own tests run in the tooling lane (#927).
         ("tests/test_check_docs_links.py", {"code", "risk", "tooling"}),
         ("tests/test_check_agents_docs.py", {"code", "risk", "tooling"}),

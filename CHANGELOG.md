@@ -24,6 +24,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 - **Official-driver oracle builds with GCC 14 and later** — The differential's CUBRIDdb oracle build now passes two flags that keep GCC 14+ from rejecting the unchanged upstream C source ([#1302](https://github.com/cubrid-lab/pycubrid/issues/1302)) by @yeongseon.
 
+- **Example-only pull requests run the live integration job** — A pull request that changes only `examples/**` now selects the live CUBRID lane, so the example smoke test runs against a real server before merge ([PR #1321](https://github.com/cubrid-lab/pycubrid/pull/1321)) by @yeongseon.
+
 ### Tests
 
 - **Live smoke test for the example scripts** — A new integration test runs `examples/01_connect.py`, `02_crud.py`, `04_lob.py` and `05_batch.py` against a real CUBRID and checks their results through a separate connection; it refuses to touch pre-existing `example_*` tables ([#1312](https://github.com/cubrid-lab/pycubrid/issues/1312), [PR #1320](https://github.com/cubrid-lab/pycubrid/pull/1320)) by @yeongseon.
