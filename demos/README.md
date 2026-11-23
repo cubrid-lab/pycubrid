@@ -68,3 +68,15 @@ review promote to `docs/demo.gif` and
 `docs/assets/videos/pycubrid-demo.mp4`. Keep editable sources, generated media,
 provenance and documentation together. No VHS publish, external upload, package
 version change or release action is part of this workflow.
+
+## Lesson screenshots
+
+`lesson-first-query.tape` and `lesson-first-rollback.tape` take the terminal
+screenshots in `docs/assets/screenshots/` for the first-query and
+commit-and-rollback lessons. Unlike the demo recordings they do not use
+`record_demo.py`: create the lesson's own program in an empty folder exactly as
+the lesson shows (for the rollback lesson, run the earlier lessons first), start
+the disposable lab from the Quick Start, activate a venv with the published
+`pycubrid` and run `vhs` on the tape from that folder. VHS v0.12.1 or later is
+required (see above). Crop the PNG to the command and result and compress it
+before committing; the tapes write only to ignored `.demo-artifacts/`.
