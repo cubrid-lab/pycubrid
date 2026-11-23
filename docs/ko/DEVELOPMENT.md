@@ -433,6 +433,23 @@ CUBRID_TEST_HOST=127.0.0.1 CUBRID_TEST_PORT=33522 \
 `make integration`과 CI 통합 레인은 이 값을 설정하며, 모든 변경은 테스트가 끝나기 전에
 원래대로 복원됩니다.
 
+`tests/test_integration_examples.py`(#1312)는 `examples/01_connect.py`,
+`02_crud.py`, `04_lob.py`, `05_batch.py`를 각각 별도 프로세스로 실행하면서
+`CUBRID_HOST`, `CUBRID_PORT`, `CUBRID_DATABASE`, `CUBRID_USER`,
+`CUBRID_PASSWORD`를 테스트 엔드포인트로 지정하고, 두 번째 연결로 결과를 확인합니다.
+`SELECT 1 + 1` 결과, CRUD 스크립트 후 비어 있는 `example_users` 테이블, 정확한 CLOB
+텍스트와 BLOB 바이트, `executemany`로 넣은 다섯 행입니다. `03_transactions.py`는
+`tests/test_example_transactions.py`가 오프라인으로 다룹니다. 스크립트는 고정된 테이블
+이름을 쓰므로 `example_users`, `example_documents`, `example_batch_users`가 이미
+있으면 해당 테스트는 스크립트를 실행하지 않고 실패하며, 실패한 경우에도 자신이 만든
+테이블만 삭제합니다. 이 모듈은 일반 통합 레인에 포함되며 `make integration`은 빈
+데이터베이스를 제공합니다. 일회용 서버에서 이 모듈만 실행하려면:
+
+```bash
+CUBRID_TEST_HOST=127.0.0.1 CUBRID_TEST_PORT=33522 \
+  pytest tests/test_integration_examples.py -m integration -v
+```
+
 #### 비동기 TLS 통합 테스트
 
 `tests/test_aio_ssl_integration.py`는 `pycubrid.aio`의 비동기 TLS 커버리지를 추가하고,

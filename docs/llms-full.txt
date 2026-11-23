@@ -10895,6 +10895,24 @@ reset` inside the server container. They skip unless
 `make integration` and the CI integration lanes set it; every change is
 restored before the test returns.
 
+`tests/test_integration_examples.py` (#1312) runs `examples/01_connect.py`,
+`02_crud.py`, `04_lob.py` and `05_batch.py` as separate processes with
+`CUBRID_HOST`, `CUBRID_PORT`, `CUBRID_DATABASE`, `CUBRID_USER` and
+`CUBRID_PASSWORD` set to the test endpoint, then checks the result through a
+second connection: the `SELECT 1 + 1` result, the empty `example_users` table
+after the CRUD script, the exact CLOB text and BLOB bytes, and the five
+`executemany` rows. `03_transactions.py` is covered offline by
+`tests/test_example_transactions.py`. The scripts use fixed table names, so a test
+fails without running its script when `example_users`, `example_documents` or
+`example_batch_users` already exists, and drops only a table it created, also after
+a failure. It is part of the normal integration lane; `make integration` gives it
+an empty database. To run only this module against a disposable server:
+
+```bash
+CUBRID_TEST_HOST=127.0.0.1 CUBRID_TEST_PORT=33522 \
+  pytest tests/test_integration_examples.py -m integration -v
+```
+
 #### Async TLS integration tests
 
 `tests/test_aio_ssl_integration.py` adds async TLS coverage for `pycubrid.aio`,
