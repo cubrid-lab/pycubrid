@@ -185,6 +185,8 @@ jobs:
               - 'Makefile'
               - 'docker-compose.yml'
               - 'scripts/**'
+              # tests/test_integration_examples.py runs examples/ against live CUBRID (#1320).
+              - 'examples/**'
               - '.github/workflows/ci.yml'
             tooling:
               - 'scripts/**'
