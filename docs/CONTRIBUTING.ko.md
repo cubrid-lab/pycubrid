@@ -266,6 +266,13 @@ type(scope)!: description
 | `style` | 포맷만 변경 |
 | `revert` | 앞선 변경 되돌리기; 설명에 대상 변경을 명시 |
 
+유형은 다음 릴리스 버전도 정합니다. `feat`는 MINOR 릴리스를, `fix`·`perf`·`docs`는
+PATCH 릴리스를 요청하고, `test`·`ci`·`refactor`·`build`·`chore`·`style`만으로는 릴리스가
+열리지 않습니다. 배포 wheel에는 `pycubrid` 패키지만 들어 있으므로 `examples/`,
+`demos/`, `scripts/`, `tests/`, `agent-evals/`에 한정된 변경은 배포 패키지에 아무 기능도
+더하지 않습니다. 이런 변경에는 `feat`가 아니라 `test`, `ci`, `chore`(문서라면 `docs`)를
+사용하고, 릴리스를 원하지 않는다면 `fix`도 피하세요.
+
 예시:
 
 ```text

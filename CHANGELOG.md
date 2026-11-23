@@ -16,6 +16,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 - **Lesson screenshots** — the first-query and commit-and-rollback lessons each show a terminal screenshot of the real program output, in English and Korean; the text outputs are unchanged ([#1307](https://github.com/cubrid-lab/pycubrid/issues/1307), [PR #1319](https://github.com/cubrid-lab/pycubrid/pull/1319)) by @yeongseon.
 
+- **Commit type and release version** — `CONTRIBUTING.md` and its Korean page explain that `feat` asks for a MINOR release, `fix`, `perf` and `docs` for a PATCH, and that `test`, `ci`, `refactor`, `build`, `chore` and `style` alone open no release; changes confined to `examples/`, `demos/`, `scripts/`, `tests/` or `agent-evals/` add nothing to the published wheel and do not use `feat` ([PR #1322](https://github.com/cubrid-lab/pycubrid/pull/1322)) by @yeongseon.
+
 ### CI
 
 - Standardize the package publisher as `publish.yml` with job `publish-production` and environment `production`, including release tooling and recovery documentation ([#1313](https://github.com/cubrid-lab/pycubrid/issues/1313)).

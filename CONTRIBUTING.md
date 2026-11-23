@@ -334,6 +334,13 @@ type(scope)!: description
 | `style` | Formatting only |
 | `revert` | Reverts an earlier change; name it in the description |
 
+The type also sets the next release version: `feat` asks for a MINOR release, and
+`fix`, `perf` and `docs` for a PATCH, while `test`, `ci`, `refactor`, `build`, `chore`
+and `style` alone open no release. The wheel ships only the `pycubrid` packages, so a
+change confined to `examples/`, `demos/`, `scripts/`, `tests/` or `agent-evals/` adds
+nothing to the published package: give it `test`, `ci` or `chore` (or `docs` for
+documentation) rather than `feat`, and rather than `fix` unless you want a release.
+
 Examples:
 
 ```text
