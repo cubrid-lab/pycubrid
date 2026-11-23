@@ -63,6 +63,11 @@ Before rollback: [(1, 'my first saved row'), (2, 'this row is rolled back')]
 After rollback: [(1, 'my first saved row')]
 ```
 
+![Terminal screenshot: the command python first_rollback.py prints "Before rollback" with two rows, then "After rollback" with only the first row.](assets/screenshots/first-rollback-output.png)
+
+The screenshot is a real run of this program against the local lab. It shows
+the second row inside the transaction and gone after the rollback.
+
 ---
 
 ## What the program did

@@ -63,6 +63,11 @@ Before rollback: [(1, 'my first saved row'), (2, 'this row is rolled back')]
 After rollback: [(1, 'my first saved row')]
 ```
 
+![터미널 스크린샷: python first_rollback.py 명령이 두 행이 있는 "Before rollback"에 이어 첫 번째 행만 있는 "After rollback"을 출력합니다.](../assets/screenshots/first-rollback-output.png)
+
+스크린샷은 로컬 실습 환경에서 이 프로그램을 실제로 실행한 결과입니다. 트랜잭션 안에서는 두 번째 행이
+보이고 롤백 뒤에는 사라지는 것을 보여 줍니다.
+
 ---
 
 ## 프로그램이 한 일

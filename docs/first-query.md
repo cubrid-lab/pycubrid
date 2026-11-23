@@ -63,6 +63,11 @@ It prints one row with one value:
 (2,)
 ```
 
+![Terminal screenshot: the command python first_query.py prints (2,).](assets/screenshots/first-query-output.png)
+
+The screenshot is a real run of this program against the local lab. It shows
+the same result as the text above, so you can compare it with your own terminal.
+
 If you see an error instead, find its last line in
 [If the first connection fails](quickstart.md#if-the-first-connection-fails).
 
