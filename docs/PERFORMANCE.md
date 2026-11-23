@@ -955,7 +955,7 @@ connection can leave the table behind; drop it with `DROP TABLE _profile_tmp_<he
 
 > **Warning:** run them only against a disposable database. `profile_execute.py
 > --operation select` is not a read-only command either: it still creates and drops its
-> table.
+> table, and first inserts 20 rows into it so the profiled SELECT returns data.
 
 #### Connection handshake
 
