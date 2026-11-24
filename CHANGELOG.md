@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.17.2] - 2026-11-24
+
 ### Changed
 
 - **Unused protocol internals removed** — Dead writer helpers, header functions and constants in `pycubrid.packet` and `pycubrid.constants`, plus unread connection state, are gone; these are internal, non-public names and runtime behavior is unchanged ([#1326](https://github.com/cubrid-lab/pycubrid/issues/1326), [PR #1334](https://github.com/cubrid-lab/pycubrid/pull/1334)) by @yeongseon.
@@ -16,6 +18,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **Demo recorder rejects a non-numeric `DEMO_PORT` clearly** — `demos/record_demo.py` now reports a missing, non-numeric, blank or out-of-range `DEMO_PORT` with its own `DEMO_HOST and a valid DEMO_PORT are required` message instead of a raw `int()` error, before any connection is opened; maintainer demo tooling only, the driver is unchanged ([#1311](https://github.com/cubrid-lab/pycubrid/issues/1311), [PR #1317](https://github.com/cubrid-lab/pycubrid/pull/1317)) by @yeongseon.
 - **Select-only execute profile reads seeded rows** — `scripts/profile_execute.py --operation select` now inserts 20 rows into its scratch table before the profiled SELECT instead of measuring an empty result; `--operation all` is unchanged. Contributor profiling tool only, the driver is unchanged ([#1310](https://github.com/cubrid-lab/pycubrid/issues/1310), [PR #1318](https://github.com/cubrid-lab/pycubrid/pull/1318)) by @yeongseon.
 
+* **examples:** make transaction rollback deterministic ([#1291](https://github.com/cubrid-lab/pycubrid/issues/1291)) ([6235e71](https://github.com/cubrid-lab/pycubrid/commit/6235e7146adcc73f15523ec74936131c58fb6795))
+* reject non-finite medians in benchmark comparison inputs ([#1300](https://github.com/cubrid-lab/pycubrid/issues/1300)) ([6586b0c](https://github.com/cubrid-lab/pycubrid/commit/6586b0c6ac54a439f36fdc8b5d0c998cc40714bd))
+* reject nonpositive connection profiler iterations ([#1301](https://github.com/cubrid-lab/pycubrid/issues/1301)) ([bff85e7](https://github.com/cubrid-lab/pycubrid/commit/bff85e71d3ad3195ec6ec1fa12a0d2cff31d7c98))
+
 ### Documentation
 
 - **Roadmap points at the issue tracker** — `ROADMAP.md` is now a short page that links to the open issues, the `priority:` and `size:` labels, milestones, `good first issue` and `help wanted` lists, so it no longer lists dated plans that can go stale ([#1330](https://github.com/cubrid-lab/pycubrid/issues/1330), [PR #1335](https://github.com/cubrid-lab/pycubrid/pull/1335)) by @yeongseon.
@@ -23,6 +29,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **Lesson screenshots** — the first-query and commit-and-rollback lessons each show a terminal screenshot of the real program output, in English and Korean; the text outputs are unchanged ([#1307](https://github.com/cubrid-lab/pycubrid/issues/1307), [PR #1319](https://github.com/cubrid-lab/pycubrid/pull/1319)) by @yeongseon.
 
 - **Commit type and release version** — `CONTRIBUTING.md` and its Korean page explain which commit types request a release, and that changes confined to tooling outside the published wheel use `test`, `ci`, `chore` or `docs` ([PR #1322](https://github.com/cubrid-lab/pycubrid/pull/1322)) by @yeongseon.
+
+* **review:** align approval and change-request outcomes ([a3e425f](https://github.com/cubrid-lab/pycubrid/commit/a3e425f3070bb8a2b72c003d1b52b0247de46ead)), refs [#1314](https://github.com/cubrid-lab/pycubrid/issues/1314)
+* welcome community improvement ideas ([#1308](https://github.com/cubrid-lab/pycubrid/issues/1308)) ([32a6669](https://github.com/cubrid-lab/pycubrid/commit/32a6669f6bb20fd8a5b98564d23f8c4671b70d57))
 
 ### CI
 

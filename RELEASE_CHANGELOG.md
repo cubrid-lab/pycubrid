@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.17.2](https://github.com/cubrid-lab/pycubrid/compare/v1.17.1...v1.17.2) (2026-11-24)
+
+
+### Fixed
+
+* **demos:** reject a non-numeric DEMO_PORT with the script's own message ([#1317](https://github.com/cubrid-lab/pycubrid/issues/1317)) ([ccbfb56](https://github.com/cubrid-lab/pycubrid/commit/ccbfb56b88ca16b3bdc70c16058aa5740032ead6))
+* **examples:** make transaction rollback deterministic ([#1291](https://github.com/cubrid-lab/pycubrid/issues/1291)) ([6235e71](https://github.com/cubrid-lab/pycubrid/commit/6235e7146adcc73f15523ec74936131c58fb6795))
+* reject non-finite medians in benchmark comparison inputs ([#1300](https://github.com/cubrid-lab/pycubrid/issues/1300)) ([6586b0c](https://github.com/cubrid-lab/pycubrid/commit/6586b0c6ac54a439f36fdc8b5d0c998cc40714bd))
+* reject nonpositive connection profiler iterations ([#1301](https://github.com/cubrid-lab/pycubrid/issues/1301)) ([bff85e7](https://github.com/cubrid-lab/pycubrid/commit/bff85e71d3ad3195ec6ec1fa12a0d2cff31d7c98))
+* **scripts:** seed the scratch table before a select-only profile run ([#1318](https://github.com/cubrid-lab/pycubrid/issues/1318)) ([ddee6bb](https://github.com/cubrid-lab/pycubrid/commit/ddee6bb509cdc23019c3b35042fbb0997ca01054))
+* use singular wording for one TimingStats call ([#1293](https://github.com/cubrid-lab/pycubrid/issues/1293)) ([c0c34e5](https://github.com/cubrid-lab/pycubrid/commit/c0c34e557741cf05ba1ad076cf6ffeeb372fcda3))
+
+
+### Documentation
+
+* **contributing:** explain how the commit type sets the release version ([#1322](https://github.com/cubrid-lab/pycubrid/issues/1322)) ([c10cab0](https://github.com/cubrid-lab/pycubrid/commit/c10cab02f819eaf036f1b47079d2a1c003fa9ef7))
+* **lessons:** add terminal screenshots to the first query and rollback lessons ([#1319](https://github.com/cubrid-lab/pycubrid/issues/1319)) ([2b1b68b](https://github.com/cubrid-lab/pycubrid/commit/2b1b68bdb80b79b2b04b59a3f9ce90eb23216719)), closes [#1307](https://github.com/cubrid-lab/pycubrid/issues/1307)
+* point the roadmap page at the issue tracker ([#1335](https://github.com/cubrid-lab/pycubrid/issues/1335)) ([0e96d7b](https://github.com/cubrid-lab/pycubrid/commit/0e96d7be99a7b0cee47e91cb4a7a017c05b14845)), closes [#1330](https://github.com/cubrid-lab/pycubrid/issues/1330)
+* **review:** align approval and change-request outcomes ([a3e425f](https://github.com/cubrid-lab/pycubrid/commit/a3e425f3070bb8a2b72c003d1b52b0247de46ead)), closes [#1314](https://github.com/cubrid-lab/pycubrid/issues/1314)
+* welcome community improvement ideas ([#1308](https://github.com/cubrid-lab/pycubrid/issues/1308)) ([32a6669](https://github.com/cubrid-lab/pycubrid/commit/32a6669f6bb20fd8a5b98564d23f8c4671b70d57))
+
 ## [1.17.1](https://github.com/cubrid-lab/pycubrid/compare/v1.17.0...v1.17.1) (2026-11-19)
 
 
