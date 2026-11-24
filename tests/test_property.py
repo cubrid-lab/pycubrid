@@ -49,9 +49,6 @@ doubles = st.floats(
     width=64,
 )
 
-# Byte strings of reasonable length
-byte_strings = st.binary(min_size=0, max_size=256)
-
 # Unicode strings (exclude surrogates which can't encode to UTF-8)
 text_strings = st.text(
     alphabet=st.characters(blacklist_categories=("Cs",), blacklist_characters="\x00"),

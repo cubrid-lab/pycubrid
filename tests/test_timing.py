@@ -453,6 +453,10 @@ class TestCursorTiming:
         cur = Cursor(conn)
         cur.execute("SELECT 1")
 
+        assert cur.description is not None
+        assert cur._timing is None
+        assert conn._timing is None
+
     def test_fetch_records_timing(self, mock_connection_with_timing: MagicMock) -> None:
         from pycubrid.protocol import ColumnMetaData, FetchPacket
 
@@ -501,7 +505,10 @@ class TestCursorTiming:
         ]
         cur._statement_type = 1
 
-        cur._fetch_more_rows()
+        assert cur._fetch_more_rows() is True
+        assert cur._rows == [(1,)]
+        assert cur._timing is None
+        assert conn._timing is None
 
 
 class TestTimingExport:
