@@ -26,6 +26,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 - **Example-only pull requests run the live integration job** — A pull request that changes only `examples/**` now selects the live CUBRID lane, so the example smoke test runs against a real server before merge ([PR #1321](https://github.com/cubrid-lab/pycubrid/pull/1321)) by @yeongseon.
 
+- **Unused release and maintenance tooling removed** — The release-prep script that Release Please replaced, the weekly `maintenance.yml` workflow that other CI already covers and the unreachable agent-review bootstrap path are gone, and CI path filters now list only existing files ([#1328](https://github.com/cubrid-lab/pycubrid/issues/1328), [PR #1333](https://github.com/cubrid-lab/pycubrid/pull/1333)) by @yeongseon.
+
 ### Tests
 
 - **Live smoke test for the example scripts** — A new integration test runs `examples/01_connect.py`, `02_crud.py`, `04_lob.py` and `05_batch.py` against a real CUBRID and checks their results through a separate connection; it refuses to touch pre-existing `example_*` tables ([#1312](https://github.com/cubrid-lab/pycubrid/issues/1312), [PR #1320](https://github.com/cubrid-lab/pycubrid/pull/1320)) by @yeongseon.
