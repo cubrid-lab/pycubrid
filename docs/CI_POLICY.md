@@ -165,7 +165,6 @@ Median per-job runner minutes on successful code pushes:
 | Packaging | `ci.yml` `packaging-smoke-test`; `publish.yml` `consistency` and `build` | Risk PR, non-PR code; release |
 | Repository tooling | `ci.yml` `repo-tooling-tests`; `integration-full.yml` `repo-tooling-tests` (same steps) | Tooling-path events; release and full dispatch |
 | Release automation tests | `ci.yml` `release-tests` (Python 3.12) | Every event that changes a listed release script, its test or `release-please.yml`. A PR that changes only those files skips the code lanes and live CUBRID; main push, weekly and dispatch still run the full code lanes (#1157) |
-| Python 3.15 packaging check (advisory) | `python-canary.yml` | Manual only |
 
 ### Consolidation
 
@@ -309,7 +308,7 @@ lane, whose policy and workflow tests parse and check it; the live lanes of
 | `ci.yml` | All lanes it defines, plus tooling |
 | `integration-full.yml` | Tooling, plus a manual `workflow_dispatch` of `integration-full.yml` on the PR head, linked in the PR |
 | `publish.yml`, `release-please.yml` | Tooling (release workflow tests) |
-| `bug-hunt.yml`, `python-canary.yml` | Tooling; dispatch when the run itself changes |
+| `bug-hunt.yml` | Tooling; dispatch when the run itself changes |
 | Other workflows | Tooling; `pr-title.yml` and `docs-sync.yml` also run themselves on the PR |
 
 `tests/test_workflow_path_impact.py` evaluates the filters against every workflow
@@ -374,7 +373,6 @@ the selected interpreter. Caches include `pyproject.toml`, `uv.lock` and CI whee
 with a per-job suffix and Python minor version. CI and docs always cache;
 `integration-full.yml` retains `auto`. Cache contents cannot replace the required
 artifact hashes. Jobs log installed versions with `uv pip freeze --system`.
-`python-canary.yml` retains pip for its separate fresh-install probe.
 `tests/test_workflow_installs.py` checks these install and cache contracts and
 exercises export/installation source-hook, stale-lock and tampered-hash rejection offline.
 
@@ -489,20 +487,11 @@ the group PR, or, if it needs separate work, add it to the group's `exclude-patt
 through a reviewed PR so Dependabot opens it on its own.
 `tests/test_workflow_pins.py` enforces the group settings.
 
-## Python 3.15 preview preparation
+## Python 3.15 support evidence
 
-`python-canary.yml` is manual-only: supply the full SHA and dispatch the branch
-at that commit. One Ubuntu/standard-GIL lane selects Python 3.15 with prereleases
-allowed, prints the actual interpreter/dependency versions, runs full offline
-regressions and validates fresh wheel/sdist installs. Failed setup/install/tests
-fail the run normally. It is separate from required PR checks and release gates;
-there is no new schedule, PR matrix cell or CUBRID provisioning. This lane alone
-does not establish official support, live database or free-threaded compatibility.
-
-Python 3.15 is now supported (see the [support matrix](SUPPORT_MATRIX.md)). Its
+Python 3.15 is supported (see the [support matrix](SUPPORT_MATRIX.md)). Its
 support evidence comes from the full compatibility matrix (live Python 3.15 ×
-four CUBRID versions and TLS), the 3.15 offline endpoint cells and this lane's
-fresh wheel/sdist installs; the lane is kept as a manual packaging check. The
-3.11 offline endpoint is unchanged; the representative live cells stay on Python
+four CUBRID versions and TLS) and the 3.15 offline endpoint cells. The 3.11
+offline endpoint is unchanged; the representative live cells stay on Python
 3.14/CUBRID 11.4 and Python 3.11/CUBRID 10.2, and Python 3.14 is still exercised
 live on every high-risk PR and in the full matrix.

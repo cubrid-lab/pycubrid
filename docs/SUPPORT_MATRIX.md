@@ -32,8 +32,7 @@ before upgrading.
 **Python 3.15:** Supported on the final CPython 3.15.0 release with the
 standard GIL; free-threaded builds are not supported. The full compatibility
 matrix runs Python 3.15 against every supported CUBRID version on manual
-dispatch and every release, and 3.15 is the newest offline endpoint. The
-manual `python-canary.yml` lane still checks fresh wheel/sdist installs on 3.15.
+dispatch and every release, and 3.15 is the newest offline endpoint.
 Environment notes:
 
 - Decimal-subclass parameters need the C `_decimal` module. A Python built

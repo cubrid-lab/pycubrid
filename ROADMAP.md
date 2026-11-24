@@ -55,9 +55,9 @@ for current status; dependencies govern completion, not investigation.
   claim. `requires-python` stays `>=3.11`.
 - Preparation history: on 2026-10-03, 3.15.0rc3 was a preview
   ([upstream release notes](https://www.python.org/downloads/release/python-3150rc3/)).
-  A manually dispatched Ubuntu/standard-GIL preview lane (`python-canary.yml`)
-  checked offline regressions and fresh wheel/sdist installations; it is kept as
-  a manual packaging check.
+  A manually dispatched Ubuntu/standard-GIL preview workflow checked offline
+  regressions and fresh wheel/sdist installations; it has since been removed,
+  and the full compatibility matrix now covers Python 3.15.
 
 ## Links
 

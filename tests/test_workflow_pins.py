@@ -45,9 +45,9 @@ def test_published_metadata_has_no_contributor_extras() -> None:
 
 
 # Import name -> distribution for every third-party module imported under tests/.
-# A new import must be added here and to the `test` group (#784: the Python
-# canary installs only `--group test --group release` and failed to collect
-# without pyyaml, which the old dev extra pulled in through pre-commit).
+# A new import must be added here and to the `test` group (#784: a job that installs
+# only `--group test --group release` failed to collect without pyyaml, which
+# the old dev extra pulled in through pre-commit).
 TEST_IMPORT_DISTRIBUTIONS = {
     "hypothesis": "hypothesis",
     "jinja2": "jinja2",
@@ -89,11 +89,6 @@ def test_test_group_provides_every_third_party_module_the_tests_import() -> None
     provided = _group_names("test")
     missing = {dist for mod in imports if (dist := TEST_IMPORT_DISTRIBUTIONS[mod]) not in provided}
     assert not missing, f"tests import modules the test dependency group lacks: {missing}"
-
-
-def test_canary_installs_the_test_group() -> None:
-    installs = [ln for ln in _pip_lines("python-canary.yml") if "--group" in ln]
-    assert installs == ["python -m pip install -e . --group test --group release"]
 
 
 def test_docs_group_is_exact_pins() -> None:

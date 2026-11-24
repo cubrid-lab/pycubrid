@@ -16,7 +16,6 @@
 | `.github/workflows/docs-sync.yml` | PR | Requires matching docs or a `Docs: not needed -` reason (see Documentation definition of done) |
 | `.github/workflows/pr-title.yml` | PR | Conventional PR title; rejects closing keywords for other repositories' issues |
 | `.github/workflows/docs.yml` | Push to main, manual | Build and deploy the MkDocs site |
-| `.github/workflows/python-canary.yml` | Manual dispatch | Advisory fresh-install check on the newest Python |
 
 The issue-triage workflow is an **issue-opened** intake helper, not a required
 PR approval check or a priority classifier. Other workflows (security, CodeQL,
