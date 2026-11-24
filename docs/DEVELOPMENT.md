@@ -703,7 +703,7 @@ make format
 make tooling-check
 ```
 
-Make and regular/maintenance CI share the `LINT_PATHS` list in `Makefile`:
+Make and CI share the `LINT_PATHS` list in `Makefile`:
 `pycubrid tests scripts demos examples agent-evals`. Ruff CLI discovery and hook types are explicitly
 Python/pyi-only; Markdown is outside this formatting contract. Hooks use the same maintained-file scope;
 Mypy remains strict on the package. `make typecheck` and CI also check the

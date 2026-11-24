@@ -206,16 +206,16 @@ def check_configuration(root: Path = ROOT) -> dict[str, str]:
         r"^        entry: python3 scripts/check_quality_tools.py\s*$", hooks, re.MULTILINE
     ):
         raise ValueError("system guard must use python3 like the Makefile")
-    for workflow in ("ci.yml", "maintenance.yml"):
-        content = (root / ".github" / "workflows" / workflow).read_text()
-        # `make check` runs `make lint` and `make format-check` (#1007); the ci.yml lint
-        # job names `lint` among the other non-mypy goals of `make check` (#1009).
-        if not re.search(
-            r"^\s+run: make(?: [a-z-]+)* (?:check|lint)(?: [a-z-]+)*\s*$", content, re.MULTILINE
-        ):
-            raise ValueError(f"{workflow}: CI must invoke shared make check (or make lint) scope")
-        if re.search(r"^\s+(?:run:\s*)?ruff (?:check|format)\b", content, re.MULTILINE):
-            raise ValueError(f"{workflow}: independent Ruff scope can drift from Makefile")
+    workflow = "ci.yml"
+    content = (root / ".github" / "workflows" / workflow).read_text()
+    # `make check` runs `make lint` and `make format-check` (#1007); the ci.yml lint
+    # job names `lint` among the other non-mypy goals of `make check` (#1009).
+    if not re.search(
+        r"^\s+run: make(?: [a-z-]+)* (?:check|lint)(?: [a-z-]+)*\s*$", content, re.MULTILINE
+    ):
+        raise ValueError(f"{workflow}: CI must invoke shared make check (or make lint) scope")
+    if re.search(r"^\s+(?:run:\s*)?ruff (?:check|format)\b", content, re.MULTILINE):
+        raise ValueError(f"{workflow}: independent Ruff scope can drift from Makefile")
     for command in ("check", "format --check", "check --fix", "format"):
         if not re.search(
             rf"^\t\$\(RUFF\) {re.escape(command)} \$\(LINT_PATHS\)\s*$", makefile, re.MULTILINE

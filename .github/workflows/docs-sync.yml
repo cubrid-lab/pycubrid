@@ -38,8 +38,6 @@ jobs:
           IMPACT_GLOBS: |
             pycubrid/**
             pyproject.toml
-            setup.cfg
-            setup.py
 
           # Docs that count as "kept in sync".
           DOC_GLOBS: |

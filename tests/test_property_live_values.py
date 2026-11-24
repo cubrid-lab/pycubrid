@@ -49,17 +49,6 @@ def _tbl() -> str:
     return "ph_live_%s" % uuid.uuid4().hex[:8]
 
 
-# ---------------------------------------------------------------------------
-# Value strategies grouped by the CUBRID column type used to store them.
-# Each entry: (column_ddl, strategy, comparator). The comparator returns True
-# when the fetched value matches the inserted value per that type's semantics.
-# ---------------------------------------------------------------------------
-
-
-def _eq(inserted: object, fetched: object) -> bool:
-    return inserted == fetched
-
-
 _INT_MIN, _INT_MAX = -(2**31), 2**31 - 1
 _BIGINT_MIN, _BIGINT_MAX = -(2**63), 2**63 - 1
 

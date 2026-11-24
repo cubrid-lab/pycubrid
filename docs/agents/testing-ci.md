@@ -20,7 +20,7 @@
 
 The issue-triage workflow is an **issue-opened** intake helper, not a required
 PR approval check or a priority classifier. Other workflows (security, CodeQL,
-SBOM, maintenance, bug hunt, labels, stale, badge sync, Dependabot auto-merge)
+SBOM, bug hunt, labels, stale, badge sync, Dependabot auto-merge)
 are scheduled or housekeeping jobs; read the workflow file before relying on one.
 
 ### CI Matrix

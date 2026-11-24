@@ -79,12 +79,6 @@ def _build_error_response(cas_info: bytes, error_code: int, error_message: str) 
     return cas_info + struct.pack(">i", -1) + body
 
 
-def _build_null_terminated_string(value: str) -> bytes:
-    """Build a length-prefixed null-terminated string."""
-    encoded = value.encode("utf-8") + b"\x00"
-    return struct.pack(">i", len(encoded)) + encoded
-
-
 def _build_column_metadata(
     column_type: int = CUBRIDDataType.STRING,
     scale: int = 0,
