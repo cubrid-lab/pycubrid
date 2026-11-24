@@ -24,7 +24,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### CI
 
-- **Manual Python 3.15 packaging check removed** — The `python-canary.yml` workflow is gone because Python 3.15 is supported and `integration-full.yml` already tests it; the related policy docs and workflow-pin test are updated ([#1331](https://github.com/cubrid-lab/pycubrid/issues/1331)) by @yeongseon.
+- **Manual Python 3.15 packaging check removed** — The `python-canary.yml` workflow is gone because Python 3.15 is supported and `integration-full.yml` already tests it; the related policy docs and workflow-pin test are updated ([#1331](https://github.com/cubrid-lab/pycubrid/issues/1331), [PR #1336](https://github.com/cubrid-lab/pycubrid/pull/1336)) by @yeongseon.
 
 - Standardize the package publisher as `publish.yml` with job `publish-production` and environment `production`, including release tooling and recovery documentation ([#1313](https://github.com/cubrid-lab/pycubrid/issues/1313)).
 
