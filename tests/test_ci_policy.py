@@ -1015,7 +1015,7 @@ def _filters_names() -> list[str]:
 
 RELEASE_ONLY = ["scripts/compose_release_changelog.py", "tests/test_compose_release_changelog.py"]
 # A deleted path is still reported by paths-filter, so it selects like an edit.
-DELETED_RELEASE_SCRIPT = ["scripts/audit_historical_releases.py"]
+DELETED_RELEASE_SCRIPT = ["scripts/release_summary.py"]
 WORKFLOW_ONLY = [".github/workflows/release-please.yml"]
 MIXED = [*RELEASE_ONLY, "pycubrid/protocol.py"]
 # A rename across the list boundary reports both the old and the new path.

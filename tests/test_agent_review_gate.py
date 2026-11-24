@@ -375,7 +375,6 @@ def test_changes_requested_blocks_until_superseded() -> None:
         "scripts/verify_dist.py",
         "scripts/pypi_duplicate_guard.py",
         "scripts/reconcile_release_labels.py",
-        "scripts/prepare_release.py",
         "scripts/compose_release_changelog.py",
         "scripts/extract_release_notes.py",
         "scripts/check_release_please.cjs",
@@ -984,11 +983,11 @@ def test_fetch_reads_every_page_of_review_threads() -> None:
     assert not gate.evaluate(fetched, HEAD).passed
 
 
-def run_main(records: dict[str, Any], fail: str = "", extra: tuple[str, ...] = ()) -> int:
+def run_main(records: dict[str, Any], fail: str = "") -> int:
     def factory(token: str) -> FakeClient:
         return FakeClient(records, fail)
 
-    argv = ["--repo", REPO, "--pr", "7", "--event-head-sha", HEAD, *extra]
+    argv = ["--repo", REPO, "--pr", "7", "--event-head-sha", HEAD]
     return int(gate.main(argv, factory))
 
 
@@ -1061,10 +1060,6 @@ def test_pr_controlled_text_cannot_inject_workflow_commands(
         assert not line.startswith("::")
 
 
-def test_bootstrap_is_advisory() -> None:
-    assert run_main(data(), extra=("--bootstrap",)) == 0
-
-
 # ---------------------------------------------------------- workflow contract
 
 
@@ -1085,4 +1080,6 @@ def test_workflow_triggers_and_permissions_are_read_only() -> None:
     assert '-f ref="$BASE_REF"' in run
     assert "?ref=" not in run
     assert "python3 -I" in run
-    assert '[ "$HEAD_REPO" = "$GITHUB_REPOSITORY" ]' in run
+    # Only the base branch's copy of the gate runs; the PR's copy never does.
+    assert '-f ref="$HEAD_SHA"' not in run
+    assert "bootstrap" not in run
