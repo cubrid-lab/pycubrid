@@ -8,8 +8,8 @@
 Performance work is tracked in issues, not in this file. Before treating any
 performance or roadmap item as current priority, check the live sources:
 
-- [ROADMAP.md](https://github.com/cubrid-lab/pycubrid/blob/main/ROADMAP.md) — public roadmap and current project baseline (the
-  linked org project board may require cubrid-lab membership).
+- [ROADMAP.md](https://github.com/cubrid-lab/pycubrid/blob/main/ROADMAP.md) — where planned work is tracked (issue tracker, priority/size
+  labels and milestones).
 - [docs/PERFORMANCE.md](../PERFORMANCE.md) — benchmark methodology, regression
   checks, profiling scripts, timing hooks and how to reproduce a measurement.
 - [cubrid-benchmark](https://github.com/cubrid-lab/cubrid-benchmark) — the
