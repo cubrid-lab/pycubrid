@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Changed
+
+- **Unused protocol internals removed** — Dead writer helpers, header functions and constants in `pycubrid.packet` and `pycubrid.constants`, plus unread connection state, are gone; these are internal, non-public names and runtime behavior is unchanged ([#1326](https://github.com/cubrid-lab/pycubrid/issues/1326)) by @yeongseon.
+
 ### Fixed
 
 - **`TimingStats` uses singular wording for one call** — `repr(TimingStats())` now prints `1 call` instead of `1 calls`; zero and multi-call output is unchanged ([#1292](https://github.com/cubrid-lab/pycubrid/issues/1292), [PR #1293](https://github.com/cubrid-lab/pycubrid/pull/1293)) by @RiccardoBifulco (first contribution 🎉).

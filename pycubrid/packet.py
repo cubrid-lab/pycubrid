@@ -87,21 +87,6 @@ _STRUCT_3H = struct.Struct(">3h")
 _STRUCT_6H = struct.Struct(">6h")
 _STRUCT_7H = struct.Struct(">7h")
 
-DEFAULT_CAS_INFO: bytes = b"\x00\x00\x00\x00"
-
-
-def build_protocol_header(data_length: int, cas_info: bytes) -> bytes:
-    """Build an 8-byte protocol header."""
-    return struct.pack(">i", data_length) + cas_info
-
-
-def parse_protocol_header(data: bytes) -> tuple[int, bytes]:
-    """Parse an 8-byte protocol header."""
-    data_length: int = _STRUCT_INT.unpack(data[: DataSize.DATA_LENGTH])[0]
-    cas_info = data[DataSize.DATA_LENGTH : DataSize.DATA_LENGTH + DataSize.CAS_INFO]
-    return data_length, cas_info
-
-
 _HEADER_SIZE = DataSize.DATA_LENGTH + DataSize.CAS_INFO
 
 
@@ -190,16 +175,6 @@ class PacketWriter:
         self._write_int(DataSize.LONG)
         self._write_long(value)
 
-    def add_float(self, value: float) -> None:
-        """Write a length-prefixed float value."""
-        self._write_int(DataSize.FLOAT)
-        self._write_float(value)
-
-    def add_double(self, value: float) -> None:
-        """Write a length-prefixed double value."""
-        self._write_int(DataSize.DOUBLE)
-        self._write_double(value)
-
     def add_bytes(self, value: bytes) -> None:
         """Write length-prefixed raw bytes."""
         self._write_int(len(value))
@@ -208,46 +183,6 @@ class PacketWriter:
     def add_null(self) -> None:
         """Write a null marker (zero length)."""
         self._write_int(DataSize.UNSPECIFIED)
-
-    def add_date(self, year: int, month: int, day: int) -> None:
-        """Write a length-prefixed date (time fields zeroed)."""
-        self.add_datetime(year, month, day, 0, 0, 0, 0)
-
-    def add_time(self, hour: int, minute: int, second: int) -> None:
-        """Write a length-prefixed time (date fields zeroed)."""
-        self.add_datetime(0, 0, 0, hour, minute, second, 0)
-
-    def add_timestamp(
-        self,
-        year: int,
-        month: int,
-        day: int,
-        hour: int,
-        minute: int,
-        second: int,
-    ) -> None:
-        """Write a length-prefixed timestamp (millisecond zeroed)."""
-        self.add_datetime(year, month, day, hour, minute, second, 0)
-
-    def add_datetime(
-        self,
-        year: int,
-        month: int,
-        day: int,
-        hour: int,
-        minute: int,
-        second: int,
-        millisecond: int,
-    ) -> None:
-        """Write a length-prefixed datetime with seven shorts."""
-        self._write_int(DataSize.DATETIME)
-        self._write_short(year)
-        self._write_short(month)
-        self._write_short(day)
-        self._write_short(hour)
-        self._write_short(minute)
-        self._write_short(second)
-        self._write_short(millisecond)
 
     def add_cache_time(self) -> None:
         """Write a length-prefixed cache time value (two zero ints)."""
@@ -266,12 +201,6 @@ class PacketWriter:
 
     def _write_long(self, value: int) -> None:
         self._buffer.extend(_STRUCT_LONG.pack(value))
-
-    def _write_float(self, value: float) -> None:
-        self._buffer.extend(_STRUCT_FLOAT.pack(value))
-
-    def _write_double(self, value: float) -> None:
-        self._buffer.extend(_STRUCT_DOUBLE.pack(value))
 
     def _write_bytes(self, value: bytes) -> None:
         self._buffer.extend(value)
@@ -783,11 +712,8 @@ class PacketReader:
         """Return unread byte count."""
         return len(self._buffer) - self._offset
 
-    def _parse_buffer(self, count: int) -> bytes:
-        return self._parse_bytes(count)
-
     def _read_lob(self, size: int, lob_type: CUBRIDDataType) -> dict[str, object]:
-        packed_lob_handle = self._parse_buffer(size)
+        packed_lob_handle = self._parse_bytes(size)
         # The CAS sends exactly [int db_type][int64 size][int locator_size]
         # [locator] (cas_execute.c add_res_data_lob_handle, 10.2-11.4; #933).
         # db_type is the server DB_TYPE (BLOB 33, CLOB 34), not the CCI type.

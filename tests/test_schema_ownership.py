@@ -96,7 +96,6 @@ def connected(asynchronous: bool, peer: SchemaPeer) -> Connection | AsyncConnect
         conn._send_and_receive = peer.send
     conn._connected = True
     conn._record_reply_cas_info(CAS_INFO)
-    conn._session_id = 1234
     return conn
 
 
@@ -328,7 +327,6 @@ async def test_transport_retirement_cannot_send_original_handle_in_new_session(
     else:
         conn._invalidate_query_handles_for_reconnect()
     conn._connected = True
-    conn._session_id = 9999
     calls = len(peer.calls)
     await invoke(conn, "close_schema_info", packet)
     with pytest.raises(InterfaceError, match="retired"):

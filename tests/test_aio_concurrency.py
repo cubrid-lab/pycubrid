@@ -163,7 +163,6 @@ async def test_concurrent_connect_performs_single_handshake() -> None:
         conn._reader = hs_reader
         conn._writer = hs_writer
         conn._record_reply_cas_info(b"\x01\x00\x00\x00")
-        conn._session_id = 1
 
     conn._open_connection = AsyncMock(side_effect=fake_open_connection)
     conn._do_connect_handshake = AsyncMock(side_effect=fake_do_connect_handshake)
@@ -208,7 +207,6 @@ async def test_concurrent_ping_reconnect_performs_single_reconnect() -> None:
         conn._record_reply_cas_info(
             bytes([AsyncConnection._CAS_INFO_STATUS_ACTIVE, 0x00, 0x00, 0x00])
         )
-        conn._session_id = 1
 
     async def fake_do_send_and_receive(packet: Any) -> Any:
         packet.response_code = 0
@@ -286,7 +284,6 @@ async def test_concurrent_ping_reconnect_with_subclass_connect_no_deadlock() -> 
         conn._record_reply_cas_info(
             bytes([AsyncConnection._CAS_INFO_STATUS_ACTIVE, 0x00, 0x00, 0x00])
         )
-        conn._session_id = 1
 
     async def fake_do_send_and_receive(packet: Any) -> Any:
         packet.response_code = 0

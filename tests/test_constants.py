@@ -9,24 +9,16 @@ import pytest
 from pycubrid.constants import (
     CASFunctionCode,
     CASProtocol,
-    CCICursorPosition,
     CCIDbParam,
     CCIExecutionOption,
-    CCILOBType,
     CCIPrepareOption,
-    CCISchemaPatternMatchFlag,
     CCISchemaType,
     CCITransactionType,
-    ConnectionStatus,
-    CUBRIDCollectionCommand,
     CUBRIDDataType,
     CUBRIDIsolationLevel,
     CUBRIDStatementType,
     DataSize,
     ErrorCode,
-    OidCommand,
-    QueryExecutionMode,
-    StmtType,
 )
 
 
@@ -263,21 +255,6 @@ class TestCCISchemaType:
 
 
 # ---------------------------------------------------------------------------
-# LOB Type tests
-# ---------------------------------------------------------------------------
-
-
-class TestCCILOBType:
-    """Verify LOB type codes."""
-
-    def test_blob(self) -> None:
-        assert CCILOBType.BLOB == 33
-
-    def test_clob(self) -> None:
-        assert CCILOBType.CLOB == 34
-
-
-# ---------------------------------------------------------------------------
 # DB Param tests
 # ---------------------------------------------------------------------------
 
@@ -375,17 +352,11 @@ class TestDataSize:
     def test_broker_info(self) -> None:
         assert DataSize.BROKER_INFO == 8
 
-    def test_date(self) -> None:
-        assert DataSize.DATE == 14
-
     def test_cas_info(self) -> None:
         assert DataSize.CAS_INFO == 4
 
     def test_data_length(self) -> None:
         assert DataSize.DATA_LENGTH == 4
-
-    def test_resultset(self) -> None:
-        assert DataSize.RESULTSET == 4
 
 
 # ---------------------------------------------------------------------------
@@ -414,41 +385,3 @@ class TestErrorCode:
         assert ErrorCode.ER_IO_READ == -13
         assert ErrorCode.ER_IO_WRITE == -14
         assert ErrorCode.ER_IO_WRITE_OUT_OF_SPACE == -15
-
-
-# ---------------------------------------------------------------------------
-# Other enum tests
-# ---------------------------------------------------------------------------
-
-
-class TestOtherEnums:
-    """Verify remaining enum types."""
-
-    def test_oid_command(self) -> None:
-        assert OidCommand.DROP_BY_OID == 1
-        assert OidCommand.GET_CLASS_NAME_BY_OID == 5
-
-    def test_collection_command(self) -> None:
-        assert CUBRIDCollectionCommand.GET_COLLECTION_VALUE == 1
-        assert CUBRIDCollectionCommand.PUT_ELEMENT_ON_SEQUENCE == 7
-
-    def test_connection_status(self) -> None:
-        assert ConnectionStatus.OUT_TRAN == 0
-        assert ConnectionStatus.CLOSE_AND_CONNECT == 3
-
-    def test_cursor_position(self) -> None:
-        assert CCICursorPosition.FIRST == 0
-        assert CCICursorPosition.LAST == 2
-
-    def test_stmt_type(self) -> None:
-        assert StmtType.NORMAL == 0
-        assert StmtType.GET_AUTOINCREMENT_KEYS == 3
-
-    def test_query_execution_mode(self) -> None:
-        assert QueryExecutionMode.SYNC == 0
-        assert QueryExecutionMode.ASYNC == 1
-
-    def test_schema_pattern_match_flag(self) -> None:
-        assert issubclass(CCISchemaPatternMatchFlag, enum.IntFlag)
-        assert CCISchemaPatternMatchFlag.CLASS_NAME == 0x01
-        assert CCISchemaPatternMatchFlag.ATTR_NAME == 0x02

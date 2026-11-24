@@ -1135,9 +1135,7 @@ graph TD
            writer = PacketWriter()
            writer._write_byte(CASFunctionCode.MY_NEW_FUNCTION)
            writer.add_int(self.arg1)
-           payload = writer.to_bytes()
-           header = build_protocol_header(len(payload), cas_info)
-           return header + payload
+           return writer.finalize(cas_info)
 
        def parse(self, data: bytes) -> None:
            reader = PacketReader(data)
@@ -1166,8 +1164,10 @@ graph TD
 새 CUBRID 데이터 타입을 지원하려면:
 
 1. `constants.py`의 `CUBRIDDataType`에 타입 코드 추가
-2. `protocol.py`의 `_read_value()`에 리더 추가
-3. `packet.py`의 `PacketWriter`에 라이터 추가 (필요 시)
+2. 리더 추가: `packet.py`의 `PacketReader`에 `_parse_*` 메서드를 작성하고 `protocol.py`의
+   `_TYPE_METHOD_NAMES`에 타입 코드를 그 메서드에 연결합니다. 컬럼 값을 디코딩할 때
+   `_resolve_reader()`가 여기서 리더를 찾습니다
+3. 바인딩할 수 있는 타입이면 `_prepared_binding.py`에 파라미터 인코더 추가
 4. 읽기와 쓰기 양쪽에 테스트 추가
 
 ---

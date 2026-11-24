@@ -86,7 +86,6 @@ class TestAsyncConnectionEstablishment:
             await async_conn.connect()
 
         assert async_conn._connected is True
-        assert async_conn._session_id == 777
         assert async_conn._cas_info == b"\x01\x01\x02\x03"
 
     @pytest.mark.asyncio
