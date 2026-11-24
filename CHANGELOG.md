@@ -18,6 +18,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Documentation
 
+- **Roadmap points at the issue tracker** — `ROADMAP.md` is now a short page that links to the open issues, the `priority:` and `size:` labels, milestones, `good first issue` and `help wanted` lists, so it no longer lists dated plans that can go stale ([#1330](https://github.com/cubrid-lab/pycubrid/issues/1330)) by @yeongseon.
+
 - **Lesson screenshots** — the first-query and commit-and-rollback lessons each show a terminal screenshot of the real program output, in English and Korean; the text outputs are unchanged ([#1307](https://github.com/cubrid-lab/pycubrid/issues/1307), [PR #1319](https://github.com/cubrid-lab/pycubrid/pull/1319)) by @yeongseon.
 
 - **Commit type and release version** — `CONTRIBUTING.md` and its Korean page explain which commit types request a release, and that changes confined to tooling outside the published wheel use `test`, `ci`, `chore` or `docs` ([PR #1322](https://github.com/cubrid-lab/pycubrid/pull/1322)) by @yeongseon.

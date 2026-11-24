@@ -499,13 +499,13 @@ reversal, not a clarification:
     2. The drop is announced at least one minor release in advance in
        `CHANGELOG.md` (under a `### Deprecated` heading) and in
        `docs/SUPPORT_MATRIX.md`.
-    3. `ROADMAP.md` records the drop schedule before the deprecating release
+    3. `docs/SUPPORT_MATRIX.md` records the drop schedule before the deprecating release
        ships.
 Python 3.10 was dropped under this exception: it reached end of life on
 2026-10-01, the notice shipped in 1.9.0 (`### Deprecated`, the support matrix and
-the roadmap), and 1.10.0 requires Python >=3.11. The 1.8.x and 1.9.x lines retain
+the roadmap page of that time), and 1.10.0 requires Python >=3.11. The 1.8.x and 1.9.x lines retain
 Python >=3.10. The drop is a MINOR release, not a breaking-change version bump. See
-[ROADMAP.md](ROADMAP.md#python-310-retirement-schedule).
+[docs/SUPPORT_MATRIX.md](docs/SUPPORT_MATRIX.md).
 
 - **CUBRID**: pycubrid targets the CUBRID CAS protocol version 8 (CUBRID 10.2
   and newer). Adding support for a future CAS protocol version is additive
