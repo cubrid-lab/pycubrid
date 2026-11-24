@@ -18,7 +18,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Documentation
 
-- **Roadmap points at the issue tracker** — `ROADMAP.md` is now a short page that links to the open issues, the `priority:` and `size:` labels, milestones, `good first issue` and `help wanted` lists, so it no longer lists dated plans that can go stale ([#1330](https://github.com/cubrid-lab/pycubrid/issues/1330)) by @yeongseon.
+- **Roadmap points at the issue tracker** — `ROADMAP.md` is now a short page that links to the open issues, the `priority:` and `size:` labels, milestones, `good first issue` and `help wanted` lists, so it no longer lists dated plans that can go stale ([#1330](https://github.com/cubrid-lab/pycubrid/issues/1330), [PR #1335](https://github.com/cubrid-lab/pycubrid/pull/1335)) by @yeongseon.
 
 - **Lesson screenshots** — the first-query and commit-and-rollback lessons each show a terminal screenshot of the real program output, in English and Korean; the text outputs are unchanged ([#1307](https://github.com/cubrid-lab/pycubrid/issues/1307), [PR #1319](https://github.com/cubrid-lab/pycubrid/pull/1319)) by @yeongseon.
 
