@@ -8,7 +8,7 @@ must not be made a required status check until it is posted from an identity a
 PR cannot impersonate, such as a GitHub App (tracked separately).
 
 ``.github/workflows/agent-review.yml`` runs this file from the **base branch**
-(never the PR's copy, except for the bootstrap run described below) with a
+(never the PR's copy) with a
 read-only token. It only reads the GitHub REST and GraphQL APIs; it never checks
 out or runs PR code. Exit status 0 passes the ``agent-review`` check and 1 fails
 it; any API error, missing field or truncated listing fails closed.
@@ -59,10 +59,6 @@ protected path, governed by RELEASING.md; and Dependabot PRs (author
 ``dependabot[bot]``, branch ``dependabot/``, same repository) whose commits
 Dependabot created through GitHub (committer ``web-flow``, verified signature)
 or are base syncs. Every other PR, human or agent, is evaluated the same way.
-
-``--bootstrap`` is used only while the base branch does not contain this file
-yet (the PR that adds it): the verdict is printed but the step always exits 0,
-because the PR's own copy is not trusted to enforce.
 """
 
 from __future__ import annotations
@@ -108,7 +104,6 @@ PROTECTED_PATHS = (
     "scripts/verify_dist.py",
     "scripts/pypi_duplicate_guard.py",
     "scripts/reconcile_release_labels.py",
-    "scripts/prepare_release.py",
     "scripts/compose_release_changelog.py",
     "scripts/extract_release_notes.py",
     "scripts/check_release_please.cjs",
@@ -703,14 +698,9 @@ def command_data(text: str) -> str:
     return text.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
 
 
-def render(verdict: Verdict, number: int, bootstrap: bool) -> str:
+def render(verdict: Verdict, number: int) -> str:
     status = "exempt" if verdict.exempt else ("passed" if verdict.passed else "failed")
     lines = [f"### agent-review: {status} (PR #{number})", ""]
-    if bootstrap:
-        lines += [
-            "> Bootstrap run: the base branch has no gate yet, so this verdict is advisory.",
-            "",
-        ]
     for title, items in (
         ("Blocking", verdict.errors),
         ("Counted evidence", verdict.evidence),
@@ -738,7 +728,6 @@ def main(
     parser.add_argument("--repo", required=True, help="owner/name")
     parser.add_argument("--pr", required=True, type=int)
     parser.add_argument("--event-head-sha", default="")
-    parser.add_argument("--bootstrap", action="store_true")
     args = parser.parse_args(argv)
 
     try:
@@ -747,7 +736,7 @@ def main(
     except GateError as exc:
         verdict = Verdict(errors=[f"Failing closed on missing API data: {exc}"])
 
-    report = render(verdict, args.pr, args.bootstrap)
+    report = render(verdict, args.pr)
     sys.stdout.write(report)
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary:
@@ -757,9 +746,6 @@ def main(
         print(f"::error title=agent-review::{command_data(message)}")
     for message in verdict.warnings:
         print(f"::warning title=agent-review::{command_data(message)}")
-    if args.bootstrap:
-        print("::warning title=agent-review::Bootstrap run: advisory only.")
-        return 0
     return 0 if verdict.passed else 1
 
 
