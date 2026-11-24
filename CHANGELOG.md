@@ -32,6 +32,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 - **Live smoke test for the example scripts** — A new integration test runs `examples/01_connect.py`, `02_crud.py`, `04_lob.py` and `05_batch.py` against a real CUBRID and checks their results through a separate connection; it refuses to touch pre-existing `example_*` tables ([#1312](https://github.com/cubrid-lab/pycubrid/issues/1312), [PR #1320](https://github.com/cubrid-lab/pycubrid/pull/1320)) by @yeongseon.
 
+- **Timing-disabled tests now assert something** — The cursor execute and fetch tests for disabled timing check that no timing stats exist, so recording timing while it is off now fails them; three unused test helpers are removed. Test-only; the driver is unchanged ([#1327](https://github.com/cubrid-lab/pycubrid/issues/1327), [PR #1332](https://github.com/cubrid-lab/pycubrid/pull/1332)) by @yeongseon.
+
 ## [1.17.1] - 2026-11-19
 
 This maintenance update improves source builds, setup and migration guidance, and core DB-API regression tests. The changes currently recorded below do not alter normal driver runtime behavior.
