@@ -160,11 +160,18 @@ async SQL bound under a prior session generation is rejected before send.
 
 **Building a header:**
 
-```python
-from pycubrid.packet import build_protocol_header
+`PacketWriter` reserves the 8-byte header when it is created and fills it in
+`finalize(cas_info)`, so every request packet gets its header the same way:
 
-header = build_protocol_header(data_length=42, cas_info=b"\x00\x00\x00\x00")
-# Returns 8 bytes: 4-byte length + 4-byte cas_info
+```python
+from pycubrid.constants import CASFunctionCode
+from pycubrid.packet import PacketWriter
+
+writer = PacketWriter()
+writer._write_byte(CASFunctionCode.END_TRAN)
+writer.add_byte(1)
+request = writer.finalize(b"\x00\x00\x00\x00")
+# 4-byte payload length (6) + 4-byte cas_info, then the 6-byte payload
 ```
 
 ### Exceptions
@@ -728,14 +735,8 @@ Available parameters (`CCIDbParam`):
 | `add_byte(value)` | Write length-prefixed byte (1B length + 1B value) |
 | `add_int(value)` | Write length-prefixed int (4B length + 4B value) |
 | `add_long(value)` | Write length-prefixed long (4B length + 8B value) |
-| `add_float(value)` | Write length-prefixed float (4B length + 4B value) |
-| `add_double(value)` | Write length-prefixed double (4B length + 8B value) |
 | `add_bytes(value)` | Write length-prefixed raw bytes |
 | `add_null()` | Write null marker (zero-length) |
-| `add_date(y, m, d)` | Write length-prefixed date |
-| `add_time(h, m, s)` | Write length-prefixed time |
-| `add_timestamp(y,m,d,h,m,s)` | Write length-prefixed timestamp |
-| `add_datetime(y,m,d,h,m,s,ms)` | Write length-prefixed datetime |
 | `add_cache_time()` | Write cache time (two zero ints) |
 | `to_bytes()` | Return all written bytes |
 
@@ -747,8 +748,6 @@ Available parameters (`CCIDbParam`):
 | `_write_short(value)` | Raw short (2B) |
 | `_write_int(value)` | Raw int (4B) |
 | `_write_long(value)` | Raw long (8B) |
-| `_write_float(value)` | Raw float (4B) |
-| `_write_double(value)` | Raw double (8B) |
 | `_write_bytes(value)` | Raw bytes, no prefix |
 | `_write_filler(count, value)` | Fill N bytes with value |
 | `_write_null_terminated_string(value)` | Length-prefixed string in the connection charset (default UTF-8) + null terminator |
@@ -1012,15 +1011,14 @@ class CASProtocol:
 
 ```python
 class DataSize:
-    BYTE = 1          BOOL = 1
+    UNSPECIFIED = 0   BYTE = 1
     SHORT = 2         INT = 4
     FLOAT = 4         LONG = 8
     DOUBLE = 8        OBJECT = 8
     OID = 8           BROKER_INFO = 8
-    DATE = 14         TIME = 14
-    DATETIME = 14     TIMESTAMP = 14
-    RESULTSET = 4     DATA_LENGTH = 4
+    DATETIME = 14     DATA_LENGTH = 4
     CAS_INFO = 4
+    MAX_PACKET_SIZE = 268_435_456
 ```
 
 ### Statement Types

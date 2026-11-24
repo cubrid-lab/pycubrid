@@ -14,7 +14,6 @@ from pycubrid.constants import (
     CASFunctionCode,
     CASProtocol,
     CCIDbParam,
-    CCILOBType,
     CCISchemaType,
     CCITransactionType,
     CUBRIDDataType,
@@ -1613,7 +1612,7 @@ _SimpleResponsePacket: TypeAlias = (
         pytest.param(CloseDatabasePacket, id="close-database"),
         pytest.param(lambda: CloseQueryPacket(1), id="close-query"),
         pytest.param(GetEngineVersionPacket, id="engine-version"),
-        pytest.param(lambda: LOBNewPacket(CCILOBType.BLOB), id="lob-new"),
+        pytest.param(lambda: LOBNewPacket(CUBRIDDataType.BLOB), id="lob-new"),
         pytest.param(lambda: LOBWritePacket(b"handle", 0, b"data"), id="lob-write"),
         pytest.param(lambda: LOBReadPacket(b"handle", 0, 4), id="lob-read"),
         pytest.param(lambda: GetDbParameterPacket(CCIDbParam.ISOLATION_LEVEL), id="get-param"),
@@ -1808,13 +1807,13 @@ class TestLOBNewPacket:
     """Tests for LOBNewPacket."""
 
     def test_write(self) -> None:
-        pkt = LOBNewPacket(CCILOBType.BLOB)
+        pkt = LOBNewPacket(CUBRIDDataType.BLOB)
         data = pkt.write(DEFAULT_CAS_INFO)
         payload = data[8:]
         assert payload[0] == CASFunctionCode.LOB_NEW
 
     def test_parse_success(self) -> None:
-        pkt = LOBNewPacket(CCILOBType.BLOB)
+        pkt = LOBNewPacket(CUBRIDDataType.BLOB)
         lob_handle = b"\x01\x02\x03\x04\x05\x06\x07\x08"
         response = (
             DEFAULT_CAS_INFO
@@ -1825,7 +1824,7 @@ class TestLOBNewPacket:
         assert pkt.lob_handle == lob_handle
 
     def test_parse_error(self) -> None:
-        pkt = LOBNewPacket(CCILOBType.BLOB)
+        pkt = LOBNewPacket(CUBRIDDataType.BLOB)
         response = _build_error_response(DEFAULT_CAS_INFO, -1, "lob error")
         with pytest.raises(DatabaseError, match="lob error"):
             pkt.parse(response)

@@ -1224,9 +1224,7 @@ To add a new CAS function:
            writer = PacketWriter()
            writer._write_byte(CASFunctionCode.MY_NEW_FUNCTION)
            writer.add_int(self.arg1)
-           payload = writer.to_bytes()
-           header = build_protocol_header(len(payload), cas_info)
-           return header + payload
+           return writer.finalize(cas_info)
 
        def parse(self, data: bytes) -> None:
            reader = PacketReader(data)
@@ -1255,8 +1253,10 @@ To add a new CAS function:
 To support a new CUBRID data type:
 
 1. **Add the type code** to `CUBRIDDataType` in `constants.py`
-2. **Add the reader** in `_read_value()` in `protocol.py`
-3. **Add the writer** in `PacketWriter` in `packet.py` (if needed)
+2. **Add the reader**: write a `_parse_*` method on `PacketReader` in `packet.py` and map the
+   type code to it in `_TYPE_METHOD_NAMES` in `protocol.py`; `_resolve_reader()` looks the
+   reader up there when it decodes a column value
+3. **Add the parameter encoder** in `_prepared_binding.py` (if the type can be bound)
 4. **Add tests** for both reading and writing
 
 ---

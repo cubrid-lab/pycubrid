@@ -62,6 +62,8 @@ from .protocol import (
 )
 
 if TYPE_CHECKING:
+    from types import FrameType
+
     from .timing import TimingStats
 
 _LOGGER = logging.getLogger(__name__)
@@ -259,7 +261,7 @@ def _caller_stacklevel() -> int:
     Level 1 is the caller of this helper (the frame that calls
     :func:`warnings.warn`), so counting starts there.
     """
-    frame = sys._getframe(1) if hasattr(sys, "_getframe") else None
+    frame: FrameType | None = sys._getframe(1)
     level = 1
     while frame is not None and frame.f_code.co_filename.startswith(_PACKAGE_ROOT + os.sep):
         frame = frame.f_back
@@ -503,7 +505,6 @@ class ConnectionCommonMixin:
         # Depth of scopes (close, implicit-reconnect setup) whose requests must
         # never probe or reconnect; a counter so overlapping scopes nest safely.
         self._implicit_reconnect_suspended = 0
-        self._session_id = 0
         self._autocommit = False
         self._autocommit_explicitly_set = False
         # Weak, so a cursor dropped without close() is collected and its

@@ -239,18 +239,6 @@ class CCISchemaType(IntEnum):
 
 
 # ---------------------------------------------------------------------------
-# LOB Types
-# ---------------------------------------------------------------------------
-
-
-class CCILOBType(IntEnum):
-    """LOB type codes for ``LOB_NEW``."""
-
-    BLOB = 33
-    CLOB = 34
-
-
-# ---------------------------------------------------------------------------
 # DB Parameters
 # ---------------------------------------------------------------------------
 
@@ -291,103 +279,6 @@ class CUBRIDIsolationLevel(IntEnum):
 
 
 # ---------------------------------------------------------------------------
-# OID Commands
-# ---------------------------------------------------------------------------
-
-
-class OidCommand(IntEnum):
-    """OID operation commands."""
-
-    DROP_BY_OID = 1
-    IS_INSTANCE = 2
-    GET_READ_LOCK_BY_OID = 3
-    GET_WRITE_LOCK_BY_OID = 4
-    GET_CLASS_NAME_BY_OID = 5
-
-
-# ---------------------------------------------------------------------------
-# Collection Commands
-# ---------------------------------------------------------------------------
-
-
-class CUBRIDCollectionCommand(IntEnum):
-    """Collection manipulation commands."""
-
-    GET_COLLECTION_VALUE = 1
-    GET_SIZE_OF_COLLECTION = 2
-    DROP_ELEMENT_IN_SET = 3
-    ADD_ELEMENT_TO_SET = 4
-    DROP_ELEMENT_IN_SEQUENCE = 5
-    INSERT_ELEMENT_INTO_SEQUENCE = 6
-    PUT_ELEMENT_ON_SEQUENCE = 7
-
-
-# ---------------------------------------------------------------------------
-# Connection Status
-# ---------------------------------------------------------------------------
-
-
-class ConnectionStatus(IntEnum):
-    """Internal connection status codes."""
-
-    OUT_TRAN = 0
-    IN_TRAN = 1
-    CLOSE = 2
-    CLOSE_AND_CONNECT = 3
-
-
-# ---------------------------------------------------------------------------
-# Cursor Position
-# ---------------------------------------------------------------------------
-
-
-class CCICursorPosition(IntEnum):
-    """Cursor positioning constants."""
-
-    FIRST = 0
-    CURRENT = 1
-    LAST = 2
-
-
-# ---------------------------------------------------------------------------
-# Statement Execution Type
-# ---------------------------------------------------------------------------
-
-
-class StmtType(IntEnum):
-    """Statement execution type codes."""
-
-    NORMAL = 0
-    GET_BY_OID = 1
-    GET_SCHEMA_INFO = 2
-    GET_AUTOINCREMENT_KEYS = 3
-
-
-# ---------------------------------------------------------------------------
-# Query Execution Mode
-# ---------------------------------------------------------------------------
-
-
-class QueryExecutionMode(IntEnum):
-    """Query execution mode constants."""
-
-    SYNC = 0
-    ASYNC = 1
-
-
-# ---------------------------------------------------------------------------
-# Schema Pattern Match Flags
-# ---------------------------------------------------------------------------
-
-
-class CCISchemaPatternMatchFlag(IntFlag):
-    """Pattern matching flags for schema introspection."""
-
-    CLASS_NAME = 0x01
-    ATTR_NAME = 0x02
-
-
-# ---------------------------------------------------------------------------
 # CAS Protocol Constants
 # ---------------------------------------------------------------------------
 
@@ -418,7 +309,6 @@ class DataSize:
 
     UNSPECIFIED: int = 0
     BYTE: int = 1
-    BOOL: int = 1
     SHORT: int = 2
     INT: int = 4
     FLOAT: int = 4
@@ -427,11 +317,7 @@ class DataSize:
     OBJECT: int = 8
     OID: int = 8
     BROKER_INFO: int = 8
-    DATE: int = 14
-    TIME: int = 14
     DATETIME: int = 14
-    TIMESTAMP: int = 12  # year(2)+month(2)+day(2)+hour(2)+min(2)+sec(2) = 12 bytes
-    RESULTSET: int = 4
     DATA_LENGTH: int = 4
     CAS_INFO: int = 4
 

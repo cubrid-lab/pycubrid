@@ -104,10 +104,8 @@ class TestRoundTripProperties:
     @given(value=floats)
     @settings(max_examples=200, deadline=None, suppress_health_check=[HealthCheck.too_slow])
     def test_float_round_trip(self, value: float) -> None:
-        """_write_float → _parse_float preserves the value (32-bit precision)."""
-        writer = PacketWriter(reserve_header=False)
-        writer._write_float(value)
-        reader = PacketReader(writer.to_bytes())
+        """A big-endian float32 → _parse_float preserves the value (32-bit precision)."""
+        reader = PacketReader(struct.pack(">f", value))
         result = reader._parse_float()
         # Float32 round-trip may have tiny precision loss; use struct to compare.
         assert struct.pack(">f", result) == struct.pack(">f", value)
@@ -115,10 +113,8 @@ class TestRoundTripProperties:
     @given(value=doubles)
     @settings(max_examples=200, deadline=None, suppress_health_check=[HealthCheck.too_slow])
     def test_double_round_trip(self, value: float) -> None:
-        """_write_double → _parse_double preserves the value exactly."""
-        writer = PacketWriter(reserve_header=False)
-        writer._write_double(value)
-        reader = PacketReader(writer.to_bytes())
+        """A big-endian float64 → _parse_double preserves the value exactly."""
+        reader = PacketReader(struct.pack(">d", value))
         assert reader._parse_double() == value
 
     @given(text=text_strings)

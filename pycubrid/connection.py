@@ -330,8 +330,7 @@ class Connection(ConnectionCommonMixin):
             open_db_packet.parse(response_body)
 
             self._record_reply_cas_info(open_db_packet.cas_info)
-            self._session_id = open_db_packet.session_id
-            self._protocol_version = open_db_packet.broker_info.get("protocol_version", 1)
+            self._protocol_version = open_db_packet.broker_info["protocol_version"]
             self._statement_pooling = open_db_packet.broker_info.get("statement_pooling")
             self._broker_db_type = open_db_packet.broker_info.get("db_type")
             self._connected = True

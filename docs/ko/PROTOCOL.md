@@ -154,11 +154,18 @@ CHECK_CAS·CLOSE_REQ·파라미터·스키마 요청/FETCH·배치 응답의 OUT
 
 **헤더 생성:**
 
-```python
-from pycubrid.packet import build_protocol_header
+`PacketWriter`는 생성될 때 8바이트 헤더 자리를 확보하고 `finalize(cas_info)`에서
+채우므로, 모든 요청 패킷은 같은 방식으로 헤더를 얻습니다.
 
-header = build_protocol_header(data_length=42, cas_info=b"\x00\x00\x00\x00")
-# 8바이트 반환: 4바이트 길이 + 4바이트 cas_info
+```python
+from pycubrid.constants import CASFunctionCode
+from pycubrid.packet import PacketWriter
+
+writer = PacketWriter()
+writer._write_byte(CASFunctionCode.END_TRAN)
+writer.add_byte(1)
+request = writer.finalize(b"\x00\x00\x00\x00")
+# 4바이트 페이로드 길이(6) + 4바이트 cas_info, 이어서 6바이트 페이로드
 ```
 
 ### 예외
@@ -693,14 +700,8 @@ CUBRID 10.2와 11.4에서 현재 크기가 아닌 오프셋(값 안쪽이든 끝
 | `add_byte(value)` | 길이 접두 바이트 쓰기 (1B 길이 + 1B 값) |
 | `add_int(value)` | 길이 접두 int 쓰기 (4B 길이 + 4B 값) |
 | `add_long(value)` | 길이 접두 long 쓰기 (4B 길이 + 8B 값) |
-| `add_float(value)` | 길이 접두 float 쓰기 (4B 길이 + 4B 값) |
-| `add_double(value)` | 길이 접두 double 쓰기 (4B 길이 + 8B 값) |
 | `add_bytes(value)` | 길이 접두 raw 바이트 쓰기 |
 | `add_null()` | null 마커 쓰기 (길이 0) |
-| `add_date(y, m, d)` | 길이 접두 날짜 쓰기 |
-| `add_time(h, m, s)` | 길이 접두 시간 쓰기 |
-| `add_timestamp(y,m,d,h,m,s)` | 길이 접두 타임스탬프 쓰기 |
-| `add_datetime(y,m,d,h,m,s,ms)` | 길이 접두 datetime 쓰기 |
 | `add_cache_time()` | 캐시 시간 쓰기 (int 0 두 개) |
 | `to_bytes()` | 쓴 모든 바이트 반환 |
 
@@ -712,8 +713,6 @@ CUBRID 10.2와 11.4에서 현재 크기가 아닌 오프셋(값 안쪽이든 끝
 | `_write_short(value)` | raw short (2B) |
 | `_write_int(value)` | raw int (4B) |
 | `_write_long(value)` | raw long (8B) |
-| `_write_float(value)` | raw float (4B) |
-| `_write_double(value)` | raw double (8B) |
 | `_write_bytes(value)` | raw 바이트, 접두 없음 |
 | `_write_filler(count, value)` | N바이트를 값으로 채우기 |
 | `_write_null_terminated_string(value)` | 연결 문자셋(기본 UTF-8)의 길이 접두 문자열 + null 종단 |
@@ -969,15 +968,14 @@ class CASProtocol:
 
 ```python
 class DataSize:
-    BYTE = 1          BOOL = 1
+    UNSPECIFIED = 0   BYTE = 1
     SHORT = 2         INT = 4
     FLOAT = 4         LONG = 8
     DOUBLE = 8        OBJECT = 8
     OID = 8           BROKER_INFO = 8
-    DATE = 14         TIME = 14
-    DATETIME = 14     TIMESTAMP = 14
-    RESULTSET = 4     DATA_LENGTH = 4
+    DATETIME = 14     DATA_LENGTH = 4
     CAS_INFO = 4
+    MAX_PACKET_SIZE = 268_435_456
 ```
 
 ### 문장 타입

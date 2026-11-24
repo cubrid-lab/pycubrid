@@ -360,9 +360,7 @@ def test_batch_execute_rejects_unencodable_statement_before_any_bytes() -> None:
 # lob_type, and rejects anything other than CCI_U_TYPE_BLOB(23)/
 # CCI_U_TYPE_CLOB(24) (src/cci/cas_cci.h:357-358 — the production
 # pycubrid.lob.Lob.create() path validates the same two values via
-# CUBRIDDataType.BLOB/CLOB, pycubrid/lob.py:52-53; pycubrid.constants also
-# defines an unrelated, unused CCILOBType with different numbers (33/34)
-# that no production code path feeds into LOBNewPacket).  fn_lob_write
+# CUBRIDDataType.BLOB/CLOB, pycubrid/lob.py:52-53).  fn_lob_write
 # (11.4:2643-2666, 10.2:2489-2512) reads a LOB value (the packed handle), a
 # bigint offset, then a str (the data). fn_lob_read (11.4:2685-2707,
 # 10.2:2531-2553) reads the same handle and offset, then an int length
