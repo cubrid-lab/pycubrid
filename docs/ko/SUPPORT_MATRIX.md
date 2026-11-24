@@ -33,8 +33,7 @@ Python을 업그레이드하고 가상 환경을 새로 만든 뒤 애플리케�
 **Python 3.15:** 표준 GIL을 쓰는 CPython 3.15.0 정식 릴리스를 지원합니다.
 free-threaded 빌드는 지원하지 않습니다. 전체 호환성 매트릭스는 수동 실행과 모든
 릴리스에서 Python 3.15를 지원되는 모든 CUBRID 버전과 함께 실행하며, 3.15는 최신
-오프라인 엔드포인트입니다. 수동 `python-canary.yml` 레인은 계속 3.15에서
-wheel/sdist의 새 환경 설치를 확인합니다. 환경 참고 사항:
+오프라인 엔드포인트입니다. 환경 참고 사항:
 
 - Decimal 하위 클래스 파라미터에는 C `_decimal` 모듈이 필요합니다. `libmpdec` 없이
   빌드한 Python에는 이 모듈이 없으며, 이런 파라미터는 `ProgrammingError`를

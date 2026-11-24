@@ -160,7 +160,6 @@ GitHub 요금이 어느 워크플로나 러너 SKU에서 발생하는지는 확�
 | 패키징 | `ci.yml` `packaging-smoke-test`, `publish.yml` `consistency`와 `build` | 위험 PR, PR이 아닌 코드 이벤트, 릴리스 |
 | 저장소 도구 | `ci.yml` `repo-tooling-tests`, `integration-full.yml` `repo-tooling-tests` (같은 단계) | 도구 경로 이벤트, 릴리스와 전체 수동 실행 |
 | 릴리스 자동화 테스트 | `ci.yml` `release-tests` (Python 3.12) | 목록에 있는 릴리스 스크립트, 그 테스트 또는 `release-please.yml`을 바꾸는 모든 이벤트. 이 파일만 바꾸는 PR은 코드 레인과 라이브 CUBRID를 건너뛰고, main 푸시·주간·수동 실행은 그대로 전체 코드 레인을 실행합니다 (#1157) |
-| Python 3.15 패키징 검사 (권고용) | `python-canary.yml` | 수동 실행만 |
 
 ### 통합
 
@@ -292,7 +291,7 @@ GitHub 요금이 어느 워크플로나 러너 SKU에서 발생하는지는 확�
 | `ci.yml` | 정의한 모든 레인과 도구 레인 |
 | `integration-full.yml` | 도구 레인과, PR head에서 `integration-full.yml`을 수동 `workflow_dispatch`로 실행하고 PR에 링크 |
 | `publish.yml`, `release-please.yml` | 도구 레인(릴리스 워크플로 테스트) |
-| `bug-hunt.yml`, `python-canary.yml` | 도구 레인. 실행 자체가 바뀌면 수동 실행 |
+| `bug-hunt.yml` | 도구 레인. 실행 자체가 바뀌면 수동 실행 |
 | 그 밖의 워크플로 | 도구 레인. `pr-title.yml`과 `docs-sync.yml`은 PR에서 스스로도 실행됨 |
 
 `tests/test_workflow_path_impact.py`가 모든 워크플로 파일과 대표적인 소스, 테스트, 문서
@@ -352,8 +351,7 @@ setup-uv는 setup-python의 `python-version`을 받아 선택한 인터프리터
 내보냅니다. 캐시 입력은 `pyproject.toml`, `uv.lock`, CI wheel이며 잡별 접미사와 Python
 마이너 버전을 사용합니다. CI와 docs는 항상 캐시하고 `integration-full.yml`은 `auto`를
 유지합니다. 캐시가 필수 아티팩트 해시를 대신할 수는 없습니다. 잡은 설치한 버전을
-`uv pip freeze --system`으로 기록합니다. `python-canary.yml`의 별도 새 설치 검사는
-pip를 유지합니다. `tests/test_workflow_installs.py`는 설치 및 캐시 계약을 검사하고,
+`uv pip freeze --system`으로 기록합니다. `tests/test_workflow_installs.py`는 설치 및 캐시 계약을 검사하고,
 소스 훅, 오래된 잠금 파일, 변조된 해시의 거부를 오프라인으로 확인합니다.
 
 ## 고정된 문서 도구와 스캔 동시성
@@ -461,19 +459,10 @@ patch 버전 업데이트를 생태계와 디렉터리별로 PR 하나에 묶으
 리뷰된 PR로 해당 패키지를 그룹의 `exclude-patterns`에 추가해 Dependabot이 단독 PR로 열게 하세요. `tests/test_workflow_pins.py`가
 그룹 설정을 검증합니다.
 
-## Python 3.15 프리뷰 준비
+## Python 3.15 지원 근거
 
-`python-canary.yml`은 수동 전용입니다. 전체 SHA를 전달하고 그 커밋의 브랜치에서
-실행하세요. Ubuntu/표준 GIL 레인 하나가 프리릴리스를 허용해 Python 3.15를
-선택하고, 실제 인터프리터/의존성 버전을 출력하며, 전체 오프라인 회귀 검사를
-실행하고 새로 설치한 wheel/sdist를 검증합니다. 설정/설치/테스트 실패는 평소처럼
-실행을 실패시킵니다. 이 레인은 필수 PR 검사나 릴리스 게이트와 분리되어 있으며,
-새 일정, PR 매트릭스 셀, CUBRID 서버 생성이 없습니다. 이 레인만으로는 공식 지원,
-라이브 데이터베이스 호환성, free-threaded 호환성이 성립하지 않습니다.
-
-이제 Python 3.15를 지원합니다([지원 매트릭스](SUPPORT_MATRIX.md) 참고). 지원 근거는
-전체 호환성 매트릭스(라이브 Python 3.15 × CUBRID 4개 버전과 TLS), 3.15 오프라인
-엔드포인트 셀, 이 레인의 wheel/sdist 새 환경 설치 검사입니다. 이 레인은 수동 패키징
-검사로 유지합니다. 3.11 오프라인 엔드포인트는 그대로이며, 대표 라이브 셀은 Python
+Python 3.15를 지원합니다([지원 매트릭스](SUPPORT_MATRIX.md) 참고). 지원 근거는
+전체 호환성 매트릭스(라이브 Python 3.15 × CUBRID 4개 버전과 TLS)와 3.15 오프라인
+엔드포인트 셀입니다. 3.11 오프라인 엔드포인트는 그대로이며, 대표 라이브 셀은 Python
 3.14/CUBRID 11.4와 Python 3.11/CUBRID 10.2를 유지하므로 Python 3.14는 모든 고위험
 PR과 전체 매트릭스에서 계속 라이브로 실행됩니다.
