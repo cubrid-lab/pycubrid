@@ -140,9 +140,7 @@ def test_bandit_is_pinned_once_and_workflows_install_its_group() -> None:
     assert {"include-group": "security"} in GROUPS["dev"]
     security = [ln for ln in _pip_lines("security.yml") if "group" in ln]
     assert security == ["pip install --group security"]
-    assert _pip_lines("maintenance.yml")[-1] == "pip install -e . --group dev"
-    for workflow in ("security.yml", "maintenance.yml"):
-        assert not [ln for ln in _pip_lines(workflow) if "bandit" in ln], workflow
+    assert not [ln for ln in _pip_lines("security.yml") if "bandit" in ln]
 
 
 def test_dependabot_groups_only_minor_and_patch_version_updates() -> None:

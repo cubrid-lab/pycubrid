@@ -21,7 +21,6 @@ def project(tmp_path: Path) -> Path:
         ".pre-commit-config.yaml",
         "Makefile",
         ".github/workflows/ci.yml",
-        ".github/workflows/maintenance.yml",
     ):
         target = tmp_path / name
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -154,11 +153,8 @@ def test_precommit_scope_cannot_omit_demos(project: Path) -> None:
         check_configuration(project)
 
 
-@pytest.mark.parametrize("workflow", ["ci.yml", "maintenance.yml"])
-def test_ci_cannot_replace_shared_scope_with_package_only_lint(
-    project: Path, workflow: str
-) -> None:
-    path = project / ".github" / "workflows" / workflow
+def test_ci_cannot_replace_shared_scope_with_package_only_lint(project: Path) -> None:
+    path = project / ".github" / "workflows" / "ci.yml"
     original = path.read_text()
     replaced = re.sub(
         r"run: make (?:check|lint format-check security docs-reason-check)$",

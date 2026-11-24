@@ -148,40 +148,31 @@ jobs:
               - 'scripts/check_release_title.py'
               - 'scripts/extract_release_notes.py'
               - 'scripts/lint_changelog.py'
-              - 'scripts/prepare_release.py'
               - 'scripts/reconcile_release_labels.py'
               - 'scripts/release_detect.py'
               - 'scripts/release_summary.py'
-              - 'scripts/annotate_release_contributors.py'
-              - 'scripts/audit_historical_releases.py'
-              - 'scripts/check_release_note_wrap.py'
               - '.github/workflows/release-please.yml'
               - 'tests/test_compose_release_changelog.py'
               - 'tests/test_check_release_title.py'
               - 'tests/test_extract_release_notes.py'
               - 'tests/test_lint_changelog_subsections.py'
-              - 'tests/test_prepare_release.py'
               - 'tests/test_reconcile_release_labels.py'
               - 'tests/test_release_detect.py'
               - 'tests/test_release_summary.py'
               - 'tests/test_release_workflows.py'
               - 'tests/test_release_please_config.py'
-              - 'tests/test_annotate_release_contributors.py'
-              - 'tests/test_audit_historical_releases.py'
-              - 'tests/test_check_release_note_wrap.py'
             code:
               - '!{docs/**,*.md,**/*.md,LICENSE,LICENSE.*,NOTICE,llms.txt,.gitignore,.gitattributes}'
             # The same paths without the release_tooling list. Only pull requests
             # use it; push, weekly and dispatch runs keep `code` (#1157).
             runtime_code:
-              - '!{docs/**,*.md,**/*.md,LICENSE,LICENSE.*,NOTICE,llms.txt,.gitignore,.gitattributes,scripts/check_release_please.cjs,scripts/compose_release_changelog.py,scripts/check_release_title.py,scripts/extract_release_notes.py,scripts/lint_changelog.py,scripts/prepare_release.py,scripts/reconcile_release_labels.py,scripts/release_detect.py,scripts/release_summary.py,scripts/annotate_release_contributors.py,scripts/audit_historical_releases.py,scripts/check_release_note_wrap.py,.github/workflows/release-please.yml,tests/test_compose_release_changelog.py,tests/test_check_release_title.py,tests/test_extract_release_notes.py,tests/test_lint_changelog_subsections.py,tests/test_prepare_release.py,tests/test_reconcile_release_labels.py,tests/test_release_detect.py,tests/test_release_summary.py,tests/test_release_workflows.py,tests/test_release_please_config.py,tests/test_annotate_release_contributors.py,tests/test_audit_historical_releases.py,tests/test_check_release_note_wrap.py}'
+              - '!{docs/**,*.md,**/*.md,LICENSE,LICENSE.*,NOTICE,llms.txt,.gitignore,.gitattributes,scripts/check_release_please.cjs,scripts/compose_release_changelog.py,scripts/check_release_title.py,scripts/extract_release_notes.py,scripts/lint_changelog.py,scripts/reconcile_release_labels.py,scripts/release_detect.py,scripts/release_summary.py,.github/workflows/release-please.yml,tests/test_compose_release_changelog.py,tests/test_check_release_title.py,tests/test_extract_release_notes.py,tests/test_lint_changelog_subsections.py,tests/test_reconcile_release_labels.py,tests/test_release_detect.py,tests/test_release_summary.py,tests/test_release_workflows.py,tests/test_release_please_config.py}'
             risk:
               - 'pycubrid/**'
               - 'tests/**'
               - 'pyproject.toml'
               - 'uv.lock'
               - '.github/ci-wheels/**'
-              - 'setup.cfg'
               - 'Makefile'
               - 'docker-compose.yml'
               - 'scripts/**'
@@ -194,7 +185,6 @@ jobs:
               - 'Makefile'
               - 'pyproject.toml'
               - 'uv.lock'
-              - 'setup.cfg'
               - 'tests/test_*workflow*.py'
               - 'tests/test_ci_policy.py'
               - 'tests/test_agent_review_gate.py'
@@ -226,7 +216,6 @@ jobs:
               - 'tests/test_makefile_mutation.py'
               - 'tests/test_mutation_shards.py'
               - 'tests/test_pr_title.py'
-              - 'tests/test_prepare_release.py'
               - 'tests/test_pypi_duplicate_guard.py'
               - 'tests/test_quality_tools.py'
               - 'tests/test_reconcile_release_labels.py'
@@ -613,12 +602,8 @@ jobs:
           import sys
 
           files = sorted(set(Path("tests").glob("test_*release*.py")) |
-                         set(Path("tests").glob("test_*changelog*.py")) | {
-                             Path("tests/test_annotate_release_contributors.py"),
-                             Path("tests/test_audit_historical_releases.py"),
-                             Path("tests/test_check_release_note_wrap.py"),
-                         })
-          selected = [str(f) for f in files if f.is_file()]
+                         set(Path("tests").glob("test_*changelog*.py")))
+          selected = [str(f) for f in files]
           if not selected:
               sys.exit("Release test selection unexpectedly empty")
           subprocess.run([sys.executable, "-m", "pytest", "-q", *selected], check=True)
