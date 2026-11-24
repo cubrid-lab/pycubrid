@@ -8,7 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Changed
 
-- **Unused protocol internals removed** — Dead writer helpers, header functions and constants in `pycubrid.packet` and `pycubrid.constants`, plus unread connection state, are gone; these are internal, non-public names and runtime behavior is unchanged ([#1326](https://github.com/cubrid-lab/pycubrid/issues/1326)) by @yeongseon.
+- **Unused protocol internals removed** — Dead writer helpers, header functions and constants in `pycubrid.packet` and `pycubrid.constants`, plus unread connection state, are gone; these are internal, non-public names and runtime behavior is unchanged ([#1326](https://github.com/cubrid-lab/pycubrid/issues/1326), [PR #1334](https://github.com/cubrid-lab/pycubrid/pull/1334)) by @yeongseon.
 
 ### Fixed
 
