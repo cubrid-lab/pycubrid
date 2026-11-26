@@ -5,6 +5,8 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 
+import pytest
+
 _SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "profile_fetch.py"
 _SPEC = importlib.util.spec_from_file_location("_pycubrid_test_profile_fetch", _SCRIPT)
 assert _SPEC is not None and _SPEC.loader is not None
@@ -12,6 +14,21 @@ profile_fetch = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(profile_fetch)
 
 _SELECT = "SELECT id, val FROM _profile_tmp_deadbeef0123 WHERE id > ?"
+
+
+@pytest.mark.parametrize("option", ["--rows", "--iterations", "--fetch-size"])
+@pytest.mark.parametrize("value", ["0", "-1", "abc"])
+def test_fetch_parser_rejects_invalid_counts(option, value, capsys) -> None:
+    with pytest.raises(SystemExit) as exc_info:
+        profile_fetch._build_parser().parse_args([option, value])
+
+    assert exc_info.value.code == 2
+    assert f"argument {option}: must be a positive integer" in capsys.readouterr().err
+
+
+def test_fetch_parser_accepts_positive_counts() -> None:
+    args = profile_fetch._build_parser().parse_args(["--rows", "1", "--iterations", "2", "--fetch-size", "3"])
+    assert (args.rows, args.iterations, args.fetch_size) == (1, 2, 3)
 
 
 class _FakeCursor:

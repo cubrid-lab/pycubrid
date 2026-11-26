@@ -58,6 +58,16 @@ _WARNING = (
 )
 
 
+def _positive_int(value: str) -> int:
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("must be a positive integer") from exc
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("must be a positive integer")
+    return parsed
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Profile pycubrid fetch operations (fetchone, fetchall, fetchmany).",
@@ -70,19 +80,19 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--password", default="", help="DB password (default: empty)")
     parser.add_argument(
         "--rows",
-        type=int,
+        type=_positive_int,
         default=1000,
         help="Number of rows to pre-insert for fetching (default: 1000)",
     )
     parser.add_argument(
         "--iterations",
-        type=int,
+        type=_positive_int,
         default=50,
         help="Number of fetch iterations per fetch style (default: 50)",
     )
     parser.add_argument(
         "--fetch-size",
-        type=int,
+        type=_positive_int,
         default=50,
         dest="fetch_size",
         help="Batch size for fetchmany (default: 50)",
