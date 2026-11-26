@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -231,3 +232,69 @@ def test_help_text_states_the_select_seed() -> None:
     help_text = profile_execute._build_parser().format_help()
 
     assert f"{profile_execute.SELECT_SEED_ROWS} rows" in " ".join(help_text.split())
+
+
+@pytest.mark.parametrize("iterations", [1, 3, 100])
+def test_parser_accepts_positive_iterations_and_output_option(iterations: int) -> None:
+    args = profile_execute._build_parser().parse_args(
+        ["--iterations", str(iterations), "--output", "exec.prof"]
+    )
+
+    assert args.iterations == iterations
+    assert args.output == "exec.prof"
+
+
+@pytest.mark.parametrize("operation", [*profile_execute.OPERATIONS, "all"])
+def test_parser_preserves_operation_choices(operation: str) -> None:
+    args = profile_execute._build_parser().parse_args(["--operation", operation])
+
+    assert args.operation == operation
+    assert args.iterations == 100
+
+
+def test_parser_keeps_default_iterations_and_operation() -> None:
+    args = profile_execute._build_parser().parse_args([])
+
+    assert args.iterations == 100
+    assert args.operation == "all"
+
+
+@pytest.mark.parametrize("iterations", ["0", "-1", "-10", "invalid", "1.5"])
+def test_parser_rejects_invalid_iterations(
+    iterations: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    with pytest.raises(SystemExit) as exc_info:
+        profile_execute._build_parser().parse_args(["--iterations", iterations])
+
+    assert exc_info.value.code == 2
+    captured = capsys.readouterr()
+    assert "argument --iterations: must be a positive integer" in captured.err
+    assert captured.out == ""
+
+
+@pytest.mark.parametrize("iterations", ["0", "-1", "invalid"])
+def test_main_rejects_invalid_iterations_before_profiling(
+    iterations: str,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    output = tmp_path / "exec.prof"
+
+    def unexpected_work(*args: Any, **kwargs: Any) -> None:
+        pytest.fail("Invalid iterations must not start profiling or database work")
+
+    monkeypatch.setattr(
+        sys, "argv", [str(_SCRIPT), "--iterations", iterations, "--output", str(output)]
+    )
+    monkeypatch.setattr(profile_execute.cProfile, "Profile", unexpected_work)
+    monkeypatch.setattr(pycubrid, "connect", unexpected_work)
+
+    with pytest.raises(SystemExit) as exc_info:
+        profile_execute.main()
+
+    assert exc_info.value.code == 2
+    captured = capsys.readouterr()
+    assert "argument --iterations: must be a positive integer" in captured.err
+    assert captured.out == ""
+    assert not output.exists()

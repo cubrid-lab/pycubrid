@@ -71,6 +71,17 @@ _WARNING = (
 )
 
 
+def _positive_int(value: str) -> int:
+    """Parse a positive iteration count before profiling starts."""
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("must be a positive integer") from exc
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("must be a positive integer")
+    return parsed
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Profile pycubrid prepare+execute cycles for DML operations.",
@@ -83,9 +94,9 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--password", default="", help="DB password (default: empty)")
     parser.add_argument(
         "--iterations",
-        type=int,
+        type=_positive_int,
         default=100,
-        help="Number of execute cycles per operation (default: 100)",
+        help="Positive number of execute cycles per operation (default: 100)",
     )
     parser.add_argument(
         "--operation",
