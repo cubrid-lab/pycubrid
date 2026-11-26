@@ -21,7 +21,8 @@ Usage:
 Exit codes:
     0 - report printed; no regression over the fail threshold (or none set)
     1 - a benchmark regressed beyond --fail-threshold
-    2 - usage / input error
+    2 - usage / input error, or --fail-threshold set and the two files share no
+        benchmark names, so nothing could be compared
 """
 
 from __future__ import annotations
@@ -81,6 +82,15 @@ def main(argv: list[str] | None = None) -> int:
 
     common = sorted(set(baseline) & set(current))
     if not common:
+        if args.fail_threshold is not None:
+            # A gate that compared nothing must not pass: a renamed or missing suite
+            # would otherwise slip through silently.
+            print(
+                "error: no benchmarks in common between baseline and current; "
+                "cannot apply --fail-threshold",
+                file=sys.stderr,
+            )
+            return 2
         print("warning: no benchmarks in common between baseline and current")
         return 0
 
