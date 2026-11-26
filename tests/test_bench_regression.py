@@ -80,11 +80,47 @@ def test_improvement_and_exact_threshold_pass(
 def test_no_common_benchmarks_warn_without_regression(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    assert _run_report(tmp_path, {"select": 0.1}, {"insert": 0.2}, threshold=0) == 0
+    assert _run_report(tmp_path, {"select": 0.1}, {"insert": 0.2}, threshold=None) == 0
 
     captured = capsys.readouterr()
     assert captured.out == "warning: no benchmarks in common between baseline and current\n"
     assert "REGRESSION" not in captured.out
+    assert captured.err == ""
+
+
+@pytest.mark.parametrize(
+    ("baseline", "current"),
+    [
+        pytest.param({"select": 0.1}, {"insert": 0.2}, id="disjoint"),
+        pytest.param({}, {"insert": 0.2}, id="empty-baseline"),
+        pytest.param({"select": 0.1}, {}, id="empty-current"),
+        pytest.param({}, {}, id="both-empty"),
+    ],
+)
+def test_strict_mode_fails_when_nothing_is_comparable(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    baseline: dict[str, float],
+    current: dict[str, float],
+) -> None:
+    assert _run_report(tmp_path, baseline, current, threshold=20) == 2
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "no benchmarks in common" in captured.err
+    assert "--fail-threshold" in captured.err
+
+
+def test_strict_mode_still_compares_overlapping_benchmarks(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    baseline = {"select": 0.1, "old_only": 0.1}
+    current = {"select": 0.1, "new_only": 0.1}
+
+    assert _run_report(tmp_path, baseline, current, threshold=20) == 0
+
+    captured = capsys.readouterr()
+    assert "select" in captured.out
     assert captured.err == ""
 
 
